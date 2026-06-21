@@ -38,7 +38,7 @@ use Illuminate\Support\Facades\Route;
 
 // --- Public routes (no Sanctum guard) ---
 Route::post('/login', [AuthController::class, 'login'])
-    // ->middleware('throttle:auth-login')
+    ->middleware('throttle:auth-login')
     ->name('auth.login');
 
 Route::post('/refresh', [AuthController::class, 'refresh'])
@@ -46,7 +46,10 @@ Route::post('/refresh', [AuthController::class, 'refresh'])
     ->name('auth.refresh');
 
 // --- Protected routes (Sanctum guard) ---
-Route::middleware('auth:sanctum')->group(function () {
+// The 'audit' middleware records a request-level trail for every
+// authenticated action. Login/refresh are audited at the action level
+// inside AuthService instead, since they run before authentication.
+Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('auth.logout');
 

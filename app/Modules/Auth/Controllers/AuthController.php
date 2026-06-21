@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Controllers;
 
-use App\Modules\Auth\Exceptions\AccountDisabledException;
-use App\Modules\Auth\Exceptions\AuthenticationException;
-use App\Modules\Auth\Exceptions\InvalidRefreshTokenException;
 use App\Modules\Auth\Requests\LoginRequest;
 use App\Modules\Auth\Requests\RefreshTokenRequest;
 use App\Modules\Auth\Resources\AuthResource;
@@ -56,33 +53,24 @@ class AuthController extends Controller
      */
     public function login(LoginRequest $request): JsonResponse
     {
-        try {
-            $result = $this->authService->login(
-                email: $request->validated('email'),
-                password: $request->validated('password'),
-            );
+        // Auth failures (invalid credentials, disabled account) throw typed
+        // exceptions that are rendered centrally in bootstrap/app.php. This
+        // keeps the controller thin and prevents internal error disclosure.
+        $result = $this->authService->login(
+            email: $request->validated('email'),
+            password: $request->validated('password'),
+        );
 
-            return $this->success(
-                data: [
-                    'user'          => new AuthResource($result['user']),
-                    'access_token'  => $result['access_token'],
-                    'refresh_token' => $result['refresh_token'],
-                    'token_type'    => 'Bearer',
-                    'expires_in'    => 15 * 60, // seconds — helps client set a timer
-                ],
-                message: 'Login successful.',
-            );
-        } catch (AccountDisabledException $e) {
-            return $this->error($e->getMessage(), $e->statusCode);
-        } catch (AuthenticationException $e) {
-            return $this->unauthorized($e->getMessage());
-        } catch (\Throwable $e) {
-            return response()->json([
-                'exception' => get_class($e),
-                'message'   => $e->getMessage(),
-                'code'      => $e->getCode(),
-            ], 500);
-        }
+        return $this->success(
+            data: [
+                'user'          => new AuthResource($result['user']),
+                'access_token'  => $result['access_token'],
+                'refresh_token' => $result['refresh_token'],
+                'token_type'    => 'Bearer',
+                'expires_in'    => 15 * 60, // seconds — helps client set a timer
+            ],
+            message: 'Login successful.',
+        );
     }
 
     /**
@@ -97,23 +85,20 @@ class AuthController extends Controller
      */
     public function refresh(RefreshTokenRequest $request): JsonResponse
     {
-        try {
-            $result = $this->authService->refreshTokens(
-                plainRefreshToken: $request->validated('refresh_token'),
-            );
+        // InvalidRefreshTokenException is rendered centrally (see bootstrap/app.php).
+        $result = $this->authService->refreshTokens(
+            plainRefreshToken: $request->validated('refresh_token'),
+        );
 
-            return $this->success(
-                data: [
-                    'access_token'  => $result['access_token'],
-                    'refresh_token' => $result['refresh_token'],
-                    'token_type'    => 'Bearer',
-                    'expires_in'    => 15 * 60,
-                ],
-                message: 'Tokens refreshed successfully.',
-            );
-        } catch (InvalidRefreshTokenException $e) {
-            return $this->unauthorized($e->getMessage());
-        }
+        return $this->success(
+            data: [
+                'access_token'  => $result['access_token'],
+                'refresh_token' => $result['refresh_token'],
+                'token_type'    => 'Bearer',
+                'expires_in'    => 15 * 60,
+            ],
+            message: 'Tokens refreshed successfully.',
+        );
     }
 
     /**

@@ -22,12 +22,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Brute-force / credential-stuffing protection on the auth endpoints.
         RateLimiter::for('auth-login', function (Request $request) {
-            return Limit::perMinute(1000)->by($request->ip());
+            return Limit::perMinute(5)->by($request->ip());
         });
 
         RateLimiter::for('auth-refresh', function (Request $request) {
-            return Limit::perMinute(1000)->by($request->ip());
+            return Limit::perMinute(10)->by($request->ip());
         });
     }
 }

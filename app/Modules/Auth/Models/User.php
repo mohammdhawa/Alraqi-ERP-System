@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Auth\Models;
 
 use App\Shared\Traits\HasAuditLog;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -34,6 +36,17 @@ class User extends Authenticatable
     use HasFactory;
     use Notifiable;
     use HasAuditLog;
+
+    /**
+     * Resolve the factory for this model.
+     *
+     * Required because the model lives outside App\Models, so Laravel's
+     * convention-based factory discovery would look in the wrong namespace.
+     */
+    protected static function newFactory(): Factory
+    {
+        return UserFactory::new();
+    }
 
     protected $fillable = [
         'name',

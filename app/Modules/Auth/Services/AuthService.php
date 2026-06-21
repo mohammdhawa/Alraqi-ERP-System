@@ -121,61 +121,80 @@ class AuthService
     {
         $tokenHash = $this->hashToken($plainRefreshToken);
 
-        return DB::transaction(function () use ($tokenHash): array {
-            // Lock the row to prevent race conditions during rotation.
-            // Two simultaneous refresh requests with the same token must not
-            // both succeed — one must fail.
-            $refreshToken = RefreshToken::where('token_hash', $tokenHash)
-                ->lockForUpdate()
-                ->first();
+        // SECURITY: When token reuse (replay) is detected we must revoke the
+        // user's entire session and record a theft-detection audit event. Those
+        // side effects MUST survive the InvalidRefreshTokenException thrown
+        // below — if they ran inside the rotation transaction, the throw would
+        // roll them back and silently undo the security response. So we only
+        // capture the offending user id here and act on it once the transaction
+        // has unwound (see the catch block).
+        $replayUserId = null;
 
-            if (! $refreshToken) {
-                throw new InvalidRefreshTokenException('Invalid refresh token.');
-            }
+        try {
+            return DB::transaction(function () use ($tokenHash, &$replayUserId): array {
+                // Lock the row to prevent race conditions during rotation.
+                // Two simultaneous refresh requests with the same token must not
+                // both succeed — one must fail.
+                $refreshToken = RefreshToken::where('token_hash', $tokenHash)
+                    ->lockForUpdate()
+                    ->first();
 
-            // SECURITY: A revoked token being used again indicates token theft.
-            // Revoke ALL tokens for this user as a precaution.
-            if ($refreshToken->revoked) {
-                $this->revokeAllUserTokens($refreshToken->user_id);
+                if (! $refreshToken) {
+                    throw new InvalidRefreshTokenException('Invalid refresh token.');
+                }
+
+                // SECURITY: A revoked token being used again indicates token theft.
+                // The actual revocation happens after this transaction (see above).
+                if ($refreshToken->revoked) {
+                    $replayUserId = $refreshToken->user_id;
+
+                    throw new InvalidRefreshTokenException(
+                        'Token has been revoked. All sessions have been terminated for security.'
+                    );
+                }
+
+                if ($refreshToken->expires_at->isPast()) {
+                    $refreshToken->update(['revoked' => true]);
+                    throw new InvalidRefreshTokenException('Refresh token has expired.');
+                }
+
+                $user = $refreshToken->user;
+
+                if (! $user || ! $user->isActive()) {
+                    throw new InvalidRefreshTokenException('Account is not active.');
+                }
+
+                // Revoke the current refresh token (single-use)
+                $refreshToken->update(['revoked' => true]);
+
+                // Issue new pair
+                $newAccessToken  = $this->createAccessToken($user);
+                $newRefreshToken = $this->createRefreshToken($user);
+
+                $this->auditLogService->logAction(
+                    event: 'tokens_refreshed',
+                    description: "Tokens rotated for user {$user->email}.",
+                );
+
+                return [
+                    'access_token'  => $newAccessToken,
+                    'refresh_token' => $newRefreshToken,
+                ];
+            });
+        } catch (InvalidRefreshTokenException $e) {
+            // Replay detected: revoke ALL of the user's tokens as a precaution.
+            // Runs outside the rolled-back transaction so it actually persists.
+            if ($replayUserId !== null) {
+                $this->revokeAllUserTokens($replayUserId);
 
                 $this->auditLogService->logAction(
                     event: 'refresh_token_replay_detected',
-                    description: "Possible token theft for user ID {$refreshToken->user_id}. All tokens revoked.",
-                );
-
-                throw new InvalidRefreshTokenException(
-                    'Token has been revoked. All sessions have been terminated for security.'
+                    description: "Possible token theft for user ID {$replayUserId}. All tokens revoked.",
                 );
             }
 
-            if ($refreshToken->expires_at->isPast()) {
-                $refreshToken->update(['revoked' => true]);
-                throw new InvalidRefreshTokenException('Refresh token has expired.');
-            }
-
-            $user = $refreshToken->user;
-
-            if (! $user || ! $user->isActive()) {
-                throw new InvalidRefreshTokenException('Account is not active.');
-            }
-
-            // Revoke the current refresh token (single-use)
-            $refreshToken->update(['revoked' => true]);
-
-            // Issue new pair
-            $newAccessToken  = $this->createAccessToken($user);
-            $newRefreshToken = $this->createRefreshToken($user);
-
-            $this->auditLogService->logAction(
-                event: 'tokens_refreshed',
-                description: "Tokens rotated for user {$user->email}.",
-            );
-
-            return [
-                'access_token'  => $newAccessToken,
-                'refresh_token' => $newRefreshToken,
-            ];
-        });
+            throw $e;
+        }
     }
 
     /**
