@@ -1,9 +1,50 @@
 # Alraqi ERP System - التقرير الهندسي الرئيسي
 
-تاريخ التحليل: 2026-06-18  
+تاريخ التحليل الأصلي: 2026-06-18  
+آخر تحديث للحالة: 2026-06-21  
 نطاق التحليل: الملفات الموجودة فعليا داخل المستودع، مع تشغيل أوامر Laravel المحلية للتحقق من التسجيل الفعلي للمسارات والأوامر.
 
+---
+
+## 0. تحديث الحالة — 2026-06-21
+
+> هذا القسم هو المرجع المعتمد للحالة الحالية. الأقسام من 1 إلى 19 أدناه هي لقطة تاريخية بتاريخ 2026-06-18 ومحفوظة كما هي للرجوع؛ حيثما تعارضت مع هذا القسم، فهذا القسم هو الصحيح. تم التحقق من كل بند أدناه عبر قراءة الكود وتشغيل `php artisan test` (نتيجة: **69 اختبار / 245 تأكيد، كلها ناجحة**) و`php artisan route:list -v` و`php artisan list`.
+
+### 0.1 بنود تم حلها منذ لقطة 2026-06-18
+
+| # | البند | الحالة السابقة (في اللقطة) | الحالة الآن | الدليل / الأقسام المُلغاة |
+|---|-------|----------------------------|-------------|---------------------------|
+| 1 | **RBAC** | placeholder فقط، لا جداول ولا `hasPermission` | منفذ ومُفعَّل بالكامل: جداول `roles`/`permissions`/`user_roles`/`role_permissions`، و`User::hasPermission`، و`CheckPermission` يفرض فعليا | يُلغي 8.5، 9، 13.1، 18.5 — `app/Modules/Auth/Models/{Role,Permission}.php`, `PermissionSeeder`, `RoleSeeder` |
+| 2 | **فرض الصلاحية لكل إجراء** | `permission` غير مستخدم على أي مسار | كل إجراء محمي بصلاحيته الخاصة (`view/create/update/delete`) في Auth وDepartments وHR | `app/Modules/*/routes.php` + اختبارات `test_view_only_user_cannot_write` |
+| 3 | **وحدة Departments** | مجلدات فارغة | CRUD كامل + صلاحيات لكل إجراء | يُلغي ذكرها في 7 و9 — `app/Modules/Departments/*` |
+| 4 | **وحدة HR / Employees** | مجلدات فارغة | CRUD كامل + ربط User↔Employee + Department↔manager/members | يُلغي 13.7 وذكرها في 9 — `app/Modules/HR/*` |
+| 5 | **إدارة المستخدمين (auth.users.*)** | صلاحيات معرفة بلا تنفيذ | CRUD كامل ومُفعَّل + حارس منع حذف الحساب الذاتي | `app/Modules/Auth/Controllers/UserController.php` + `UserTest` |
+| 6 | **نظام Notifications** | غير موجود | منفذ، مقيد بملكية كل مستخدم | `app/Modules/Auth/Controllers/NotificationController.php` |
+| 7 | **Rate limiting للمصادقة** | 1000/min وlogin throttle معلق | `auth-login` = 5/min و`auth-refresh` = 10/min، وlogin يستخدم `throttle:auth-login` فعليا | يُلغي 8.6، 13.4، 18.1 — `AppServiceProvider`, `Auth/routes.php` + `AuthThrottleTest` |
+| 8 | **أمر prune للـ refresh tokens** | namespace لا يطابق path، غير مسجل، الجدولة معلقة | namespace `App\Console\Commands` يطابق المسار، الأمر مسجل (`php artisan list`)، ومجدول يوميا فعليا | يُلغي 8.7، 13.3، 18.2 — `routes/console.php` + `PruneRefreshTokensTest` |
+| 9 | **ازدواجية نموذج User** | `App\Models\User` موجود وfactory/seeder يستخدمانه | `App\Models\User` محذوف؛ `config/auth.php` و`UserFactory` و`DatabaseSeeder` كلها على `App\Modules\Auth\Models\User`؛ وأُعيد توليد classmap في Composer لإزالة المدخل المعلق | يُلغي 8.3، 13.5، 14، 18.3 — `IdentityModelTest` |
+| 10 | **معالجة Exceptions في الإنتاج** | catch عام في login يكشف تفاصيل الاستثناء في 500 | استثناءات auth المُنمَّطة تُعرض مركزيا في `bootstrap/app.php` دون تسريب أي تفاصيل | يُلغي 13.6 و17 (البند الأخير) — `bootstrap/app.php` |
+| 11 | **Audit request middleware** | مسجل لكن غير مطبق على أي مسار | مطبق على المسارات المحمية في Auth وDepartments وHR | يُلغي 13.2 — `*/routes.php` + `test_audit_middleware_records_authenticated_requests` |
+| 12 | **مجموعة اختبارات حقيقية** | اختبارات افتراضية فقط | 69 اختبار / 245 تأكيد: تدفق Auth، throttle، prune، identity، roles، users، Departments، HR | يُلغي ملاحظات الاختبارات في 6، 13، 18.4، 19 — `tests/Feature/*` |
+
+### 0.2 بنود ما زالت مفتوحة
+
+| البند | الحالة | ملاحظة |
+|-------|--------|--------|
+| وحدة Finance | scaffolding فارغ (لا ملفات) | أول bounded context تالٍ مقترح؛ HR منفذة بالفعل كنموذج يُحتذى |
+| README المشروع | ما زال README الافتراضي لـ Laravel | لا يصف النظام؛ يحتاج توثيقا مخصصا |
+| استراتيجية API versioning | غير مُدخلة | مطلوبة قبل توسع واجهة الـ API خارجيا |
+| Multi-tenancy | غير مُدخلة (مؤجلة عمدا) | مذكورة كاتجاه مستقبلي في تعليقات `User`؛ تحتاج قرار سياسة قبل إضافة بيانات أعمال |
+
+### 0.3 ملخص
+
+اللقطة الأصلية وصفت النظام بأنه «أساس Auth + Shared فقط». منذ ذلك الحين اكتملت طبقة RBAC وفُرضت لكل إجراء، وأُضيفت وحدتا Departments وHR وإدارة المستخدمين والإشعارات، وأُغلقت كل ديون الـ hardening المذكورة (throttle، prune، توحيد نموذج User، معالجة الاستثناءات، تطبيق audit). المتبقي المفتوح هو وحدة Finance وREADME وقرارات مستقبلية (versioning، multi-tenancy) — لا أكثر.
+
+---
+
 ## 1. الخلاصة التنفيذية
+
+> ملاحظة: هذا القسم يعكس لقطة 2026-06-18. للحالة الحالية انظر القسم 0 أعلاه.
 
 المشروع الحالي هو تطبيق Laravel 12 في مرحلة تأسيس Backend API لنظام ERP modular. الجزء المنفذ فعليا هو:
 
@@ -990,6 +1031,8 @@ GET /api/hr/employees
    - تنفيذه بنفس النمط: Controller -> Service -> Model -> Resource.
 
 ## 19. الحالة النهائية للمشروع الآن
+
+> ملاحظة: هذا القسم يعكس لقطة 2026-06-18 وقد تجاوزته الأحداث. للحالة المعتمدة الحالية (2026-06-21) انظر القسم 0 أعلاه: اكتملت RBAC والوحدات Departments/HR وإدارة المستخدمين والإشعارات وكل بنود الـ hardening، والمتبقي المفتوح هو Finance وREADME وقرارات versioning/multi-tenancy.
 
 المشروع صالح كبذرة backend modular ERP، وليس منتجا ERP مكتملا.
 
