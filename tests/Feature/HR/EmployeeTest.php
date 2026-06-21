@@ -134,4 +134,21 @@ class EmployeeTest extends TestCase
         // employee -> department
         $this->assertTrue($employee->department->is($department));
     }
+
+    public function test_department_manager_and_members_resolve(): void
+    {
+        $department = Department::create(['name' => 'Engineering']);
+        $manager = Employee::create(['name' => 'Sara', 'department_id' => $department->id]);
+        $member  = Employee::create(['name' => 'Omar', 'department_id' => $department->id]);
+        $department->update(['manager_id' => $manager->id]);
+
+        $department->refresh();
+
+        // department -> manager (belongsTo via manager_id)
+        $this->assertTrue($department->manager->is($manager));
+        // department -> employees (hasMany via department_id): both staff
+        $this->assertCount(2, $department->employees);
+        // full chain: a member -> their department -> its manager
+        $this->assertTrue($member->department->manager->is($manager));
+    }
 }

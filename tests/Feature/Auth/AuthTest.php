@@ -147,6 +147,29 @@ class AuthTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['event' => 'tokens_refreshed']);
     }
 
+    public function test_refresh_fails_with_expired_token(): void
+    {
+        $this->createUser();
+        $tokens = $this->loginAs();
+
+        // Force the stored refresh token past its expiry.
+        DB::table('refresh_tokens')->update(['expires_at' => now()->subDay()]);
+
+        $this->postJson('/api/auth/refresh', [
+            'refresh_token' => $tokens['refresh_token'],
+        ])->assertUnauthorized()
+            ->assertJsonPath('success', false);
+
+        // A failed refresh issues no new token pair; the expired token remains
+        // (and is re-rejected by the expiry check on every subsequent attempt).
+        $this->assertDatabaseCount('refresh_tokens', 1);
+
+        $this->asFreshRequest();
+        $this->postJson('/api/auth/refresh', [
+            'refresh_token' => $tokens['refresh_token'],
+        ])->assertUnauthorized();
+    }
+
     public function test_reusing_a_revoked_refresh_token_terminates_all_sessions(): void
     {
         $this->createUser();
