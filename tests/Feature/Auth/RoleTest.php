@@ -205,4 +205,69 @@ class RoleTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['user_id', 'role_id']);
     }
+
+    public function test_unassign_role_revokes_access_end_to_end(): void
+    {
+        // An admin performs the revocation.
+        $this->actingAsAdmin();
+        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $target = User::factory()->create();
+        $target->roles()->attach($adminRoleId);
+
+        // Sanity: the grant currently lets the target reach a guarded route.
+        Sanctum::actingAs($target);
+        $this->getJson('/api/departments')->assertOk();
+
+        // Back to the admin to revoke.
+        $this->actingAsAdmin();
+        $this->postJson('/api/auth/roles/unassign', [
+            'user_id' => $target->id,
+            'role_id' => $adminRoleId,
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseMissing('user_roles', [
+            'user_id' => $target->id,
+            'role_id' => $adminRoleId,
+        ]);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'role_unassigned']);
+
+        // The grant is gone: the target can no longer reach the guarded route.
+        Sanctum::actingAs($target->fresh());
+        $this->getJson('/api/departments')->assertForbidden();
+    }
+
+    public function test_unassign_role_is_idempotent_when_user_lacks_role(): void
+    {
+        // Revoking a role the user never held is a harmless no-op (still 200).
+        $this->actingAsAdmin();
+        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $target = User::factory()->create();
+
+        $this->postJson('/api/auth/roles/unassign', [
+            'user_id' => $target->id,
+            'role_id' => $adminRoleId,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('user_roles', [
+            'user_id' => $target->id,
+            'role_id' => $adminRoleId,
+        ]);
+    }
+
+    public function test_unassign_role_forbidden_without_permission(): void
+    {
+        $this->seedRbac();
+        $role = Role::create(['name' => 'temp']);
+        $target = User::factory()->create();
+        $target->roles()->attach($role->id);
+
+        $this->actingAsRolelessUser();
+
+        $this->postJson('/api/auth/roles/unassign', [
+            'user_id' => $target->id,
+            'role_id' => $role->id,
+        ])->assertForbidden();
+    }
 }

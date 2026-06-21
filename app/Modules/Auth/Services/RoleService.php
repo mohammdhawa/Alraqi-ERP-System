@@ -126,4 +126,21 @@ class RoleService
 
         return $user->load('roles');
     }
+
+    /**
+     * Revoke a role from a user (idempotent — detaching a role the user does
+     * not hold is a harmless no-op). Revoking access is security-relevant, so
+     * it is audited just like assignment.
+     */
+    public function unassign(User $user, Role $role): User
+    {
+        $user->roles()->detach($role->id);
+
+        $this->auditLogService->logAction(
+            event: 'role_unassigned',
+            description: "Role '{$role->name}' revoked from user {$user->email}.",
+        );
+
+        return $user->load('roles');
+    }
 }

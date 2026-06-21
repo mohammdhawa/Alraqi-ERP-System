@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Modules\Auth\Controllers\AuthController;
 use App\Modules\Auth\Controllers\NotificationController;
 use App\Modules\Auth\Controllers\RoleController;
+use App\Modules\Auth\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -68,10 +69,15 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
         ->middleware('permission:auth.roles.create')
         ->name('auth.roles.store');
 
-    // Assign is declared before the /{role} routes so the literal path wins.
+    // Assign/unassign are declared before the /{role} routes so the literal
+    // paths win over the {role} wildcard.
     Route::post('/roles/assign', [RoleController::class, 'assign'])
         ->middleware('permission:auth.roles.update')
         ->name('auth.roles.assign');
+
+    Route::post('/roles/unassign', [RoleController::class, 'unassign'])
+        ->middleware('permission:auth.roles.update')
+        ->name('auth.roles.unassign');
 
     Route::match(['put', 'patch'], '/roles/{role}', [RoleController::class, 'update'])
         ->middleware('permission:auth.roles.update')
@@ -80,6 +86,25 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::delete('/roles/{role}', [RoleController::class, 'destroy'])
         ->middleware('permission:auth.roles.delete')
         ->name('auth.roles.destroy');
+
+    // --- User administration ---
+    // Full user CRUD. Role grants are handled by the /roles/assign endpoints,
+    // not here, so RBAC changes have a single source of truth.
+    Route::get('/users', [UserController::class, 'index'])
+        ->middleware('permission:auth.users.view')
+        ->name('auth.users.index');
+
+    Route::post('/users', [UserController::class, 'store'])
+        ->middleware('permission:auth.users.create')
+        ->name('auth.users.store');
+
+    Route::match(['put', 'patch'], '/users/{user}', [UserController::class, 'update'])
+        ->middleware('permission:auth.users.update')
+        ->name('auth.users.update');
+
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])
+        ->middleware('permission:auth.users.delete')
+        ->name('auth.users.destroy');
 });
 
 // --- Notifications ---

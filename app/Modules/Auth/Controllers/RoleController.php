@@ -25,8 +25,9 @@ use Illuminate\Routing\Controller;
  *   GET    /api/auth/roles          → index   (permission:auth.roles.view)
  *   POST   /api/auth/roles          → store   (permission:auth.roles.create)
  *   PUT    /api/auth/roles/{role}   → update  (permission:auth.roles.update)
- *   DELETE /api/auth/roles/{role}   → destroy (permission:auth.roles.delete)
- *   POST   /api/auth/roles/assign   → assign  (permission:auth.roles.update)
+ *   DELETE /api/auth/roles/{role}   → destroy  (permission:auth.roles.delete)
+ *   POST   /api/auth/roles/assign   → assign   (permission:auth.roles.update)
+ *   POST   /api/auth/roles/unassign → unassign (permission:auth.roles.update)
  */
 class RoleController extends Controller
 {
@@ -87,6 +88,18 @@ class RoleController extends Controller
 
         return $this->success(
             message: "Role '{$role->name}' assigned to {$user->email}.",
+        );
+    }
+
+    public function unassign(AssignRoleRequest $request): JsonResponse
+    {
+        $user = User::findOrFail($request->validated('user_id'));
+        $role = Role::findOrFail($request->validated('role_id'));
+
+        $this->roleService->unassign($user, $role);
+
+        return $this->success(
+            message: "Role '{$role->name}' revoked from {$user->email}.",
         );
     }
 }
