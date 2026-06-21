@@ -121,6 +121,30 @@ class EmployeeTest extends TestCase
         $this->assertDatabaseMissing('employees', ['id' => $employee->id]);
     }
 
+    /**
+     * A read-only role (only hr.employees.view) may list/show but must NOT be
+     * able to create, update, or delete. Guards against the per-action
+     * permissions regressing back to a blanket `view` on every route.
+     */
+    public function test_view_only_user_cannot_write(): void
+    {
+        $this->actingAsUserWithPermissions(['hr.employees.view']);
+        $employee = Employee::create(['name' => 'Jane Doe']);
+
+        // Reads are allowed.
+        $this->getJson('/api/hr/employees')->assertOk();
+        $this->getJson("/api/hr/employees/{$employee->id}")->assertOk();
+
+        // Writes are forbidden without the matching permission.
+        $this->postJson('/api/hr/employees', ['name' => 'New Hire'])->assertForbidden();
+        $this->putJson("/api/hr/employees/{$employee->id}", ['name' => 'Renamed'])->assertForbidden();
+        $this->deleteJson("/api/hr/employees/{$employee->id}")->assertForbidden();
+
+        // Nothing was mutated.
+        $this->assertDatabaseHas('employees', ['id' => $employee->id, 'name' => 'Jane Doe']);
+        $this->assertDatabaseMissing('employees', ['name' => 'New Hire']);
+    }
+
     public function test_user_links_to_employee_and_back(): void
     {
         $department = Department::create(['name' => 'Engineering']);

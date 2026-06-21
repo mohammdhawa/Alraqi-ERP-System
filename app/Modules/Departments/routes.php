@@ -30,19 +30,25 @@ use Illuminate\Support\Facades\Route;
 | MIDDLEWARE:
 |   - auth:sanctum  every endpoint requires an authenticated user.
 |   - audit         records a request-level trail for each action.
-|   - permission:departments.view  declares the required permission now;
-|                  CheckPermission is non-breaking until the RBAC package
-|                  (Package D) implements User::hasPermission(), at which
-|                  point enforcement turns on without touching this file.
+|   - permission:departments.{action}  each route is guarded by the permission
+|                  matching its action (view/create/update/delete), now enforced
+|                  by RBAC (Package D). Read routes (index/show) require .view;
+|                  writes require their own create/update/delete permission so a
+|                  read-only role cannot mutate data.
 |
 */
 
-Route::middleware(['auth:sanctum', 'audit', 'permission:departments.view']) // permission wired now, enforced after Package D
+Route::middleware(['auth:sanctum', 'audit'])
     ->name('departments.')
     ->group(function () {
-        Route::get('/', [DepartmentController::class, 'index'])->name('index');
-        Route::post('/', [DepartmentController::class, 'store'])->name('store');
-        Route::get('/{department}', [DepartmentController::class, 'show'])->name('show');
-        Route::match(['put', 'patch'], '/{department}', [DepartmentController::class, 'update'])->name('update');
-        Route::delete('/{department}', [DepartmentController::class, 'destroy'])->name('destroy');
+        Route::get('/', [DepartmentController::class, 'index'])
+            ->middleware('permission:departments.view')->name('index');
+        Route::post('/', [DepartmentController::class, 'store'])
+            ->middleware('permission:departments.create')->name('store');
+        Route::get('/{department}', [DepartmentController::class, 'show'])
+            ->middleware('permission:departments.view')->name('show');
+        Route::match(['put', 'patch'], '/{department}', [DepartmentController::class, 'update'])
+            ->middleware('permission:departments.update')->name('update');
+        Route::delete('/{department}', [DepartmentController::class, 'destroy'])
+            ->middleware('permission:departments.delete')->name('destroy');
     });

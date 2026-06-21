@@ -108,4 +108,28 @@ class DepartmentTest extends TestCase
 
         $this->assertDatabaseMissing('departments', ['id' => $department->id]);
     }
+
+    /**
+     * A read-only role (only departments.view) may list/show but must NOT be
+     * able to create, update, or delete. Guards against the per-action
+     * permissions regressing back to a blanket `view` on every route.
+     */
+    public function test_view_only_user_cannot_write(): void
+    {
+        $this->actingAsUserWithPermissions(['departments.view']);
+        $department = Department::create(['name' => 'Engineering']);
+
+        // Reads are allowed.
+        $this->getJson('/api/departments')->assertOk();
+        $this->getJson("/api/departments/{$department->id}")->assertOk();
+
+        // Writes are forbidden without the matching permission.
+        $this->postJson('/api/departments', ['name' => 'New'])->assertForbidden();
+        $this->putJson("/api/departments/{$department->id}", ['name' => 'R&D'])->assertForbidden();
+        $this->deleteJson("/api/departments/{$department->id}")->assertForbidden();
+
+        // Nothing was mutated.
+        $this->assertDatabaseHas('departments', ['id' => $department->id, 'name' => 'Engineering']);
+        $this->assertDatabaseMissing('departments', ['name' => 'New']);
+    }
 }

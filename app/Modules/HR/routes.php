@@ -21,14 +21,26 @@ use Illuminate\Support\Facades\Route;
 | MIDDLEWARE:
 |   - auth:sanctum  every endpoint requires an authenticated user.
 |   - audit         records a request-level trail for each action.
-|   - permission:hr.employees.view  declares the required permission now;
-|                  CheckPermission is non-breaking until the RBAC package
-|                  (Package D) implements User::hasPermission(), at which
-|                  point enforcement turns on without touching this file.
+|   - permission:hr.employees.{action}  each route is guarded by the permission
+|                  matching its action (view/create/update/delete), now enforced
+|                  by RBAC (Package D). The apiResource was expanded into explicit
+|                  routes so read actions (index/show) require .view while writes
+|                  require their own create/update/delete permission — a read-only
+|                  role cannot mutate data.
 |
 */
 
-Route::middleware(['auth:sanctum', 'audit'])->group(function () {
-    Route::apiResource('employees', EmployeeController::class)
-        ->middleware('permission:hr.employees.view'); // wired now, enforced after Package D
-});
+Route::middleware(['auth:sanctum', 'audit'])
+    ->name('employees.')
+    ->group(function () {
+        Route::get('employees', [EmployeeController::class, 'index'])
+            ->middleware('permission:hr.employees.view')->name('index');
+        Route::post('employees', [EmployeeController::class, 'store'])
+            ->middleware('permission:hr.employees.create')->name('store');
+        Route::get('employees/{employee}', [EmployeeController::class, 'show'])
+            ->middleware('permission:hr.employees.view')->name('show');
+        Route::match(['put', 'patch'], 'employees/{employee}', [EmployeeController::class, 'update'])
+            ->middleware('permission:hr.employees.update')->name('update');
+        Route::delete('employees/{employee}', [EmployeeController::class, 'destroy'])
+            ->middleware('permission:hr.employees.delete')->name('destroy');
+    });
