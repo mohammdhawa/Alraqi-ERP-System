@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Models;
 
+use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -53,6 +55,7 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'employee_id',
     ];
 
     protected $hidden = [
@@ -81,6 +84,17 @@ class User extends Authenticatable
     public function refreshTokens(): HasMany
     {
         return $this->hasMany(RefreshToken::class);
+    }
+
+    /**
+     * The HR employee profile linked to this login account, if any.
+     *
+     * The employee_id FK lives on this (users) table, so this is a belongsTo.
+     * Inverse of Employee::user().
+     */
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
     }
 
     /**
