@@ -8,7 +8,6 @@ use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -23,17 +22,9 @@ class EmployeeTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function actingAsUser(): User
-    {
-        $user = User::factory()->create();
-        Sanctum::actingAs($user);
-
-        return $user;
-    }
-
     public function test_index_lists_employees(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
         Employee::create(['name' => 'Jane Doe']);
         Employee::create(['name' => 'John Roe']);
 
@@ -48,9 +39,20 @@ class EmployeeTest extends TestCase
         $this->getJson('/api/hr/employees')->assertUnauthorized();
     }
 
+    public function test_index_forbidden_without_permission(): void
+    {
+        // Authenticated, but no roles/permissions -> CheckPermission returns 403.
+        $this->actingAsRolelessUser();
+
+        $this->getJson('/api/hr/employees')
+            ->assertForbidden()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Insufficient permissions');
+    }
+
     public function test_store_creates_an_employee_in_a_department(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
         $department = Department::create(['name' => 'Engineering']);
 
         $this->postJson('/api/hr/employees', [
@@ -73,7 +75,7 @@ class EmployeeTest extends TestCase
 
     public function test_store_rejects_unknown_department(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
 
         $this->postJson('/api/hr/employees', [
             'name'          => 'Jane Doe',
@@ -85,7 +87,7 @@ class EmployeeTest extends TestCase
 
     public function test_store_validates_status_enum(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
 
         $this->postJson('/api/hr/employees', [
             'name'   => 'Jane Doe',
@@ -97,7 +99,7 @@ class EmployeeTest extends TestCase
 
     public function test_update_modifies_an_employee(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
         $employee = Employee::create(['name' => 'Jane Doe', 'status' => 'active']);
 
         $this->putJson("/api/hr/employees/{$employee->id}", ['status' => 'terminated'])
@@ -109,7 +111,7 @@ class EmployeeTest extends TestCase
 
     public function test_destroy_deletes_an_employee(): void
     {
-        $this->actingAsUser();
+        $this->actingAsAdmin();
         $employee = Employee::create(['name' => 'Jane Doe']);
 
         $this->deleteJson("/api/hr/employees/{$employee->id}")

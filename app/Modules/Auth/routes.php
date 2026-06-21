@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Auth\Controllers\AuthController;
+use App\Modules\Auth\Controllers\RoleController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -55,4 +56,14 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     Route::get('/me', [AuthController::class, 'me'])
         ->name('auth.me');
+
+    // --- RBAC administration ---
+    // Read + assign only; full role CRUD is deferred to seeders for now.
+    Route::get('/roles', [RoleController::class, 'index'])
+        ->middleware('permission:auth.roles.view')
+        ->name('auth.roles.index');
+
+    Route::post('/roles/assign', [RoleController::class, 'assign'])
+        ->middleware('permission:auth.roles.update')
+        ->name('auth.roles.assign');
 });

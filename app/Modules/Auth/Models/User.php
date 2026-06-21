@@ -10,6 +10,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -106,5 +107,31 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->is_active === true;
+    }
+
+    /**
+     * Roles granted to this user (RBAC).
+     */
+    public function roles(): BelongsToMany
+    {
+        return $this->belongsToMany(Role::class, 'user_roles');
+    }
+
+    /**
+     * Whether the user holds the given permission through any of their roles.
+     *
+     * The presence of this method is what activates the CheckPermission
+     * middleware: until RBAC existed it had no way to evaluate permissions and
+     * allowed everything through. Now every `permission:` route is enforced.
+     *
+     * Correctness over speed for now — this runs a query per check. Eager
+     * loading / caching of the user's permission set can be layered on later
+     * without changing this contract.
+     */
+    public function hasPermission(string $permission): bool
+    {
+        return $this->roles()
+            ->whereHas('permissions', fn ($q) => $q->where('name', $permission))
+            ->exists();
     }
 }
