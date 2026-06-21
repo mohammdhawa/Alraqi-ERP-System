@@ -7,6 +7,8 @@ namespace App\Modules\Auth\Controllers;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Requests\AssignRoleRequest;
+use App\Modules\Auth\Requests\CreateRoleRequest;
+use App\Modules\Auth\Requests\UpdateRoleRequest;
 use App\Modules\Auth\Resources\RoleResource;
 use App\Modules\Auth\Services\RoleService;
 use App\Shared\Traits\ApiRespond;
@@ -16,14 +18,15 @@ use Illuminate\Routing\Controller;
 /**
  * RoleController
  *
- * Minimal RBAC administration surface: list roles and assign a role to a user.
- * Full role CRUD (create/edit/delete roles, edit their permission sets) is
- * intentionally deferred — for now roles/permissions are managed by seeders,
- * and admins only need to grant existing roles to users.
+ * Full RBAC administration surface: list/create/update/delete roles and assign
+ * a role to a user.
  *
  * ENDPOINTS (prefixed /api/auth):
- *   GET  /api/auth/roles         → index   (permission:auth.roles.view)
- *   POST /api/auth/roles/assign  → assign  (permission:auth.roles.update)
+ *   GET    /api/auth/roles          → index   (permission:auth.roles.view)
+ *   POST   /api/auth/roles          → store   (permission:auth.roles.create)
+ *   PUT    /api/auth/roles/{role}   → update  (permission:auth.roles.update)
+ *   DELETE /api/auth/roles/{role}   → destroy (permission:auth.roles.delete)
+ *   POST   /api/auth/roles/assign   → assign  (permission:auth.roles.update)
  */
 class RoleController extends Controller
 {
@@ -39,6 +42,40 @@ class RoleController extends Controller
             data: RoleResource::collection($this->roleService->list()),
             message: 'Roles retrieved.',
         );
+    }
+
+    public function store(CreateRoleRequest $request): JsonResponse
+    {
+        $role = $this->roleService->create($request->validated());
+
+        return $this->created(
+            data: new RoleResource($role),
+            message: 'Role created.',
+        );
+    }
+
+    public function update(UpdateRoleRequest $request, Role $role): JsonResponse
+    {
+        $role = $this->roleService->update($role, $request->validated());
+
+        return $this->success(
+            data: new RoleResource($role),
+            message: 'Role updated.',
+        );
+    }
+
+    public function destroy(Role $role): JsonResponse
+    {
+        // Safety guard: the seeded 'admin' role is the bootstrap of the whole
+        // RBAC system. Deleting it would strip every admin of their access with
+        // no way back in, so it is protected.
+        if ($role->name === 'admin') {
+            return $this->error('The admin role cannot be deleted.', 422);
+        }
+
+        $this->roleService->delete($role);
+
+        return $this->success(message: 'Role deleted.');
     }
 
     public function assign(AssignRoleRequest $request): JsonResponse

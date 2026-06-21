@@ -59,14 +59,27 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
         ->name('auth.me');
 
     // --- RBAC administration ---
-    // Read + assign only; full role CRUD is deferred to seeders for now.
+    // Full role CRUD plus assigning a role to a user.
     Route::get('/roles', [RoleController::class, 'index'])
         ->middleware('permission:auth.roles.view')
         ->name('auth.roles.index');
 
+    Route::post('/roles', [RoleController::class, 'store'])
+        ->middleware('permission:auth.roles.create')
+        ->name('auth.roles.store');
+
+    // Assign is declared before the /{role} routes so the literal path wins.
     Route::post('/roles/assign', [RoleController::class, 'assign'])
         ->middleware('permission:auth.roles.update')
         ->name('auth.roles.assign');
+
+    Route::match(['put', 'patch'], '/roles/{role}', [RoleController::class, 'update'])
+        ->middleware('permission:auth.roles.update')
+        ->name('auth.roles.update');
+
+    Route::delete('/roles/{role}', [RoleController::class, 'destroy'])
+        ->middleware('permission:auth.roles.delete')
+        ->name('auth.roles.destroy');
 });
 
 // --- Notifications ---
