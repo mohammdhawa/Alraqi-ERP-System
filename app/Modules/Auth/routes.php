@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Auth\Controllers\AuthController;
+use App\Modules\Auth\Controllers\NotificationController;
 use App\Modules\Auth\Controllers\RoleController;
 use Illuminate\Support\Facades\Route;
 
@@ -67,3 +68,17 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
         ->middleware('permission:auth.roles.update')
         ->name('auth.roles.assign');
 });
+
+// --- Notifications ---
+// Each user reads/manages only their own notifications, so authorization is
+// ownership (enforced in NotificationService) and no permission middleware is
+// needed. Deliberately NOT in the 'audit' group: the list and unread-count
+// endpoints are polled frequently and would flood the audit log.
+Route::middleware('auth:sanctum')
+    ->prefix('notifications')
+    ->name('auth.notifications.')
+    ->group(function () {
+        Route::get('/', [NotificationController::class, 'index'])->name('index');
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('unread-count');
+        Route::post('/{notification}/read', [NotificationController::class, 'markRead'])->name('read');
+    });

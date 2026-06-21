@@ -88,6 +88,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Notifications addressed to this user.
+     */
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    /**
      * The HR employee profile linked to this login account, if any.
      *
      * The employee_id FK lives on this (users) table, so this is a belongsTo.
