@@ -1,0 +1,629 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-0000-4000-8000-alraqierp0001",
+		"name": "Alraqi ERP System API",
+		"description": "Complete Postman collection for the Alraqi ERP System (Laravel, modular architecture).\n\n## Modules covered\n- **Auth** — login, token refresh, logout, current user (`/api/auth`)\n- **RBAC / Roles** — list, create, assign, update, delete roles (`/api/auth/roles`)\n- **Notifications** — list, unread count, mark as read (`/api/auth/notifications`)\n- **Departments** — full CRUD (`/api/departments`)\n- **HR / Employees** — full CRUD (`/api/hr/employees`)\n\n## Getting started\n1. Select the **Alraqi ERP - Local** environment (or use the collection variables).\n2. Set `baseUrl` (default `http://localhost:8000`).\n3. Run **Auth → Login**. Its test script automatically stores `accessToken` and `refreshToken` as collection variables, so every other request is authenticated for you.\n4. Call any other endpoint.\n\n## Response envelope\nEvery response uses a fixed envelope:\n- Success: `{ \"success\": true, \"message\": \"...\", \"data\": {...} }`\n- Error:   `{ \"success\": false, \"message\": \"...\", \"errors\": {...} }`\n\n## Auth model\nBearer tokens (Laravel Sanctum). Access tokens expire in 15 minutes; use **Auth → Refresh Token** to rotate them (the old refresh token is single-use and revoked on refresh).\n\nDefault seeded admin credentials (from UserSeeder): `ragab5434@gmail.com` / `MoH.1822`.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{accessToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Collection-level pre-request hook (intentionally empty).",
+					"// Per-request auth is inherited from the collection Bearer config."
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "accessToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refreshToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "email",
+			"value": "ragab5434@gmail.com",
+			"type": "string"
+		},
+		{
+			"key": "password",
+			"value": "MoH.1822",
+			"type": "string"
+		},
+		{
+			"key": "roleId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "userId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "departmentId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "employeeId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "notificationId",
+			"value": "1",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"description": "Authentication endpoints (prefix `/api/auth`). Login and refresh are public; logout and me require a valid Bearer access token.",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Auto-capture tokens so the rest of the collection is authenticated.",
+									"pm.test('Login succeeded (200)', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"const json = pm.response.json();",
+									"if (json && json.data && json.data.access_token) {",
+									"    pm.collectionVariables.set('accessToken', json.data.access_token);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refresh_token);",
+									"    console.log('Stored access + refresh tokens.');",
+									"} else {",
+									"    console.warn('No tokens found in login response.');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{email}}\",\n    \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "login" ]
+						},
+						"description": "Authenticate with email + password and receive an access/refresh token pair.\n\n**Validation**\n- `email` — required, valid email, max 255\n- `password` — required, string, 8–128 chars\n\n**Rate limit**: 5 attempts/min per IP (`throttle:auth-login`).\n\n**Success 200** returns `data.access_token`, `data.refresh_token`, `token_type` (`Bearer`), `expires_in` (900s) and the `user` profile. The test script stores the tokens automatically."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Refresh succeeded (200)', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"const json = pm.response.json();",
+									"if (json && json.data && json.data.access_token) {",
+									"    pm.collectionVariables.set('accessToken', json.data.access_token);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refresh_token);",
+									"    console.log('Rotated tokens stored.');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/refresh",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "refresh" ]
+						},
+						"description": "Exchange a valid refresh token for a new access + refresh token pair. The old refresh token is immediately revoked (single-use).\n\n**Validation**\n- `refresh_token` — required, string, exactly 64 chars\n\n**Rate limit**: 10 attempts/min per IP (`throttle:auth-refresh`).\n\nPublic endpoint (no Bearer needed) — authentication is the refresh token itself."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/logout",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "logout" ]
+						},
+						"description": "Revoke all access and refresh tokens for the authenticated user (logout everywhere). Requires a valid Bearer access token."
+					},
+					"response": []
+				},
+				{
+					"name": "Me (current user)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "me" ]
+						},
+						"description": "Return the currently authenticated user's profile. Requires a valid Bearer access token."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RBAC - Roles",
+			"description": "Role administration (prefix `/api/auth/roles`). All endpoints require a Bearer token plus the relevant permission (`auth.roles.view/create/update/delete`).",
+			"item": [
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles" ]
+						},
+						"description": "List all roles with their permissions. Requires `auth.roles.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Role",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const json = pm.response.json();",
+									"if (json && json.data && json.data.id) {",
+									"    pm.collectionVariables.set('roleId', json.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"hr-manager\",\n    \"description\": \"Manages HR module\",\n    \"permissions\": [\n        \"hr.employees.view\"\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles" ]
+						},
+						"description": "Create a new role. Requires `auth.roles.create`.\n\n**Validation**\n- `name` — required, string, max 255, unique in `roles`\n- `description` — nullable, string, max 255\n- `permissions` — optional array of existing permission **names**\n- `permissions.*` — must exist in `permissions.name`"
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Role to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_id\": {{userId}},\n    \"role_id\": {{roleId}}\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles/assign",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles", "assign" ]
+						},
+						"description": "Assign an existing role to an existing user. Requires `auth.roles.update`.\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n\nNote: the literal `/roles/assign` route is declared before `/roles/{role}` so it always wins. Idempotent — assigning a role the user already holds does not create a duplicate. Call once per role to give a user multiple roles."
+					},
+					"response": []
+				},
+				{
+					"name": "Unassign Role from User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_id\": {{userId}},\n    \"role_id\": {{roleId}}\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles/unassign",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles", "unassign" ]
+						},
+						"description": "Revoke a role from a user. Requires `auth.roles.update`.\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n\nIdempotent — revoking a role the user does not hold is a harmless no-op (still 200). Any other roles the user holds are untouched. Audited as `role_unassigned`."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"hr-manager\",\n    \"description\": \"Updated description\",\n    \"permissions\": [\n        \"hr.employees.view\"\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles", "{{roleId}}" ]
+						},
+						"description": "Partial update of a role (PUT or PATCH). Requires `auth.roles.update`.\n\n**Validation (all optional)**\n- `name` — string, max 255, unique (ignoring this role)\n- `description` — nullable, string, max 255\n- `permissions` — array of permission names; if present it **replaces** (syncs) the role's permission set\n- `permissions.*` — must exist in `permissions.name`"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "roles", "{{roleId}}" ]
+						},
+						"description": "Delete a role. Requires `auth.roles.delete`.\n\nThe seeded `admin` role is protected and returns **422** if you try to delete it."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Notifications",
+			"description": "A user's own notifications (prefix `/api/auth/notifications`). Bearer token required; authorization is ownership-scoped (you only ever see your own).",
+			"item": [
+				{
+					"name": "List Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/notifications",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "notifications" ]
+						},
+						"description": "List the authenticated user's notifications."
+					},
+					"response": []
+				},
+				{
+					"name": "Unread Count",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/notifications/unread-count",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "notifications", "unread-count" ]
+						},
+						"description": "Return the count of unread notifications for the authenticated user (`data.unread_count`)."
+					},
+					"response": []
+				},
+				{
+					"name": "Mark Notification as Read",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/notifications/{{notificationId}}/read",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "auth", "notifications", "{{notificationId}}", "read" ]
+						},
+						"description": "Mark a single notification (owned by the authenticated user) as read. A notification belonging to another user is not found (ownership-scoped)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Departments",
+			"description": "Departments CRUD (prefix `/api/departments`). Every endpoint requires a Bearer token and `departments.view` permission. Actions are audit-logged.",
+			"item": [
+				{
+					"name": "List Departments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/departments?page=1",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "departments" ],
+							"query": [
+								{ "key": "page", "value": "1", "description": "Page number (paginated, 15 per page, newest first)." }
+							]
+						},
+						"description": "Paginated list of departments (15 per page, newest first)."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Department",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const json = pm.response.json();",
+									"if (json && json.data && json.data.id) {",
+									"    pm.collectionVariables.set('departmentId', json.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Engineering\",\n    \"manager_id\": null\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/departments",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "departments" ]
+						},
+						"description": "Create a department. Stores the new id into `departmentId`.\n\n**Validation**\n- `name` — required, string, max 255\n- `manager_id` — nullable, integer (references an employee)"
+					},
+					"response": []
+				},
+				{
+					"name": "Show Department",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/departments/{{departmentId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "departments", "{{departmentId}}" ]
+						},
+						"description": "Retrieve a single department by id."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Department",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Engineering & Product\",\n    \"manager_id\": null\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/departments/{{departmentId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "departments", "{{departmentId}}" ]
+						},
+						"description": "Update a department (PUT or PATCH). On update `name` is optional (`sometimes`).\n\n**Validation**\n- `name` — string, max 255 (optional on update)\n- `manager_id` — nullable, integer"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Department",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/departments/{{departmentId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "departments", "{{departmentId}}" ]
+						},
+						"description": "Delete a department by id."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "HR - Employees",
+			"description": "Employees CRUD (prefix `/api/hr/employees`, registered via apiResource). Every endpoint requires a Bearer token and `hr.employees.view` permission. Actions are audit-logged.",
+			"item": [
+				{
+					"name": "List Employees",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees?page=1",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "hr", "employees" ],
+							"query": [
+								{ "key": "page", "value": "1", "description": "Page number (paginated)." }
+							]
+						},
+						"description": "Paginated list of employees."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Employee",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const json = pm.response.json();",
+									"if (json && json.data && json.data.id) {",
+									"    pm.collectionVariables.set('employeeId', json.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Jane Doe\",\n    \"phone\": \"+201234567890\",\n    \"email\": \"jane.doe@example.com\",\n    \"address\": \"123 Cairo St\",\n    \"department_id\": null,\n    \"job_title\": \"Software Engineer\",\n    \"hire_date\": \"2026-01-15\",\n    \"salary\": 12000,\n    \"status\": \"active\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "hr", "employees" ]
+						},
+						"description": "Create an employee. Stores the new id into `employeeId`.\n\n**Validation**\n- `name` — required, string, max 255\n- `phone` — nullable, string, max 50\n- `email` — nullable, valid email, max 255\n- `address` — nullable, string, max 1000\n- `department_id` — nullable, integer, must exist in `departments`\n- `job_title` — nullable, string, max 255\n- `hire_date` — nullable, date\n- `salary` — numeric, min 0\n- `status` — one of `active`, `inactive`, `terminated`"
+					},
+					"response": []
+				},
+				{
+					"name": "Show Employee",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "hr", "employees", "{{employeeId}}" ]
+						},
+						"description": "Retrieve a single employee by id."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Employee",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"job_title\": \"Senior Software Engineer\",\n    \"salary\": 15000,\n    \"status\": \"active\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "hr", "employees", "{{employeeId}}" ]
+						},
+						"description": "Update an employee (PUT or PATCH). On update `name` is optional; all fields are partial.\n\nSame validation as Create except `name` is `sometimes`."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Employee",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}",
+							"host": [ "{{baseUrl}}" ],
+							"path": [ "api", "hr", "employees", "{{employeeId}}" ]
+						},
+						"description": "Delete an employee by id."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
