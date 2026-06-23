@@ -69,7 +69,7 @@ class AuthController extends Controller
                 'token_type'    => 'Bearer',
                 'expires_in'    => 15 * 60, // seconds — helps client set a timer
             ],
-            message: 'Login successful.',
+            message: 'تم تسجيل الدخول بنجاح.',
         );
     }
 
@@ -97,7 +97,7 @@ class AuthController extends Controller
                 'token_type'    => 'Bearer',
                 'expires_in'    => 15 * 60,
             ],
-            message: 'Tokens refreshed successfully.',
+            message: 'تم تحديث الرموز بنجاح.',
         );
     }
 
@@ -116,7 +116,7 @@ class AuthController extends Controller
     {
         $this->authService->logout($request->user());
 
-        return $this->success(message: 'Logged out successfully.');
+        return $this->success(message: 'تم تسجيل الخروج بنجاح.');
     }
 
     /**
@@ -129,7 +129,7 @@ class AuthController extends Controller
     {
         return $this->success(
             data: new AuthResource($request->user()),
-            message: 'Authenticated user retrieved.',
+            message: 'تم جلب بيانات المستخدم الحالي.',
         );
     }
 }

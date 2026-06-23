@@ -18,7 +18,7 @@ use Symfony\Component\HttpFoundation\Response;
 class AuthenticationException extends \RuntimeException
 {
     public function __construct(
-        string $message = 'Authentication failed.',
+        string $message = 'فشلت عملية المصادقة.',
         public readonly int $statusCode = Response::HTTP_UNAUTHORIZED,
     ) {
         parent::__construct($message);

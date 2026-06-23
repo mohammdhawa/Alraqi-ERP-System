@@ -143,7 +143,7 @@ class RoleTest extends TestCase
 
         $this->deleteJson("/api/auth/roles/{$adminRoleId}")
             ->assertStatus(422)
-            ->assertJsonPath('message', 'The admin role cannot be deleted.');
+            ->assertJsonPath('message', 'لا يمكن حذف دور المدير (admin).');
 
         $this->assertDatabaseHas('roles', ['id' => $adminRoleId, 'name' => 'admin']);
     }
@@ -165,7 +165,7 @@ class RoleTest extends TestCase
 
         $this->getJson('/api/auth/roles')
             ->assertForbidden()
-            ->assertJsonPath('message', 'Insufficient permissions');
+            ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
     }
 
     public function test_assign_role_grants_access_end_to_end(): void

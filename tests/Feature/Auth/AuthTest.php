@@ -100,7 +100,7 @@ class AuthTest extends TestCase
 
         $response->assertUnauthorized()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Invalid credentials.');
+            ->assertJsonPath('message', 'بيانات الاعتماد غير صحيحة.');
 
         // No tokens should have been issued.
         $this->assertDatabaseCount('refresh_tokens', 0);
@@ -117,7 +117,7 @@ class AuthTest extends TestCase
 
         $response->assertForbidden()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'This account has been disabled.');
+            ->assertJsonPath('message', 'تم تعطيل هذا الحساب.');
 
         $this->assertDatabaseCount('refresh_tokens', 0);
     }

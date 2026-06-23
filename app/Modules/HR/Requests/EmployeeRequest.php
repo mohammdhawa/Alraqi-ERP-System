@@ -49,9 +49,9 @@ class EmployeeRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required'      => 'The employee name is required.',
-            'department_id.exists' => 'The selected department does not exist.',
-            'status.in'          => 'Status must be one of: active, inactive, terminated.',
+            'name.required'      => 'اسم الموظف مطلوب.',
+            'department_id.exists' => 'القسم المحدد غير موجود.',
+            'status.in'          => 'يجب أن تكون الحالة واحدة من: active أو inactive أو terminated.',
         ];
     }
 }

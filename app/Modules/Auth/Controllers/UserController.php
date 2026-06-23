@@ -38,7 +38,7 @@ class UserController extends Controller
     {
         return $this->success(
             data: UserResource::collection($this->userService->list()),
-            message: 'Users retrieved.',
+            message: 'تم جلب المستخدمين.',
         );
     }
 
@@ -48,7 +48,7 @@ class UserController extends Controller
 
         return $this->created(
             data: new UserResource($user),
-            message: 'User created.',
+            message: 'تم إنشاء المستخدم.',
         );
     }
 
@@ -58,7 +58,7 @@ class UserController extends Controller
 
         return $this->success(
             data: new UserResource($user),
-            message: 'User updated.',
+            message: 'تم تحديث المستخدم.',
         );
     }
 
@@ -67,11 +67,11 @@ class UserController extends Controller
         // Safety guard: deleting your own account mid-session would lock you out
         // with no way to undo it, so self-deletion is blocked.
         if ($user->id === $request->user()->id) {
-            return $this->error('You cannot delete your own account.', 422);
+            return $this->error('لا يمكنك حذف حسابك الخاص.', 422);
         }
 
         $this->userService->delete($user);
 
-        return $this->success(message: 'User deleted.');
+        return $this->success(message: 'تم حذف المستخدم.');
     }
 }

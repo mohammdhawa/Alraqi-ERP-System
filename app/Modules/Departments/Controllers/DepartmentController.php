@@ -39,9 +39,9 @@ class DepartmentController extends Controller
     {
         $departments = $this->departmentService->paginate();
 
-        return $this->success(
+        return $this->paginated(
             data: DepartmentResource::collection($departments),
-            message: 'Departments retrieved.',
+            message: 'تم جلب الأقسام.',
         );
     }
 
@@ -51,7 +51,7 @@ class DepartmentController extends Controller
 
         return $this->created(
             data: new DepartmentResource($department),
-            message: 'Department created.',
+            message: 'تم إنشاء القسم.',
         );
     }
 
@@ -59,7 +59,7 @@ class DepartmentController extends Controller
     {
         return $this->success(
             data: new DepartmentResource($department),
-            message: 'Department retrieved.',
+            message: 'تم جلب القسم.',
         );
     }
 
@@ -69,7 +69,7 @@ class DepartmentController extends Controller
 
         return $this->success(
             data: new DepartmentResource($department),
-            message: 'Department updated.',
+            message: 'تم تحديث القسم.',
         );
     }
 
@@ -77,6 +77,6 @@ class DepartmentController extends Controller
     {
         $this->departmentService->delete($department);
 
-        return $this->success(message: 'Department deleted.');
+        return $this->success(message: 'تم حذف القسم.');
     }
 }

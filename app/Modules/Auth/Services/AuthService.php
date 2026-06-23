@@ -83,7 +83,7 @@ class AuthService
         if (! $user || ! Hash::check($password, $user->password)) {
             // SECURITY: Generic message prevents user enumeration.
             // Attacker cannot determine if the email exists.
-            throw new AuthenticationException('Invalid credentials.');
+            throw new AuthenticationException('بيانات الاعتماد غير صحيحة.');
         }
 
         if (! $user->isActive()) {
@@ -140,7 +140,7 @@ class AuthService
                     ->first();
 
                 if (! $refreshToken) {
-                    throw new InvalidRefreshTokenException('Invalid refresh token.');
+                    throw new InvalidRefreshTokenException('رمز التحديث غير صالح.');
                 }
 
                 // SECURITY: A revoked token being used again indicates token theft.
@@ -149,19 +149,19 @@ class AuthService
                     $replayUserId = $refreshToken->user_id;
 
                     throw new InvalidRefreshTokenException(
-                        'Token has been revoked. All sessions have been terminated for security.'
+                        'تم إبطال هذا الرمز. تم إنهاء جميع الجلسات حفاظًا على الأمان.'
                     );
                 }
 
                 if ($refreshToken->expires_at->isPast()) {
                     $refreshToken->update(['revoked' => true]);
-                    throw new InvalidRefreshTokenException('Refresh token has expired.');
+                    throw new InvalidRefreshTokenException('انتهت صلاحية رمز التحديث.');
                 }
 
                 $user = $refreshToken->user;
 
                 if (! $user || ! $user->isActive()) {
-                    throw new InvalidRefreshTokenException('Account is not active.');
+                    throw new InvalidRefreshTokenException('الحساب غير مُفعّل.');
                 }
 
                 // Revoke the current refresh token (single-use)

@@ -48,7 +48,7 @@ class DepartmentTest extends TestCase
         $this->getJson('/api/departments')
             ->assertForbidden()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Insufficient permissions');
+            ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
     }
 
     public function test_store_creates_a_department(): void

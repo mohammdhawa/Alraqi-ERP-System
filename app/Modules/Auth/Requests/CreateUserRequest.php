@@ -41,7 +41,7 @@ class CreateUserRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.unique' => 'A user with this email already exists.',
+            'email.unique' => 'يوجد مستخدم مسجّل بهذا البريد الإلكتروني بالفعل.',
         ];
     }
 }

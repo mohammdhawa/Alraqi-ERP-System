@@ -42,7 +42,7 @@ class CheckPermission
         if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized',
+                'message' => 'غير مصرّح بالوصول.',
             ], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -53,7 +53,7 @@ class CheckPermission
         if (method_exists($user, 'hasPermission') && ! $user->hasPermission($permission)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Insufficient permissions',
+                'message' => 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.',
             ], Response::HTTP_FORBIDDEN);
         }
 

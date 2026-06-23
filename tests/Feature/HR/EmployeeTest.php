@@ -47,7 +47,7 @@ class EmployeeTest extends TestCase
         $this->getJson('/api/hr/employees')
             ->assertForbidden()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Insufficient permissions');
+            ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
     }
 
     public function test_store_creates_an_employee_in_a_department(): void

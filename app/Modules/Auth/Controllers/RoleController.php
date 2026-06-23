@@ -41,7 +41,7 @@ class RoleController extends Controller
     {
         return $this->success(
             data: RoleResource::collection($this->roleService->list()),
-            message: 'Roles retrieved.',
+            message: 'تم جلب الأدوار.',
         );
     }
 
@@ -51,7 +51,7 @@ class RoleController extends Controller
 
         return $this->created(
             data: new RoleResource($role),
-            message: 'Role created.',
+            message: 'تم إنشاء الدور.',
         );
     }
 
@@ -61,7 +61,7 @@ class RoleController extends Controller
 
         return $this->success(
             data: new RoleResource($role),
-            message: 'Role updated.',
+            message: 'تم تحديث الدور.',
         );
     }
 
@@ -71,12 +71,12 @@ class RoleController extends Controller
         // RBAC system. Deleting it would strip every admin of their access with
         // no way back in, so it is protected.
         if ($role->name === 'admin') {
-            return $this->error('The admin role cannot be deleted.', 422);
+            return $this->error('لا يمكن حذف دور المدير (admin).', 422);
         }
 
         $this->roleService->delete($role);
 
-        return $this->success(message: 'Role deleted.');
+        return $this->success(message: 'تم حذف الدور.');
     }
 
     public function assign(AssignRoleRequest $request): JsonResponse
@@ -87,7 +87,7 @@ class RoleController extends Controller
         $this->roleService->assign($user, $role);
 
         return $this->success(
-            message: "Role '{$role->name}' assigned to {$user->email}.",
+            message: "تم إسناد الدور '{$role->name}' إلى {$user->email}.",
         );
     }
 
@@ -99,7 +99,7 @@ class RoleController extends Controller
         $this->roleService->unassign($user, $role);
 
         return $this->success(
-            message: "Role '{$role->name}' revoked from {$user->email}.",
+            message: "تم سحب الدور '{$role->name}' من {$user->email}.",
         );
     }
 }

@@ -142,7 +142,7 @@ class UserTest extends TestCase
 
         $this->deleteJson("/api/auth/users/{$admin->id}")
             ->assertStatus(422)
-            ->assertJsonPath('message', 'You cannot delete your own account.');
+            ->assertJsonPath('message', 'لا يمكنك حذف حسابك الخاص.');
 
         $this->assertDatabaseHas('users', ['id' => $admin->id]);
     }
@@ -164,6 +164,6 @@ class UserTest extends TestCase
 
         $this->getJson('/api/auth/users')
             ->assertForbidden()
-            ->assertJsonPath('message', 'Insufficient permissions');
+            ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
     }
 }

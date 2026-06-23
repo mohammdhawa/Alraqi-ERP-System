@@ -38,8 +38,8 @@ class RefreshTokenRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'refresh_token.required' => 'Refresh token is required.',
-            'refresh_token.size'     => 'Invalid refresh token format.',
+            'refresh_token.required' => 'رمز التحديث مطلوب.',
+            'refresh_token.size'     => 'صيغة رمز التحديث غير صحيحة.',
         ];
     }
 }

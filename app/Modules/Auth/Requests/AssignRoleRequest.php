@@ -34,8 +34,8 @@ class AssignRoleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'user_id.exists' => 'The selected user does not exist.',
-            'role_id.exists' => 'The selected role does not exist.',
+            'user_id.exists' => 'المستخدم المحدد غير موجود.',
+            'role_id.exists' => 'الدور المحدد غير موجود.',
         ];
     }
 }

@@ -48,8 +48,8 @@ class DepartmentRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required' => 'The department name is required.',
-            'name.max'      => 'The department name may not exceed 255 characters.',
+            'name.required' => 'اسم القسم مطلوب.',
+            'name.max'      => 'يجب ألا يتجاوز اسم القسم 255 حرفًا.',
         ];
     }
 }

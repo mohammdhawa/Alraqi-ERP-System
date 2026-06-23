@@ -40,8 +40,8 @@ class UpdateRoleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.unique'          => 'A role with this name already exists.',
-            'permissions.*.exists' => 'One or more selected permissions do not exist.',
+            'name.unique'          => 'يوجد دور بهذا الاسم بالفعل.',
+            'permissions.*.exists' => 'واحدة أو أكثر من الصلاحيات المحددة غير موجودة.',
         ];
     }
 }
