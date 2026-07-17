@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Departments;
 
+use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -26,8 +27,15 @@ class DepartmentTest extends TestCase
     public function test_index_lists_departments(): void
     {
         $this->actingAsAdmin();
-        Department::create(['name' => 'Engineering']);
-        Department::create(['name' => 'Finance']);
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+        Department::create([
+            'name'      => 'الإدارة الهندسية',
+            'parent_id' => $root->id,
+            'level'     => DepartmentLevel::Division->value,
+        ]);
 
         $this->getJson('/api/departments')
             ->assertOk()
@@ -55,12 +63,17 @@ class DepartmentTest extends TestCase
     {
         $this->actingAsAdmin();
 
-        $this->postJson('/api/departments', ['name' => 'Engineering'])
+        $this->postJson('/api/departments', [
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ])
             ->assertCreated()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.name', 'Engineering');
+            ->assertJsonPath('data.name', 'الإدارة العامة')
+            ->assertJsonPath('data.level', 1)
+            ->assertJsonPath('data.level_label', 'الإدارة العامة');
 
-        $this->assertDatabaseHas('departments', ['name' => 'Engineering']);
+        $this->assertDatabaseHas('departments', ['name' => 'الإدارة العامة', 'level' => 1]);
         // HasAuditLog records the creation.
         $this->assertDatabaseHas('audit_logs', ['event' => 'created']);
     }
@@ -77,7 +90,10 @@ class DepartmentTest extends TestCase
     public function test_show_returns_a_department(): void
     {
         $this->actingAsAdmin();
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
 
         $this->getJson("/api/departments/{$department->id}")
             ->assertOk()
@@ -88,7 +104,10 @@ class DepartmentTest extends TestCase
     public function test_update_modifies_a_department(): void
     {
         $this->actingAsAdmin();
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
 
         $this->putJson("/api/departments/{$department->id}", ['name' => 'R&D'])
             ->assertOk()
@@ -97,16 +116,33 @@ class DepartmentTest extends TestCase
         $this->assertDatabaseHas('departments', ['id' => $department->id, 'name' => 'R&D']);
     }
 
-    public function test_destroy_deletes_a_department(): void
+    /**
+     * Departments soft-delete: the row survives with deleted_at set so employees
+     * and audit entries pointing at it stay resolvable. Asserting
+     * assertDatabaseMissing here would be asserting data loss.
+     *
+     * A non-root, childless unit (a division under the root) is targeted — the
+     * root itself is undeletable, and a unit with live children is blocked.
+     */
+    public function test_destroy_soft_deletes_a_department(): void
     {
         $this->actingAsAdmin();
-        $department = Department::create(['name' => 'Engineering']);
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+        $department = Department::create([
+            'name'      => 'الإدارة الهندسية',
+            'parent_id' => $root->id,
+            'level'     => DepartmentLevel::Division->value,
+        ]);
 
         $this->deleteJson("/api/departments/{$department->id}")
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertDatabaseMissing('departments', ['id' => $department->id]);
+        $this->assertSoftDeleted('departments', ['id' => $department->id]);
+        $this->assertNull(Department::find($department->id));
     }
 
     /**
@@ -117,7 +153,10 @@ class DepartmentTest extends TestCase
     public function test_view_only_user_cannot_write(): void
     {
         $this->actingAsUserWithPermissions(['departments.view']);
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
 
         // Reads are allowed.
         $this->getJson('/api/departments')->assertOk();

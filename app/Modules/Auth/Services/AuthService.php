@@ -94,6 +94,12 @@ class AuthService
             $accessToken  = $this->createAccessToken($user);
             $refreshToken = $this->createRefreshToken($user);
 
+            // Stamp the last successful login. saveQuietly() bypasses model events
+            // so it does NOT emit a HasAuditLog "updated" row on every sign-in —
+            // the user_logged_in action log below already records the event.
+            $user->last_login_at = now();
+            $user->saveQuietly();
+
             $this->auditLogService->logAction(
                 event: 'user_logged_in',
                 description: "User {$user->email} logged in.",

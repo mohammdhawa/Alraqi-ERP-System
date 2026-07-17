@@ -24,8 +24,12 @@ use Laravel\Sanctum\HasApiTokens;
  * WHY it lives in Auth module:
  * - Authentication owns the user identity lifecycle.
  * - Other modules (HR, Finance) reference the user via relationships or user_id FK.
- * - If HR needs employee-specific fields, it creates an Employee model with a
- *   `user_id` FK — it does NOT modify this User model.
+ *
+ * IDENTITY / NAME (one fact, one place):
+ * - This model holds NO `name` column. A user's display name is the name of the
+ *   HR employee they are linked to, resolved through employee() (users.employee_id
+ *   -> employees.id). Read it as `$user->employee?->name`; an account with no
+ *   employee link simply has no name. Storing a copy here would let the two drift.
  *
  * MULTI-TENANT FUTURE:
  * - Add a `tenant_id` column + global scope.
@@ -52,7 +56,6 @@ class User extends Authenticatable
     }
 
     protected $fillable = [
-        'name',
         'email',
         'password',
         'is_active',
@@ -71,6 +74,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'last_login_at'     => 'datetime',
             'password'          => 'hashed',
             'is_active'         => 'boolean',
         ];
@@ -141,5 +145,24 @@ class User extends Authenticatable
         return $this->roles()
             ->whereHas('permissions', fn ($q) => $q->where('name', $permission))
             ->exists();
+    }
+
+    /**
+     * Every permission name the user holds across all of their roles, de-duplicated.
+     *
+     * Reads from the in-memory relations, so callers should eager-load
+     * `roles.permissions` first (the /me and login flows do). This lets the API
+     * expose the current user's full permission set in one payload so the
+     * frontend can build a permission-aware UI without extra requests.
+     *
+     * @return array<int, string>
+     */
+    public function allPermissionNames(): array
+    {
+        return $this->roles
+            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
+            ->unique()
+            ->values()
+            ->all();
     }
 }

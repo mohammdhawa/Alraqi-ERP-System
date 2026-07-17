@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Departments\Controllers;
 
 use App\Modules\Departments\Models\Department;
-use App\Modules\Departments\Requests\DepartmentRequest;
+use App\Modules\Departments\Requests\StoreDepartmentRequest;
+use App\Modules\Departments\Requests\UpdateDepartmentRequest;
 use App\Modules\Departments\Resources\DepartmentResource;
 use App\Modules\Departments\Services\DepartmentService;
 use App\Shared\Traits\ApiRespond;
@@ -41,17 +42,17 @@ class DepartmentController extends Controller
 
         return $this->paginated(
             data: DepartmentResource::collection($departments),
-            message: 'تم جلب الأقسام.',
+            message: 'تم جلب الوحدات التنظيمية.',
         );
     }
 
-    public function store(DepartmentRequest $request): JsonResponse
+    public function store(StoreDepartmentRequest $request): JsonResponse
     {
         $department = $this->departmentService->create($request->validated());
 
         return $this->created(
             data: new DepartmentResource($department),
-            message: 'تم إنشاء القسم.',
+            message: 'تم إنشاء الوحدة التنظيمية.',
         );
     }
 
@@ -59,17 +60,17 @@ class DepartmentController extends Controller
     {
         return $this->success(
             data: new DepartmentResource($department),
-            message: 'تم جلب القسم.',
+            message: 'تم جلب الوحدة التنظيمية.',
         );
     }
 
-    public function update(DepartmentRequest $request, Department $department): JsonResponse
+    public function update(UpdateDepartmentRequest $request, Department $department): JsonResponse
     {
         $department = $this->departmentService->update($department, $request->validated());
 
         return $this->success(
             data: new DepartmentResource($department),
-            message: 'تم تحديث القسم.',
+            message: 'تم تحديث الوحدة التنظيمية.',
         );
     }
 
@@ -77,6 +78,6 @@ class DepartmentController extends Controller
     {
         $this->departmentService->delete($department);
 
-        return $this->success(message: 'تم حذف القسم.');
+        return $this->success(message: 'تم حذف الوحدة التنظيمية.');
     }
 }

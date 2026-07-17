@@ -36,7 +36,9 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->name(),
+            // No `name`: the users table has no such column. A user's display name
+            // comes from the linked employee. employee_id defaults to null here
+            // (an unlinked account); tests that need a name pass a linked employee.
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),

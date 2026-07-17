@@ -15,7 +15,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Response shape:
  * {
  *   "id": 1,
+ *   "employee_number": "EMP-00001",
  *   "name": "Jane Doe",
+ *   "national_id": "1098765432",
  *   "phone": "+1...",
  *   "email": "jane@example.com",
  *   "address": "...",
@@ -36,18 +38,20 @@ class EmployeeResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'            => $this->id,
-            'name'          => $this->name,
-            'phone'         => $this->phone,
-            'email'         => $this->email,
-            'address'       => $this->address,
-            'department_id' => $this->department_id,
-            'job_title'     => $this->job_title,
-            'hire_date'     => $this->hire_date?->toDateString(),
-            'salary'        => $this->salary,
-            'status'        => $this->status,
-            'created_at'    => $this->created_at?->toIso8601String(),
-            'updated_at'    => $this->updated_at?->toIso8601String(),
+            'id'              => $this->id,
+            'employee_number' => $this->employee_number,
+            'name'            => $this->name,
+            'national_id'     => $this->national_id,
+            'phone'           => $this->phone,
+            'email'           => $this->email,
+            'address'         => $this->address,
+            'department_id'   => $this->department_id,
+            'job_title'       => $this->job_title,
+            'hire_date'       => $this->hire_date?->toDateString(),
+            'salary'          => $this->salary,
+            'status'          => $this->status,
+            'created_at'      => $this->created_at?->toIso8601String(),
+            'updated_at'      => $this->updated_at?->toIso8601String(),
         ];
     }
 }

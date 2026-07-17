@@ -61,6 +61,12 @@ class AuthController extends Controller
             password: $request->validated('password'),
         );
 
+        // Eager-load roles + their permissions so the response carries the
+        // user's full permission set (the frontend uses it to build a
+        // permission-aware UI without an extra round-trip). `employee` is loaded
+        // too because the account's display name comes from there.
+        $result['user']->load(['roles.permissions', 'employee']);
+
         return $this->success(
             data: [
                 'user'          => new AuthResource($result['user']),
@@ -127,8 +133,13 @@ class AuthController extends Controller
      */
     public function me(Request $request): JsonResponse
     {
+        // Eager-load roles + permissions so a client can refresh its cached
+        // permission set on session bootstrap (same shape as the login payload).
+        // `employee` supplies the display name.
+        $user = $request->user()->load(['roles.permissions', 'employee']);
+
         return $this->success(
-            data: new AuthResource($request->user()),
+            data: new AuthResource($user),
             message: 'تم جلب بيانات المستخدم الحالي.',
         );
     }

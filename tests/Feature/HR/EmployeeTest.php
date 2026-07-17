@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\HR;
 
 use App\Modules\Auth\Models\User;
+use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,7 +54,10 @@ class EmployeeTest extends TestCase
     public function test_store_creates_an_employee_in_a_department(): void
     {
         $this->actingAsAdmin();
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
 
         $this->postJson('/api/hr/employees', [
             'name'          => 'Jane Doe',
@@ -85,6 +89,42 @@ class EmployeeTest extends TestCase
             ->assertJsonValidationErrors('department_id');
     }
 
+    public function test_store_rejects_a_soft_deleted_department(): void
+    {
+        $this->actingAsAdmin();
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+        $division = Department::create([
+            'name'      => 'الإدارة الهندسية',
+            'parent_id' => $root->id,
+            'level'     => DepartmentLevel::Division->value,
+        ]);
+        $division->delete(); // soft-deleted: still in the table, but not assignable
+
+        $this->postJson('/api/hr/employees', [
+            'name'          => 'Jane Doe',
+            'department_id' => $division->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('department_id');
+    }
+
+    public function test_store_auto_assigns_an_employee_number(): void
+    {
+        $this->actingAsAdmin();
+
+        $this->postJson('/api/hr/employees', ['name' => 'Jane Doe'])
+            ->assertCreated()
+            ->assertJsonPath('data.employee_number', 'EMP-00001');
+
+        // A second employee gets the next number — the value is not client-supplied.
+        $this->postJson('/api/hr/employees', ['name' => 'John Roe'])
+            ->assertCreated()
+            ->assertJsonPath('data.employee_number', 'EMP-00002');
+    }
+
     public function test_store_validates_status_enum(): void
     {
         $this->actingAsAdmin();
@@ -109,7 +149,7 @@ class EmployeeTest extends TestCase
         $this->assertDatabaseHas('employees', ['id' => $employee->id, 'status' => 'terminated']);
     }
 
-    public function test_destroy_deletes_an_employee(): void
+    public function test_destroy_soft_deletes_an_employee(): void
     {
         $this->actingAsAdmin();
         $employee = Employee::create(['name' => 'Jane Doe']);
@@ -118,7 +158,10 @@ class EmployeeTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertDatabaseMissing('employees', ['id' => $employee->id]);
+        // Employees are never hard-deleted: the row survives with deleted_at set
+        // so users, departments (manager_id), and history stay resolvable.
+        $this->assertSoftDeleted('employees', ['id' => $employee->id]);
+        $this->assertNull(Employee::find($employee->id));
     }
 
     /**
@@ -147,7 +190,10 @@ class EmployeeTest extends TestCase
 
     public function test_user_links_to_employee_and_back(): void
     {
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
         $employee = Employee::create(['name' => 'Jane Doe', 'department_id' => $department->id]);
         $user = User::factory()->create(['employee_id' => $employee->id]);
 
@@ -161,7 +207,10 @@ class EmployeeTest extends TestCase
 
     public function test_department_manager_and_members_resolve(): void
     {
-        $department = Department::create(['name' => 'Engineering']);
+        $department = Department::create([
+            'name'  => 'Engineering',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
         $manager = Employee::create(['name' => 'Sara', 'department_id' => $department->id]);
         $member  = Employee::create(['name' => 'Omar', 'department_id' => $department->id]);
         $department->update(['manager_id' => $manager->id]);
