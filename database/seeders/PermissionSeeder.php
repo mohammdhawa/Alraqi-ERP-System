@@ -38,6 +38,31 @@ class PermissionSeeder extends Seeder
         ],
     ];
 
+    /**
+     * Arabic display labels for each permission — the human-facing name an admin
+     * UI shows (the `name` stays the machine identifier the middleware matches).
+     *
+     * @var array<string, string>
+     */
+    private const LABELS = [
+        'departments.view'    => 'عرض الوحدات التنظيمية',
+        'departments.create'  => 'إنشاء وحدة تنظيمية',
+        'departments.update'  => 'تعديل وحدة تنظيمية',
+        'departments.delete'  => 'حذف وحدة تنظيمية',
+        'hr.employees.view'   => 'عرض الموظفين',
+        'hr.employees.create' => 'إضافة موظف',
+        'hr.employees.update' => 'تعديل موظف',
+        'hr.employees.delete' => 'حذف موظف',
+        'auth.users.view'     => 'عرض المستخدمين',
+        'auth.users.create'   => 'إنشاء مستخدم',
+        'auth.users.update'   => 'تعديل مستخدم',
+        'auth.users.delete'   => 'حذف مستخدم',
+        'auth.roles.view'     => 'عرض الأدوار',
+        'auth.roles.create'   => 'إنشاء دور',
+        'auth.roles.update'   => 'تعديل دور',
+        'auth.roles.delete'   => 'حذف دور',
+    ];
+
     public function run(): void
     {
         foreach (self::RESOURCES as $module => $permissions) {
@@ -45,6 +70,7 @@ class PermissionSeeder extends Seeder
                 Permission::updateOrCreate(
                     ['name' => $name],
                     [
+                        'label'       => self::LABELS[$name] ?? $name,
                         'module'      => $module,
                         'description' => $this->describe($name),
                     ],

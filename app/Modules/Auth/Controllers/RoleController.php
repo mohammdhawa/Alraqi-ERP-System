@@ -67,13 +67,10 @@ class RoleController extends Controller
 
     public function destroy(Role $role): JsonResponse
     {
-        // Safety guard: the seeded 'admin' role is the bootstrap of the whole
-        // RBAC system. Deleting it would strip every admin of their access with
-        // no way back in, so it is protected.
-        if ($role->name === 'admin') {
-            return $this->error('لا يمكن حذف دور المدير (admin).', 422);
-        }
-
+        // System roles (e.g. super_admin) are the RBAC bootstrap and cannot be
+        // deleted. That guard lives in RoleService — it throws a self-rendering
+        // SystemRoleException (409) that covers every delete path, not just this
+        // controller — so nothing is needed here beyond delegating.
         $this->roleService->delete($role);
 
         return $this->success(message: 'تم حذف الدور.');

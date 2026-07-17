@@ -5,14 +5,15 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Support\PermissionCache;
 
 class UserSeeder extends Seeder
 {
     /**
      * Run the database seeds.
      *
-     * Ensures roles/permissions exist first, then grants the admin role
-     * (which holds every permission via RoleSeeder) to this user.
+     * Ensures roles/permissions exist first, then grants the super_admin role
+     * (which bypasses every permission check) to this bootstrap account.
      */
     public function run(): void
     {
@@ -34,7 +35,10 @@ class UserSeeder extends Seeder
             ]
         );
 
-        $adminRole = Role::where('name', 'admin')->firstOrFail();
-        $user->roles()->sync($adminRole->id);
+        $superAdminRole = Role::where('name', User::SUPER_ADMIN_ROLE)->firstOrFail();
+        $user->roles()->sync($superAdminRole->id);
+
+        // Direct pivot write: invalidate any cached permission sets.
+        PermissionCache::flush();
     }
 }

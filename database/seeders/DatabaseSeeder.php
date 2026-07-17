@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Support\PermissionCache;
 use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
@@ -50,13 +51,16 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
         ]);
 
-        $adminRole = Role::where('name', 'admin')->firstOrFail();
+        $superAdminRole = Role::where('name', User::SUPER_ADMIN_ROLE)->firstOrFail();
 
         // A second, limited role for testing permission enforcement: it can only
         // view, never mutate.
         $viewerRole = Role::updateOrCreate(
             ['name' => 'viewer'],
-            ['description' => 'Read-only access. Holds every *.view permission.'],
+            [
+                'label'       => 'مطالع',
+                'description' => 'Read-only access. Holds every *.view permission.',
+            ],
         );
         $viewerRole->permissions()->sync(
             Permission::where('name', 'like', '%.view')->pluck('id'),
@@ -117,7 +121,7 @@ class DatabaseSeeder extends Seeder
                 'employee_id' => $rootEmployee?->id,
             ],
         );
-        $admin->roles()->sync($adminRole->id);
+        $admin->roles()->sync($superAdminRole->id);
 
         // A read-only user for testing the viewer role / permission denials.
         $viewer = User::query()->updateOrCreate(
@@ -138,6 +142,10 @@ class DatabaseSeeder extends Seeder
                 'is_active' => true,
             ],
         );
+
+        // Roles/permissions were attached directly via the pivots above (not
+        // through RoleService), so invalidate any cached permission sets.
+        PermissionCache::flush();
     }
 
     /**

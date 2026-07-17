@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Models;
 
+use App\Modules\Auth\Support\PermissionCache;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\UserFactory;
@@ -43,6 +44,14 @@ class User extends Authenticatable
     use HasFactory;
     use Notifiable;
     use HasAuditLog;
+
+    /**
+     * The built-in role whose holders bypass every permission check. Its power
+     * comes from the Gate::before bypass (see AppServiceProvider), NOT from
+     * synced permission rows — the architecture forbids granting one role every
+     * permission. Referenced by name so there is a single spelling of it.
+     */
+    public const SUPER_ADMIN_ROLE = 'super_admin';
 
     /**
      * Resolve the factory for this model.
@@ -130,39 +139,45 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether the user holds the given permission through any of their roles.
-     *
-     * The presence of this method is what activates the CheckPermission
-     * middleware: until RBAC existed it had no way to evaluate permissions and
-     * allowed everything through. Now every `permission:` route is enforced.
-     *
-     * Correctness over speed for now — this runs a query per check. Eager
-     * loading / caching of the user's permission set can be layered on later
-     * without changing this contract.
+     * Whether the user is a super admin (holds the built-in super_admin role).
+     * Super admins bypass every permission check — see hasPermission() and the
+     * Gate::before bypass in AppServiceProvider.
      */
-    public function hasPermission(string $permission): bool
+    public function isSuperAdmin(): bool
     {
-        return $this->roles()
-            ->whereHas('permissions', fn ($q) => $q->where('name', $permission))
-            ->exists();
+        return PermissionCache::isSuperAdmin($this);
     }
 
     /**
-     * Every permission name the user holds across all of their roles, de-duplicated.
+     * Whether the user holds the given permission.
      *
-     * Reads from the in-memory relations, so callers should eager-load
-     * `roles.permissions` first (the /me and login flows do). This lets the API
-     * expose the current user's full permission set in one payload so the
-     * frontend can build a permission-aware UI without extra requests.
+     * A super admin passes ANY ability (that is what the bypass means). Everyone
+     * else is checked against their resolved permission set. The set is read
+     * through PermissionCache, so this is served from cache rather than a query
+     * per request, with invalidation handled by the global version stamp.
+     *
+     * This method being present on the identity model is also what makes the
+     * CheckPermission middleware enforce (it calls hasPermission directly).
+     */
+    public function hasPermission(string $permission): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        return in_array($permission, PermissionCache::names($this), true);
+    }
+
+    /**
+     * Every permission name the user effectively holds, de-duplicated — the
+     * payload the login and /me flows expose so a client can build a
+     * permission-aware UI in one round-trip. A super admin resolves to the whole
+     * catalogue (their bypass grants everything), so the UI reflects that.
      *
      * @return array<int, string>
      */
     public function allPermissionNames(): array
     {
-        return $this->roles
-            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
-            ->unique()
-            ->values()
-            ->all();
+        return PermissionCache::names($this);
     }
 }

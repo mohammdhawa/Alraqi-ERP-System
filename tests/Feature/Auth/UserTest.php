@@ -32,7 +32,7 @@ class UserTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonFragment(['email' => $admin->email])
-            ->assertJsonFragment(['admin']); // the admin's role name
+            ->assertJsonFragment(['super_admin']); // the acting user's role name
     }
 
     public function test_create_user(): void

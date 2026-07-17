@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Schema;
  * A permission is a single, fine-grained capability named by the convention
  * {module}.{resource}.{action}, e.g. "hr.employees.view". The `module` column
  * is stored separately so permissions can be grouped/listed per module in
- * admin UIs without parsing the name string.
+ * admin UIs without parsing the name string. (`label` is the Arabic display
+ * name for that same admin UI.)
  *
  * These names are exactly the strings passed to the `permission:` middleware
  * on routes — the CheckPermission middleware looks them up by `name`.
@@ -24,6 +25,7 @@ return new class extends Migration
         Schema::create('permissions', function (Blueprint $table) {
             $table->id();
             $table->string('name')->unique();
+            $table->string('label')->nullable();
             $table->string('module')->index();
             $table->string('description')->nullable();
             $table->timestamps();

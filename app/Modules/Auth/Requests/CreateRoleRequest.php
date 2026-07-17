@@ -28,6 +28,7 @@ class CreateRoleRequest extends FormRequest
     {
         return [
             'name'          => ['required', 'string', 'max:255', Rule::unique('roles', 'name')],
+            'label'         => ['nullable', 'string', 'max:255'],
             'description'   => ['nullable', 'string', 'max:255'],
             'permissions'   => ['sometimes', 'array'],
             'permissions.*' => ['string', Rule::exists('permissions', 'name')],

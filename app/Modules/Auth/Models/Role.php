@@ -10,15 +10,32 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 /**
  * Role Model
  *
- * A named bundle of permissions (e.g. "admin"). Users are granted roles, and
- * a role's permissions determine what its holders may do. The R in RBAC.
+ * A named bundle of permissions (e.g. "super_admin"). Users are granted roles,
+ * and a role's permissions determine what its holders may do. The R in RBAC.
+ *
+ * `is_system` marks a built-in role the application depends on (super_admin).
+ * System roles are protected from rename/delete in RoleService. `is_system` is
+ * fillable so the seeder can set it, but the role form requests never accept it,
+ * so it can't be flipped through the API.
  */
 class Role extends Model
 {
     protected $fillable = [
         'name',
+        'label',
         'description',
+        'is_system',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'is_system' => 'boolean',
+        ];
+    }
 
     /**
      * Permissions granted by this role.

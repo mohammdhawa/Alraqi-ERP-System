@@ -24,7 +24,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *   "name": "John Doe",            // the LINKED EMPLOYEE's name; null if unlinked
  *   "email": "john@example.com",
  *   "is_active": true,
- *   "roles": ["admin"],
+ *   "roles": ["super_admin"],
  *   "permissions": ["auth.users.view", "..."],
  *   "last_login_at": "2024-01-15T09:00:00Z",
  *   "email_verified_at": "2024-01-15T10:30:00Z",
