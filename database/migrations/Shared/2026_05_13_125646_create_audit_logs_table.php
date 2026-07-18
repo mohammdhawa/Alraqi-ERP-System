@@ -19,8 +19,11 @@ use Illuminate\Support\Facades\Schema;
  *     and not tied to a specific model instance.
  *   - Polymorphic index covers model-level audit queries.
  *
- *   old_values / new_values (JSON):
+ *   old_values / new_values (JSON, nullable):
  *   - Stored as JSON for schema flexibility. Different models have different fields.
+ *   - Nullable per the architecture: a `created` event has no old values, a
+ *     `deleted` event has no new values, and action-level events may have
+ *     neither. NULL states "nothing to record" more honestly than '[]'.
  *   - Sensitive values are redacted by AuditLogService before storage.
  *
  *   INDEXES:
@@ -65,10 +68,12 @@ return new class extends Migration
                 ->comment('Model ID (polymorphic). Null for action-level events.');
 
             $table->json('old_values')
-                ->comment('Previous values before the change.');
+                ->nullable()
+                ->comment('Previous values before the change. Null when there are none (e.g. created).');
 
             $table->json('new_values')
-                ->comment('New values after the change.');
+                ->nullable()
+                ->comment('New values after the change. Null when there are none (e.g. deleted).');
 
             $table->string('description')
                 ->nullable()

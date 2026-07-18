@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Models;
 
+use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
@@ -17,9 +18,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * System roles are protected from rename/delete in RoleService. `is_system` is
  * fillable so the seeder can set it, but the role form requests never accept it,
  * so it can't be flipped through the API.
+ *
+ * WHY HasAuditLog: what a role grants is the security posture of the system.
+ * RoleService already writes action-level logs (role_created, …); the trait adds
+ * the model-level rows WITH old/new values, so a rename or description change
+ * is reconstructable, not just noted.
  */
 class Role extends Model
 {
+    use HasAuditLog;
+
     protected $fillable = [
         'name',
         'label',

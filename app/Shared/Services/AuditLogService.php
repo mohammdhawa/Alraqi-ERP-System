@@ -47,8 +47,8 @@ class AuditLogService
             'event'          => $event,
             'auditable_type' => $auditable->getMorphClass(),
             'auditable_id'   => $auditable->getKey(),
-            'old_values'     => json_encode($this->sanitize($oldValues), JSON_THROW_ON_ERROR),
-            'new_values'     => json_encode($this->sanitize($newValues), JSON_THROW_ON_ERROR),
+            'old_values'     => $this->encode($oldValues),
+            'new_values'     => $this->encode($newValues),
             'description'    => $description,
             'ip_address'     => Request::ip(),
             'user_agent'     => Request::userAgent(),
@@ -72,13 +72,27 @@ class AuditLogService
             'event'          => $event,
             'auditable_type' => null,
             'auditable_id'   => null,
-            'old_values'     => json_encode([], JSON_THROW_ON_ERROR),
-            'new_values'     => json_encode($this->sanitize($metadata), JSON_THROW_ON_ERROR),
+            'old_values'     => null,
+            'new_values'     => $this->encode($metadata),
             'description'    => $description,
             'ip_address'     => Request::ip(),
             'user_agent'     => Request::userAgent(),
             'created_at'     => now(),
         ]);
+    }
+
+    /**
+     * Sanitize and JSON-encode a value set, or NULL when there is nothing to
+     * record — the columns are nullable for exactly this (created has no old
+     * values, deleted has no new ones).
+     */
+    private function encode(array $values): ?string
+    {
+        if ($values === []) {
+            return null;
+        }
+
+        return json_encode($this->sanitize($values), JSON_THROW_ON_ERROR);
     }
 
     /**
