@@ -21,8 +21,9 @@
 
 **Ratified as deliberate extensions/deviations (Batch 4):** `permissions.module` column name (doc says `group` — reserved word in SQL, keeping `module`); refresh-token rotation layer; `employees.address`/`salary` columns; request-level audit logging; the `Support/` folder inside a module (holds `DepartmentHierarchyGuard`, `PermissionCache`).
 
+**Notifications (§7.2) — RESOLVED by ratification (2026-07-17).** The project owner ruled: the **custom `user_id`-keyed table is the authoritative design**; the stock-schema requirement was the stale side of the conflict. `docs/erp-phase1-architecture.md` §7.2 now records the ratified schema, the snapshot fan-out semantics (department/role sends expand to current members at send time via `NotificationService::sendToUser/sendToDepartment/sendToRole`), and the explicit caveat that `$user->notify()` / the stock database channel are deliberately unused. Physical transport (FCM/mail/etc.) remains a separate, later decision.
+
 **Still open:**
-- **Notifications (§7.2)** — the custom schema vs. Laravel's stock notifications table. Deliberately untouched pending a product decision; the custom implementation remains internally consistent and tested.
 - **PHP 8.3 target** — `composer.json` allows `^8.2` and the dev environment runs 8.2.x; bump when the runtime is upgraded.
 - **React RTL admin frontend** — not started (backend-only phase); §L holds, so no client-side tier mirror exists to migrate.
 

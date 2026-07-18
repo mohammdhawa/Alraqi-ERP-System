@@ -102,6 +102,12 @@ class User extends Authenticatable
 
     /**
      * Notifications addressed to this user.
+     *
+     * CAVEAT: this deliberately SHADOWS the Notifiable trait's notifications()
+     * relation. The ERP uses its own user_id-keyed notifications table
+     * (erp-phase1-architecture.md §7.2) — Laravel's stock database channel and
+     * `$user->notify()` are NOT wired up and would fail against this schema.
+     * Create notification rows through NotificationService's sendTo* methods.
      */
     public function notifications(): HasMany
     {
