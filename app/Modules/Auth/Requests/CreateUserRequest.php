@@ -10,7 +10,11 @@ use Illuminate\Validation\Rule;
 /**
  * CreateUserRequest
  *
- * Validates a new-user payload. Email must be unique across the users table.
+ * Validates a new-user payload. A user account carries NO name of its own — its
+ * display name is the linked employee's — so creating one REQUIRES an
+ * `employee_id` (the front-door half of the "one login per employee" rule; the
+ * DB's nullable-unique index is the backstop). The employee must exist and not
+ * be soft-deleted, and must not already have an account. Email must be unique.
  * `is_active` is optional and defaults to true in the service. Route-level
  * access is guarded by permission:auth.users.create.
  *
@@ -31,7 +35,12 @@ class CreateUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'      => ['required', 'string', 'max:255'],
+            'employee_id' => [
+                'required',
+                'integer',
+                Rule::exists('employees', 'id')->whereNull('deleted_at'),
+                Rule::unique('users', 'employee_id'),
+            ],
             'email'     => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
             'password'  => ['required', 'string', 'min:8'],
             'is_active' => ['sometimes', 'boolean'],
@@ -41,7 +50,10 @@ class CreateUserRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.unique' => 'A user with this email already exists.',
+            'employee_id.required' => 'يجب ربط الحساب بموظف.',
+            'employee_id.exists'   => 'الموظف المحدد غير موجود.',
+            'employee_id.unique'   => 'هذا الموظف مرتبط بحساب مستخدم بالفعل.',
+            'email.unique'         => 'يوجد مستخدم مسجّل بهذا البريد الإلكتروني بالفعل.',
         ];
     }
 }

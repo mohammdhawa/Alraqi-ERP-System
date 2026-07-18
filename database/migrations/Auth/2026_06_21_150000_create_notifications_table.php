@@ -9,11 +9,17 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Create notifications table.
  *
- * DESIGN DECISION: this is a CUSTOM notifications table matching the design
- * doc — not Laravel's built-in (UUID-keyed, JSON `data`) notifications table.
- * Keeping it custom gives us first-class columns (title/body/type/is_read) and
- * a polymorphic `reference` so a notification can point at any domain record
- * (an employee, a department, etc.).
+ * DESIGN DECISION (RATIFIED — erp-phase1-architecture.md §7.2, 2026-07-17):
+ * this is a CUSTOM notifications table keyed by user_id — not Laravel's
+ * built-in (UUID-keyed, polymorphic notifiable, JSON `data`) table. First-class
+ * columns (title/body/type/is_read) plus a polymorphic `reference` let a
+ * notification point at any domain record (an employee, a department, etc.).
+ *
+ * Per-user rows are the correct grain because department/role sends are
+ * SNAPSHOT fan-outs: NotificationService expands the audience to individual
+ * users at send time, so a recipient-side polymorphic target is never needed.
+ * Consequence: `$user->notify()` / the stock database channel are deliberately
+ * unused — all rows are created via NotificationService::sendTo*().
  *
  *   user_id (cascadeOnDelete): notifications belong to one user and are removed
  *   with them.

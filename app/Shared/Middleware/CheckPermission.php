@@ -42,18 +42,19 @@ class CheckPermission
         if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized',
+                'message' => 'غير مصرّح بالوصول.',
             ], Response::HTTP_UNAUTHORIZED);
         }
 
-        // TODO: Replace with actual permission check once RBAC module is built.
-        // For now, we check if the user model has a `hasPermission` method.
-        // If it doesn't (RBAC not yet implemented), we allow access.
-        // This ensures the middleware is non-breaking during early development.
-        if (method_exists($user, 'hasPermission') && ! $user->hasPermission($permission)) {
+        // RBAC is enforced: the authenticated user is the Auth module's User
+        // model (the auth provider is bound to it — see IdentityModelTest), which
+        // always exposes hasPermission(). A super admin bypasses inside that
+        // method. There is deliberately NO fail-open fallback: a user who lacks
+        // the permission is denied, full stop.
+        if (! $user->hasPermission($permission)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Insufficient permissions',
+                'message' => 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.',
             ], Response::HTTP_FORBIDDEN);
         }
 

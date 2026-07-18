@@ -38,9 +38,9 @@ class EmployeeController extends Controller
     {
         $employees = $this->employeeService->paginate();
 
-        return $this->success(
+        return $this->paginated(
             data: EmployeeResource::collection($employees),
-            message: 'Employees retrieved.',
+            message: 'تم جلب الموظفين.',
         );
     }
 
@@ -50,7 +50,7 @@ class EmployeeController extends Controller
 
         return $this->created(
             data: new EmployeeResource($employee),
-            message: 'Employee created.',
+            message: 'تم إنشاء الموظف.',
         );
     }
 
@@ -58,7 +58,7 @@ class EmployeeController extends Controller
     {
         return $this->success(
             data: new EmployeeResource($employee),
-            message: 'Employee retrieved.',
+            message: 'تم جلب بيانات الموظف.',
         );
     }
 
@@ -68,7 +68,7 @@ class EmployeeController extends Controller
 
         return $this->success(
             data: new EmployeeResource($employee),
-            message: 'Employee updated.',
+            message: 'تم تحديث بيانات الموظف.',
         );
     }
 
@@ -76,6 +76,6 @@ class EmployeeController extends Controller
     {
         $this->employeeService->delete($employee);
 
-        return $this->success(message: 'Employee deleted.');
+        return $this->success(message: 'تم حذف الموظف.');
     }
 }

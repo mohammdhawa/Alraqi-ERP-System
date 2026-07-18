@@ -36,9 +36,9 @@ class NotificationController extends Controller
     {
         $notifications = $this->notificationService->listForUser($request->user());
 
-        return $this->success(
+        return $this->paginated(
             data: NotificationResource::collection($notifications),
-            message: 'Notifications retrieved.',
+            message: 'تم جلب الإشعارات.',
         );
     }
 
@@ -46,7 +46,7 @@ class NotificationController extends Controller
     {
         return $this->success(
             data: ['unread_count' => $this->notificationService->unreadCount($request->user())],
-            message: 'Unread notification count retrieved.',
+            message: 'تم جلب عدد الإشعارات غير المقروءة.',
         );
     }
 
@@ -56,7 +56,7 @@ class NotificationController extends Controller
 
         return $this->success(
             data: new NotificationResource($marked),
-            message: 'Notification marked as read.',
+            message: 'تم وضع علامة "مقروء" على الإشعار.',
         );
     }
 }

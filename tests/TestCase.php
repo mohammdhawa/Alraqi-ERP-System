@@ -22,18 +22,17 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Create a user holding the seeded "admin" role (every permission),
-     * authenticate them via Sanctum, and return them.
-     *
-     * Use this for endpoints guarded by the `permission:` middleware now that
-     * RBAC is enforced — a role-less user would be rejected with 403.
+     * Create a user holding the seeded "super_admin" role, authenticate them via
+     * Sanctum, and return them. A super admin bypasses every permission check
+     * (Gate::before + hasPermission short-circuit), so this is the go-to actor
+     * for endpoints guarded by the `permission:` middleware.
      */
     protected function actingAsAdmin(): User
     {
         $this->seedRbac();
 
         $user = User::factory()->create();
-        $user->roles()->attach(Role::where('name', 'admin')->value('id'));
+        $user->roles()->attach(Role::where('name', User::SUPER_ADMIN_ROLE)->value('id'));
 
         Sanctum::actingAs($user);
 

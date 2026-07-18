@@ -8,7 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class InvalidRefreshTokenException extends AuthenticationException
 {
-    public function __construct(string $message = 'Invalid or expired refresh token.')
+    public function __construct(string $message = 'رمز التحديث غير صالح أو منتهي الصلاحية.')
     {
         parent::__construct($message, Response::HTTP_UNAUTHORIZED);
     }

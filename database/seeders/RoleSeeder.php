@@ -4,30 +4,42 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
+use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Support\PermissionCache;
 use Illuminate\Database\Seeder;
 
 /**
  * RoleSeeder
  *
- * Creates the baseline "admin" role and grants it every registered permission.
- * Must run AFTER PermissionSeeder so the permissions exist to attach.
+ * Seeds the one built-in role the RBAC system depends on: super_admin.
  *
- * Idempotent: sync() makes the admin role's permission set exactly the current
- * catalogue on every run, so newly added permissions are picked up.
+ * WHY super_admin holds NO permissions:
+ * - The architecture prohibits granting every permission to a single role (the
+ *   old seeder did exactly that). A super admin's power is the Gate::before
+ *   bypass (AppServiceProvider) + the hasPermission() short-circuit, keyed on
+ *   this role's name. So a NEW permission is instantly available to super admins
+ *   with no re-seed, and there is no giant permission set to keep in sync.
+ * - is_system marks it immutable: RoleService refuses to rename or delete it.
+ *
+ * Ordinary roles (e.g. the seeded "viewer" in DatabaseSeeder) are created
+ * elsewhere with explicit permission sets. This runs before those and does not
+ * depend on PermissionSeeder (it attaches no permissions).
  */
 class RoleSeeder extends Seeder
 {
     public function run(): void
     {
-        $admin = Role::updateOrCreate(
-            ['name' => 'admin'],
-            ['description' => 'Full system access. Holds every permission.'],
+        Role::updateOrCreate(
+            ['name' => User::SUPER_ADMIN_ROLE],
+            [
+                'label'       => 'مدير النظام',
+                'description' => 'Full system access via the Gate::before bypass. Holds no explicit permissions.',
+                'is_system'   => true,
+            ],
         );
 
-        // Grant all permissions to admin. sync() keeps this exact and avoids
-        // duplicate pivot rows on re-seed.
-        $admin->permissions()->sync(Permission::query()->pluck('id'));
+        // Roles changed: invalidate any cached permission sets.
+        PermissionCache::flush();
     }
 }

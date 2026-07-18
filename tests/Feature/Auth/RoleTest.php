@@ -4,19 +4,22 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Auth;
 
+use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Support\PermissionCache;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * RBAC coverage (Package D).
+ * RBAC coverage.
  *
- * Verifies User::hasPermission, the roles read/assign endpoints, and — most
- * importantly — that CheckPermission now actually enforces: a user gains access
- * to a permission-guarded route only after being granted a role that carries
- * the permission.
+ * Verifies User::hasPermission, the super-admin bypass, the roles CRUD/assign
+ * endpoints, system-role protection, and — via the cache — that a permission
+ * change actually reaches the users it affects. CheckPermission enforces: a user
+ * reaches a permission-guarded route only when a role grants the permission (or
+ * they are a super admin).
  */
 class RoleTest extends TestCase
 {
@@ -30,22 +33,47 @@ class RoleTest extends TestCase
         // No roles yet.
         $this->assertFalse($user->hasPermission('departments.view'));
 
-        $user->roles()->attach(Role::where('name', 'admin')->value('id'));
+        // Grant a NORMAL (non-super) role carrying exactly one permission.
+        $role = Role::create(['name' => 'dept-viewer']);
+        $role->permissions()->sync(
+            Permission::where('name', 'departments.view')->pluck('id'),
+        );
+        $user->roles()->attach($role->id);
+        // Direct pivot writes bypass RoleService, so invalidate the cache here.
+        PermissionCache::flush();
 
-        $this->assertTrue($user->fresh()->hasPermission('departments.view'));
-        $this->assertTrue($user->fresh()->hasPermission('hr.employees.view'));
-        $this->assertFalse($user->fresh()->hasPermission('nonexistent.permission'));
+        $this->assertTrue($user->hasPermission('departments.view'));
+        $this->assertFalse($user->hasPermission('hr.employees.view'));
+        $this->assertFalse($user->hasPermission('nonexistent.permission'));
     }
 
-    public function test_roles_index_lists_roles_with_permissions(): void
+    public function test_super_admin_bypasses_every_permission_check(): void
+    {
+        $this->seedRbac();
+        $user = User::factory()->create();
+        $user->roles()->attach(Role::where('name', User::SUPER_ADMIN_ROLE)->value('id'));
+        PermissionCache::flush();
+
+        // The super_admin role carries no explicit permissions, yet the holder
+        // passes ANY ability (that is what the Gate::before bypass means).
+        $this->assertTrue($user->isSuperAdmin());
+        $this->assertTrue($user->hasPermission('departments.view'));
+        $this->assertTrue($user->hasPermission('anything.not.even.defined'));
+
+        // And reaches a permission-guarded route end to end.
+        Sanctum::actingAs($user);
+        $this->getJson('/api/departments')->assertOk();
+    }
+
+    public function test_roles_index_lists_roles(): void
     {
         $this->actingAsAdmin();
 
         $this->getJson('/api/auth/roles')
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.0.name', 'admin')
-            ->assertJsonFragment(['departments.view']);
+            ->assertJsonPath('data.0.name', 'super_admin')
+            ->assertJsonPath('data.0.is_system', true);
     }
 
     public function test_create_role_with_permissions(): void
@@ -54,15 +82,18 @@ class RoleTest extends TestCase
 
         $this->postJson('/api/auth/roles', [
             'name'        => 'hr-viewer',
+            'label'       => 'مطالع الموارد البشرية',
             'description' => 'Read-only HR access',
             'permissions' => ['hr.employees.view', 'departments.view'],
         ])
             ->assertCreated()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.name', 'hr-viewer')
+            ->assertJsonPath('data.label', 'مطالع الموارد البشرية')
+            ->assertJsonPath('data.is_system', false)
             ->assertJsonFragment(['hr.employees.view']);
 
-        $this->assertDatabaseHas('roles', ['name' => 'hr-viewer']);
+        $this->assertDatabaseHas('roles', ['name' => 'hr-viewer', 'is_system' => false]);
         $this->assertDatabaseHas('audit_logs', ['event' => 'role_created']);
 
         // The new role carries exactly the two requested permissions.
@@ -77,9 +108,9 @@ class RoleTest extends TestCase
     {
         $this->actingAsAdmin();
 
-        // 'admin' already exists (seeded); permission name is bogus.
+        // 'super_admin' already exists (seeded); permission name is bogus.
         $this->postJson('/api/auth/roles', [
-            'name'        => 'admin',
+            'name'        => 'super_admin',
             'permissions' => ['does.not.exist'],
         ])
             ->assertUnprocessable()
@@ -99,7 +130,7 @@ class RoleTest extends TestCase
         $this->actingAsAdmin();
         $role = Role::create(['name' => 'hr-viewer']);
         $role->permissions()->sync(
-            \App\Modules\Auth\Models\Permission::where('name', 'hr.employees.view')->pluck('id')
+            Permission::where('name', 'hr.employees.view')->pluck('id')
         );
 
         $this->putJson("/api/auth/roles/{$role->id}", [
@@ -136,16 +167,28 @@ class RoleTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['event' => 'role_deleted']);
     }
 
-    public function test_cannot_delete_admin_role(): void
+    public function test_cannot_delete_a_system_role(): void
     {
         $this->actingAsAdmin();
-        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $systemRoleId = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
 
-        $this->deleteJson("/api/auth/roles/{$adminRoleId}")
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'The admin role cannot be deleted.');
+        $this->deleteJson("/api/auth/roles/{$systemRoleId}")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'لا يمكن تعديل أو حذف دور نظام.');
 
-        $this->assertDatabaseHas('roles', ['id' => $adminRoleId, 'name' => 'admin']);
+        $this->assertDatabaseHas('roles', ['id' => $systemRoleId, 'name' => 'super_admin']);
+    }
+
+    public function test_cannot_rename_a_system_role(): void
+    {
+        $this->actingAsAdmin();
+        $systemRoleId = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
+
+        $this->putJson("/api/auth/roles/{$systemRoleId}", ['name' => 'root'])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'لا يمكن تعديل أو حذف دور نظام.');
+
+        $this->assertDatabaseHas('roles', ['id' => $systemRoleId, 'name' => 'super_admin']);
     }
 
     public function test_update_and_delete_forbidden_without_permission(): void
@@ -165,32 +208,32 @@ class RoleTest extends TestCase
 
         $this->getJson('/api/auth/roles')
             ->assertForbidden()
-            ->assertJsonPath('message', 'Insufficient permissions');
+            ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
     }
 
     public function test_assign_role_grants_access_end_to_end(): void
     {
         // An admin performs the assignment.
         $this->actingAsAdmin();
-        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $superAdminRoleId = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
         $target = User::factory()->create();
 
         $this->postJson('/api/auth/roles/assign', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ])
             ->assertOk()
             ->assertJsonPath('success', true);
 
         $this->assertDatabaseHas('user_roles', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ]);
         $this->assertDatabaseHas('audit_logs', ['event' => 'role_assigned']);
 
         // The target can now reach a permission-guarded route they previously
         // could not — proving CheckPermission enforces and the grant works.
-        Sanctum::actingAs($target);
+        Sanctum::actingAs($target->fresh());
         $this->getJson('/api/departments')->assertOk();
     }
 
@@ -210,26 +253,27 @@ class RoleTest extends TestCase
     {
         // An admin performs the revocation.
         $this->actingAsAdmin();
-        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $superAdminRoleId = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
         $target = User::factory()->create();
-        $target->roles()->attach($adminRoleId);
+        $target->roles()->attach($superAdminRoleId);
+        PermissionCache::flush();
 
         // Sanity: the grant currently lets the target reach a guarded route.
-        Sanctum::actingAs($target);
+        Sanctum::actingAs($target->fresh());
         $this->getJson('/api/departments')->assertOk();
 
         // Back to the admin to revoke.
         $this->actingAsAdmin();
         $this->postJson('/api/auth/roles/unassign', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ])
             ->assertOk()
             ->assertJsonPath('success', true);
 
         $this->assertDatabaseMissing('user_roles', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ]);
         $this->assertDatabaseHas('audit_logs', ['event' => 'role_unassigned']);
 
@@ -238,21 +282,48 @@ class RoleTest extends TestCase
         $this->getJson('/api/departments')->assertForbidden();
     }
 
+    public function test_removing_a_permission_from_a_role_invalidates_cached_access(): void
+    {
+        // A scoped role granting departments.view, assigned to a target user
+        // through the API (so the permission cache is flushed).
+        $this->actingAsAdmin();
+        $role = Role::create(['name' => 'dept-viewer']);
+        $role->permissions()->sync(Permission::where('name', 'departments.view')->pluck('id'));
+        $target = User::factory()->create();
+
+        $this->postJson('/api/auth/roles/assign', [
+            'user_id' => $target->id,
+            'role_id' => $role->id,
+        ])->assertOk();
+
+        // The target can read departments.
+        Sanctum::actingAs($target->fresh());
+        $this->getJson('/api/departments')->assertOk();
+
+        // An admin strips the permission off the role via the API.
+        $this->actingAsAdmin();
+        $this->putJson("/api/auth/roles/{$role->id}", ['permissions' => []])->assertOk();
+
+        // The target's previously cached access is invalidated: now forbidden.
+        Sanctum::actingAs($target->fresh());
+        $this->getJson('/api/departments')->assertForbidden();
+    }
+
     public function test_unassign_role_is_idempotent_when_user_lacks_role(): void
     {
         // Revoking a role the user never held is a harmless no-op (still 200).
         $this->actingAsAdmin();
-        $adminRoleId = Role::where('name', 'admin')->value('id');
+        $superAdminRoleId = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
         $target = User::factory()->create();
 
         $this->postJson('/api/auth/roles/unassign', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ])->assertOk();
 
         $this->assertDatabaseMissing('user_roles', [
             'user_id' => $target->id,
-            'role_id' => $adminRoleId,
+            'role_id' => $superAdminRoleId,
         ]);
     }
 

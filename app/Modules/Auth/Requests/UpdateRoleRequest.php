@@ -31,6 +31,7 @@ class UpdateRoleRequest extends FormRequest
     {
         return [
             'name'          => ['sometimes', 'string', 'max:255', Rule::unique('roles', 'name')->ignore($this->route('role'))],
+            'label'         => ['sometimes', 'nullable', 'string', 'max:255'],
             'description'   => ['nullable', 'string', 'max:255'],
             'permissions'   => ['sometimes', 'array'],
             'permissions.*' => ['string', Rule::exists('permissions', 'name')],
@@ -40,8 +41,8 @@ class UpdateRoleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.unique'          => 'A role with this name already exists.',
-            'permissions.*.exists' => 'One or more selected permissions do not exist.',
+            'name.unique'          => 'يوجد دور بهذا الاسم بالفعل.',
+            'permissions.*.exists' => 'واحدة أو أكثر من الصلاحيات المحددة غير موجودة.',
         ];
     }
 }

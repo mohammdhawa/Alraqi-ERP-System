@@ -15,6 +15,10 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * second request. Roles are only included when the relation is loaded
  * (whenLoaded) to avoid N+1.
  *
+ * NAME: the account stores no name; `name` is the linked employee's name
+ * (employee_id -> employees). The service eager-loads `employee` for the listing
+ * so this does not N+1.
+ *
  * SECURITY: password and remember_token are never exposed (mirrors AuthResource).
  */
 class UserResource extends JsonResource
@@ -26,7 +30,7 @@ class UserResource extends JsonResource
     {
         return [
             'id'                => $this->id,
-            'name'              => $this->name,
+            'name'              => $this->employee?->name,
             'email'             => $this->email,
             'is_active'         => $this->is_active,
             'employee_id'       => $this->employee_id,
@@ -34,6 +38,7 @@ class UserResource extends JsonResource
                 'roles',
                 fn () => $this->roles->pluck('name'),
             ),
+            'last_login_at'     => $this->last_login_at?->toIso8601String(),
             'email_verified_at' => $this->email_verified_at?->toIso8601String(),
             'created_at'        => $this->created_at?->toIso8601String(),
         ];

@@ -19,6 +19,11 @@ use Illuminate\Support\Facades\Schema;
  *
  *   status is indexed because listing/filtering active staff is the common
  *   query path.
+ *
+ * HISTORICAL RETENTION: employees are NEVER hard-deleted (softDeletes). A person
+ * is FK'd to by users (employee_id), departments (manager_id), and later modules
+ * (payroll, attendance, projects); their identity and audit trail must stay
+ * resolvable after they leave. Deletion sets deleted_at; the row survives.
  */
 return new class extends Migration
 {
@@ -26,7 +31,20 @@ return new class extends Migration
     {
         Schema::create('employees', function (Blueprint $table) {
             $table->id();
+
+            // Stable staff identifier, unique across the company. Auto-generated
+            // (EMP-00001, …) by the Employee model's creating hook when omitted,
+            // so every write path — API, seeder, factory, tinker — gets one;
+            // a caller may still supply an externally-assigned number.
+            $table->string('employee_number')->unique();
+
             $table->string('name');
+
+            // National / government ID. Nullable (not always on file), but unique
+            // when present so the same person cannot be enrolled twice. A nullable
+            // UNIQUE index allows many NULLs while forbidding duplicate real IDs.
+            $table->string('national_id')->nullable()->unique();
+
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
             $table->string('address')->nullable();
@@ -45,6 +63,10 @@ return new class extends Migration
                 ->index();
 
             $table->timestamps();
+
+            // Never hard-deleted (see class docblock): keeps the person's history
+            // and every FK pointing at them resolvable.
+            $table->softDeletes();
         });
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Modules\Auth\Models\User;
+use App\Modules\HR\Models\Employee;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -100,7 +101,7 @@ class AuthTest extends TestCase
 
         $response->assertUnauthorized()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Invalid credentials.');
+            ->assertJsonPath('message', 'بيانات الاعتماد غير صحيحة.');
 
         // No tokens should have been issued.
         $this->assertDatabaseCount('refresh_tokens', 0);
@@ -117,7 +118,7 @@ class AuthTest extends TestCase
 
         $response->assertForbidden()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'This account has been disabled.');
+            ->assertJsonPath('message', 'تم تعطيل هذا الحساب.');
 
         $this->assertDatabaseCount('refresh_tokens', 0);
     }
@@ -226,7 +227,9 @@ class AuthTest extends TestCase
 
     public function test_me_returns_the_authenticated_user(): void
     {
-        $this->createUser(['name' => 'Jane Doe']);
+        // The account's display name is the linked employee's name.
+        $employee = Employee::create(['name' => 'Jane Doe']);
+        $this->createUser(['employee_id' => $employee->id]);
         $tokens = $this->loginAs();
 
         $response = $this->withToken($tokens['access_token'])

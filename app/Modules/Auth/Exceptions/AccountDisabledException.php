@@ -8,7 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AccountDisabledException extends AuthenticationException
 {
-    public function __construct(string $message = 'This account has been disabled.')
+    public function __construct(string $message = 'تم تعطيل هذا الحساب.')
     {
         parent::__construct($message, Response::HTTP_FORBIDDEN);
     }
