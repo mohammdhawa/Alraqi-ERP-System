@@ -152,7 +152,7 @@ class Department extends Model
             // every section would look like it was declaring a sector.
             $sector = isset($attributes['sector']) ? (int) $attributes['sector'] : null;
 
-            $violations = (new DepartmentHierarchyGuard())->violations($level, $parentId, $subjectId, $sector);
+            $violations = (new DepartmentHierarchyGuard)->violations($level, $parentId, $subjectId, $sector);
 
             if ($violations !== []) {
                 throw new DepartmentHierarchyException($violations[0]->message);
@@ -162,7 +162,7 @@ class Department extends Model
         static::deleting(function (self $department): void {
             // The root is undeletable on every path, including force-delete.
             if ($department->level === DepartmentLevel::root()) {
-                throw new DepartmentIsRootException();
+                throw new DepartmentIsRootException;
             }
 
             // Below is the soft-delete-only children guard; a hard delete is
@@ -172,7 +172,7 @@ class Department extends Model
             }
 
             if ($department->children()->exists()) {
-                throw new DepartmentHasChildrenException();
+                throw new DepartmentHasChildrenException;
             }
         });
     }

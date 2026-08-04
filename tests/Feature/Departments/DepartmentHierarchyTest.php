@@ -320,7 +320,7 @@ class DepartmentHierarchyTest extends TestCase
      */
     public function test_an_undefined_level_written_past_the_cast_is_rejected_by_the_guard(): void
     {
-        $orphan = new Department();
+        $orphan = new Department;
         $orphan->setRawAttributes(['name' => 'مستوى خارج السجل', 'level' => 9]);
 
         $this->expectException(DepartmentHierarchyException::class);
@@ -422,7 +422,7 @@ class DepartmentHierarchyTest extends TestCase
         $division = $this->divisionUnder($root);
         $section  = $this->sectionUnder($division);
 
-        $violations = (new DepartmentHierarchyGuard())->violations(
+        $violations = (new DepartmentHierarchyGuard)->violations(
             DepartmentLevel::Division->value,
             $section->id,
             $division->id,
@@ -449,7 +449,7 @@ class DepartmentHierarchyTest extends TestCase
         $section     = $this->sectionUnder($engineering, 'قسم التصميم');
 
         // Re-parent the section from Engineering to Finance: a legitimate move.
-        $violations = (new DepartmentHierarchyGuard())->violations(
+        $violations = (new DepartmentHierarchyGuard)->violations(
             DepartmentLevel::Section->value,
             $finance->id,
             $section->id,

@@ -1,0 +1,12 @@
+{
+    "notes": [
+        "Pint had never been configured, so it ran the bare `laravel` preset and reported 59 of the repo's files as violations.",
+        "Almost all of that was one rule: `binary_operator_spaces` wanted to strip the aligned `=>` columns this codebase uses everywhere (casts(), rules(), messages(), resource payloads). That alignment is deliberate and readable, and letting a formatter delete it across 44 files would be a large diff that improves nothing.",
+        "Aligning INSTEAD of disabling was tried and rejected: `align_single_space_minimal` still disagreed with 31 files, because php-cs-fixer's grouping does not reproduce how these files are aligned by hand. Turning the rule off is the only setting that leaves existing operator spacing untouched, in either direction.",
+        "Everything else in the preset is kept. The remaining failures are not house style — trailing newlines, CRLF line endings, brace placement, import order — and should be fixed rather than configured away."
+    ],
+    "preset": "laravel",
+    "rules": {
+        "binary_operator_spaces": false
+    }
+}

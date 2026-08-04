@@ -210,7 +210,7 @@ class DevDepartmentSeeder extends Seeder
     {
         $slug = strtolower(str_replace(' ', '.', trim($name)));
 
-        return $slug . '@example.com';
+        return $slug.'@example.com';
     }
 
     /**
@@ -218,7 +218,7 @@ class DevDepartmentSeeder extends Seeder
      */
     private function phoneFor(string $name): string
     {
-        return '+9665' . str_pad((string) (crc32($name) % 100000000), 8, '0', STR_PAD_LEFT);
+        return '+9665'.str_pad((string) (crc32($name) % 100000000), 8, '0', STR_PAD_LEFT);
     }
 
     /**

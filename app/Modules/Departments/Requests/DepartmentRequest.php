@@ -164,7 +164,7 @@ abstract class DepartmentRequest extends FormRequest
             return;
         }
 
-        $violations = (new DepartmentHierarchyGuard())->violations(
+        $violations = (new DepartmentHierarchyGuard)->violations(
             $this->effectiveLevel(),
             $this->effectiveParentId(),
             $this->subject()?->id,
