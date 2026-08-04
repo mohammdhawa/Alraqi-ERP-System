@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Departments\Models;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
+use App\Modules\Departments\Enums\Sector;
 use App\Modules\Departments\Exceptions\DepartmentHasChildrenException;
 use App\Modules\Departments\Exceptions\DepartmentHierarchyException;
 use App\Modules\Departments\Exceptions\DepartmentIsRootException;
@@ -12,6 +13,7 @@ use App\Modules\Departments\Support\DepartmentHierarchyGuard;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -76,6 +78,7 @@ class Department extends Model
         'is_active',
         'parent_id',
         'level',
+        'sector',
         'manager_id',
     ];
 
@@ -84,11 +87,17 @@ class Department extends Model
      */
     protected function casts(): array
     {
-        // The column stays an unsignedTinyInteger in the schema; the cast is
-        // what makes it a tier in PHP. $department->level->label() reads the
-        // Arabic name without a lookup table.
+        // The columns stay unsignedTinyIntegers in the schema; the casts are
+        // what make them a tier and a sector in PHP. $department->level->label()
+        // reads the Arabic name without a lookup table.
+        //
+        // The `sector` cast governs WRITES only. Reads go through the accessor
+        // below, which takes precedence over a cast in Eloquent — deliberately,
+        // because the stored value and the effective value are different facts
+        // for every row that is not an إدارة.
         return [
             'level'     => DepartmentLevel::class,
+            'sector'    => Sector::class,
             'is_active' => 'boolean',
         ];
     }
@@ -138,7 +147,12 @@ class Department extends Model
             $parentId = isset($attributes['parent_id']) ? (int) $attributes['parent_id'] : null;
             $subjectId = $department->exists ? (int) $department->getKey() : null;
 
-            $violations = (new DepartmentHierarchyGuard())->violations($level, $parentId, $subjectId);
+            // Raw, so the guard judges what this row would STORE. Reading
+            // $department->sector here would hand it the inherited value and
+            // every section would look like it was declaring a sector.
+            $sector = isset($attributes['sector']) ? (int) $attributes['sector'] : null;
+
+            $violations = (new DepartmentHierarchyGuard())->violations($level, $parentId, $subjectId, $sector);
 
             if ($violations !== []) {
                 throw new DepartmentHierarchyException($violations[0]->message);
@@ -198,6 +212,38 @@ class Department extends Model
     }
 
     /**
+     * الجهة this unit belongs to — its own if it declares one, otherwise its
+     * nearest ancestor's.
+     *
+     * This is the READ path the P1 rule depends on. Only an إدارة stores a
+     * sector; a قسم or مكتب stores NULL and gets its answer from up the tree, so
+     * re-parenting a section into the other sector is a single UPDATE to
+     * `parent_id` and every unit beneath it starts answering differently on the
+     * next read. Nothing to keep in step, so nothing that can fall out of step.
+     *
+     * WHY it shadows the column of the same name: an Eloquent accessor takes
+     * precedence over a cast, so `$department->sector` is the EFFECTIVE sector
+     * everywhere in the application, while writes still go to the column and
+     * `getAttributes()['sector']` still reads what this row actually stores.
+     * Callers that need the stored value — the saving hook, the form request's
+     * fallback, the guard — must read it raw and say so.
+     *
+     * COST: one query per hop when `parent` is not loaded, bounded by the tier
+     * count. `scopeWithAncestors()` collapses it for list endpoints. The walk
+     * cannot loop: DepartmentHierarchyGuard rejects cycles at write time.
+     */
+    protected function sector(): Attribute
+    {
+        return Attribute::get(function (mixed $value): ?Sector {
+            if ($value !== null) {
+                return $value instanceof Sector ? $value : Sector::from((int) $value);
+            }
+
+            return $this->parent?->sector;
+        });
+    }
+
+    /**
      * Only divisions (إدارة, level 2). A division sits directly under the
      * general administration; it is never a root.
      *
@@ -227,5 +273,20 @@ class Department extends Model
     public function scopeAtLevel(Builder $query, DepartmentLevel $level): void
     {
         $query->where('level', $level->value);
+    }
+
+    /**
+     * Eager-load the ancestor chain, so reading sector() across a result set
+     * costs a fixed number of queries instead of one per hop per row.
+     *
+     * The chain length is derived from the tier count rather than written out,
+     * so appending a tier does not quietly reintroduce the N+1 that this scope
+     * exists to remove.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeWithAncestors(Builder $query): void
+    {
+        $query->with(implode('.', array_fill(0, count(DepartmentLevel::cases()) - 1, 'parent')));
     }
 }

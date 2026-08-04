@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Departments\Requests;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
+use App\Modules\Departments\Enums\Sector;
 use App\Modules\Departments\Models\Department;
 use App\Modules\Departments\Support\DepartmentHierarchyGuard;
 use Illuminate\Contracts\Validation\Validator;
@@ -100,6 +101,12 @@ abstract class DepartmentRequest extends FormRequest
             // so this needs no separate max-depth constant.
             'level' => [$this->presence(), 'integer', Rule::enum(DepartmentLevel::class)],
 
+            // الجهة. Accepted here because a division has to be able to declare
+            // one; WHERE it may be declared is the guard's rule, not a field
+            // rule, because a section reads back a non-null sector it does not
+            // store and a full-object PUT would otherwise write that copy.
+            'sector' => ['sometimes', 'nullable', 'integer', Rule::enum(Sector::class)],
+
             // manager_id references an employee. The employees table now exists,
             // so the previously deferred exists rule lands here: the manager must
             // be a real, non-soft-deleted employee. The FK guarantees only that
@@ -126,6 +133,8 @@ abstract class DepartmentRequest extends FormRequest
             'level.required'     => 'مستوى الوحدة التنظيمية مطلوب.',
             'level.integer'      => 'مستوى الوحدة التنظيمية يجب أن يكون رقمًا.',
             'level.enum'         => 'المستوى المحدد غير معرّف في هيكل الشركة.',
+            'sector.integer'     => 'الجهة يجب أن تكون رقمًا.',
+            'sector.enum'        => 'الجهة المحددة غير معرّفة في هيكل الشركة.',
             'manager_id.integer' => 'معرّف المدير يجب أن يكون رقمًا.',
             'manager_id.exists'  => 'المدير المحدد غير موجود.',
         ];
@@ -151,7 +160,7 @@ abstract class DepartmentRequest extends FormRequest
     {
         // If the fields the guard reads are already invalid, its output would
         // only pile a confusing second error on top.
-        if ($validator->errors()->hasAny(['parent_id', 'level'])) {
+        if ($validator->errors()->hasAny(['parent_id', 'level', 'sector'])) {
             return;
         }
 
@@ -159,6 +168,7 @@ abstract class DepartmentRequest extends FormRequest
             $this->effectiveLevel(),
             $this->effectiveParentId(),
             $this->subject()?->id,
+            $this->effectiveSector(),
         );
 
         foreach ($violations as $violation) {
@@ -194,5 +204,26 @@ abstract class DepartmentRequest extends FormRequest
         }
 
         return $this->subject()?->parent_id;
+    }
+
+    /**
+     * The sector this row will END UP STORING — not the one it will resolve to.
+     *
+     * The fallback reads getRawOriginal rather than the model property on
+     * purpose: `$subject->sector` walks up the tree, so on a PATCH that touches
+     * only the name it would report a section as declaring its division's
+     * sector and the guard would reject an untouched, perfectly valid row.
+     */
+    protected function effectiveSector(): ?int
+    {
+        if ($this->has('sector')) {
+            $sector = $this->input('sector');
+
+            return is_numeric($sector) ? (int) $sector : null;
+        }
+
+        $stored = $this->subject()?->getRawOriginal('sector');
+
+        return $stored === null ? null : (int) $stored;
     }
 }

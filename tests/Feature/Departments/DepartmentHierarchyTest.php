@@ -426,6 +426,7 @@ class DepartmentHierarchyTest extends TestCase
             DepartmentLevel::Division->value,
             $section->id,
             $division->id,
+            null,
         );
 
         $this->assertCount(1, $violations);
@@ -452,6 +453,7 @@ class DepartmentHierarchyTest extends TestCase
             DepartmentLevel::Section->value,
             $finance->id,
             $section->id,
+            null,
         );
 
         $this->assertSame([], $violations);

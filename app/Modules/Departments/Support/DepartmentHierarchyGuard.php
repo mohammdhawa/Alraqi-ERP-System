@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Departments\Support;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
+use App\Modules\Departments\Enums\Sector;
 use App\Modules\Departments\Models\Department;
 
 /**
@@ -23,6 +24,8 @@ use App\Modules\Departments\Models\Department;
  *   - no self-reference  a unit cannot be its own parent (update only).
  *   - no cycle           a unit cannot move under one of its own descendants
  *                        (update only).
+ *   - sector placement   الجهة may only be declared on an إدارة (level 2).
+ *                        Everything else inherits it by walking up.
  *
  * WHY a standalone guard rather than logic in the form requests:
  * - Before this, the tier rules lived only in DepartmentRequest — the HTTP
@@ -43,19 +46,28 @@ final class DepartmentHierarchyGuard
 {
     /**
      * All invariants broken by a unit that would end up at $level under
-     * $parentId. $subjectId is the row's own id on update, or null on create
-     * (there is no row yet to self-reference, close a loop, or exclude from the
-     * singleton-root count).
+     * $parentId carrying $sector. $subjectId is the row's own id on update, or
+     * null on create (there is no row yet to self-reference, close a loop, or
+     * exclude from the singleton-root count).
+     *
+     * $sector is the row's OWN stored value — never the inherited one. Callers
+     * must read it raw (getRawOriginal / getAttributes), because
+     * Department::sector() resolves up the tree and would hand this method a
+     * value the row does not actually hold.
      *
      * @return list<HierarchyViolation>
      */
-    public function violations(?int $level, ?int $parentId, ?int $subjectId): array
+    public function violations(?int $level, ?int $parentId, ?int $subjectId, ?int $sector): array
     {
         // The level must resolve to a defined tier before any tier maths can
         // run. (The form request's Rule::enum catches this first over HTTP;
         // this branch is what protects the model-layer path.)
         if ($level === null || ! DepartmentLevel::isDefined($level)) {
             return [new HierarchyViolation('level', 'المستوى المحدد غير معرّف في هيكل الشركة.')];
+        }
+
+        if ($sector !== null && ($violation = $this->sectorViolation($level, $sector)) instanceof HierarchyViolation) {
+            return [$violation];
         }
 
         // Root position: no parent.
@@ -127,6 +139,45 @@ final class DepartmentHierarchyGuard
         }
 
         return [];
+    }
+
+    /**
+     * Why a stored sector may not be written on this row, or null if it may.
+     *
+     * The placement rule is what keeps الجهة a single fact. Sections and offices
+     * read their sector by walking up to the nearest ancestor holding one, so a
+     * value stored on them is a COPY — and a copy survives the row being
+     * re-parented into the other sector, at which point it does not merely go
+     * stale: because the walk halts at the first non-null ancestor, the stale
+     * copy shadows the truth from the entire subtree beneath it.
+     *
+     * This is not a hypothetical. DepartmentResource exposes the RESOLVED
+     * sector so clients need not rebuild the tree to display it, which means a
+     * section reads back as `"sector": 1`. Any client that edits one field and
+     * PUTs the whole object back — the default behaviour of essentially every
+     * generated HTTP client — posts that 1 onto the section's own row. Nobody
+     * did anything wrong; a read-modify-write round trip is all it takes. So
+     * the refusal lives here, in the layer the seeder, tinker, jobs and the
+     * HTTP front door all cross, rather than in a form request the other three
+     * write around.
+     */
+    private function sectorViolation(int $level, int $sector): ?HierarchyViolation
+    {
+        if (! Sector::isDefined($sector)) {
+            return new HierarchyViolation('sector', 'الجهة المحددة غير معرّفة في هيكل الشركة.');
+        }
+
+        $declaredAt = Sector::declaredAt();
+
+        if ($level !== $declaredAt->value) {
+            return new HierarchyViolation('sector', sprintf(
+                'الجهة تُحدَّد على مستوى %s (المستوى %d) فقط؛ الوحدات الأدنى ترث جهتها من الوحدة الأعلى.',
+                $declaredAt->label(),
+                $declaredAt->value,
+            ));
+        }
+
+        return null;
     }
 
     /**

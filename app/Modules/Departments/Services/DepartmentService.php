@@ -49,11 +49,16 @@ class DepartmentService
     /**
      * Paginated list of departments, newest first.
      *
+     * withAncestors() is not decoration: DepartmentResource exposes the
+     * resolved `sector`, which walks up the tree, so without it every row on
+     * the page issues its own chain of parent lookups.
+     *
      * @return LengthAwarePaginator<Department>
      */
     public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return Department::query()
+            ->withAncestors()
             ->latest()
             ->paginate($perPage);
     }
@@ -65,7 +70,7 @@ class DepartmentService
      */
     public function all(): Collection
     {
-        return Department::query()->latest()->get();
+        return Department::query()->withAncestors()->latest()->get();
     }
 
     /**
