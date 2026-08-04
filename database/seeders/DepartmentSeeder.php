@@ -33,6 +33,26 @@ use RuntimeException;
  *     HR sheet's قسم الدعم التقني under إدارة الشؤون الإدارية is a separate unit
  *     and stays.
  *
+ * EXCLUDED FROM THE TREE (ratified decision #6 — they are not organizational
+ * units, and admitting them would take the tree past four tiers):
+ *   - Every ورشة* row under إدارة المشاريع الإنتاجية. Job titles, not units.
+ *   - The 15 rows under قسم السائقين (باكر, تركس, بلدوزر, لودر, رافعة, صهريج,
+ *     مدحلة, كليدر, …). Equipment classes a driver is qualified on — asset
+ *     categories, not offices. قسم السائقين therefore has no offices at all.
+ *   - The row قسم الصيانة appearing as an OFFICE inside
+ *     قسم الصيانة (رحبة الصيانة). A data-entry duplicate of its own parent.
+ *   - قسم الشؤون القانونية under إدارة التسويق العقاري, which duplicated the
+ *     standalone إدارة الشؤون القانونية (project owner's ruling, 2026-08-05:
+ *     source error).
+ *
+ * NAMES NORMALIZED ON THE WAY IN (the source spelling is in the comment):
+ *   الإستعلامات → الاستعلامات · قسم العقود والإتفاقيات → قسم العقود والاتفاقيات
+ *   الكميرات → الكاميرات · اللوجستك → اللوجستيك · trailing spaces stripped
+ *   (`قسم الصيانة  `, `البوفيه `). No unit name is translated: they are Arabic.
+ *
+ * EXPECTED SHAPE: 13 divisions · 52 sections · 50 offices, 118 rows with the
+ * root and the two governance units. DepartmentSeederTest asserts it.
+ *
  * IDEMPOTENT, and keyed on `code` rather than `name`: names repeat across the
  * company — الحسابات and أمانة الصندوق each appear under three different
  * divisions — so a name key would collapse them into one row and re-parent it on
@@ -152,27 +172,224 @@ class DepartmentSeeder extends Seeder
     }
 
     /**
-     * The thirteen divisions, in the two groups slide 1 draws them in.
+     * The thirteen divisions with their sections and offices, in the two groups
+     * slide 1 draws them in.
+     *
+     * Written as one nested literal rather than thirteen methods because the
+     * shape of the company IS the point of this file, and a reader checking it
+     * against the HR sheet needs to see the tree, not follow calls.
      *
      * @return array<int, array<string, mixed>>
      */
     private function divisions(): array
     {
         return [
-            ['code' => 'FIN', 'name' => 'الإدارة المالية', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'HR', 'name' => 'إدارة الموارد البشرية', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'ADM', 'name' => 'إدارة الشؤون الإدارية', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'PR', 'name' => 'إدارة العلاقات العامة', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'MKT', 'name' => 'إدارة التسويق وتقنية المعلومات', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'SEC', 'name' => 'إدارة الأمن والحماية', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'ARC', 'name' => 'إدارة الديوان والأرشيف', 'sector' => Sector::AdministrativeOffices],
-            ['code' => 'LEG', 'name' => 'إدارة الشؤون القانونية', 'sector' => Sector::AdministrativeOffices],
+            // ------------------------------------------- المكاتب الإدارية (8)
+            [
+                'code' => 'FIN', 'name' => 'الإدارة المالية', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'FIN-CASH', 'name' => 'قسم النقدية', 'children' => [
+                        ['code' => 'FIN-CASH-VAULT', 'name' => 'أمانة الصندوق'],
+                        ['code' => 'FIN-CASH-BANK', 'name' => 'الحسابات المصرفية'],
+                    ]],
+                    ['code' => 'FIN-GL', 'name' => 'قسم الحسابات العامة', 'children' => [
+                        ['code' => 'FIN-GL-ACC', 'name' => 'الحسابات العام'],
+                    ]],
+                    ['code' => 'FIN-BUD', 'name' => 'قسم الموازنات'],
+                    ['code' => 'FIN-FA', 'name' => 'قسم الأصول الثابتة', 'children' => [
+                        ['code' => 'FIN-FA-MON', 'name' => 'المراقبة والتقييم والجرد'],
+                        ['code' => 'FIN-FA-ACC', 'name' => 'حسابات الأصول'],
+                    ]],
+                    ['code' => 'FIN-AUD', 'name' => 'قسم الرقابة المالية والتدقيق', 'children' => [
+                        ['code' => 'FIN-AUD-CTRL', 'name' => 'الرقابة المالية'],
+                        ['code' => 'FIN-AUD-AUD', 'name' => 'التدقيق المالي'],
+                    ]],
+                ],
+            ],
+            [
+                'code' => 'HR', 'name' => 'إدارة الموارد البشرية', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'HR-JA', 'name' => 'قسم التحليل والتوصيف'],
+                    ['code' => 'HR-PLAN', 'name' => 'قسم التخطيط'],
+                    ['code' => 'HR-REC', 'name' => 'قسم الاستقطاب والتوظيف'],
+                    ['code' => 'HR-TRN', 'name' => 'قسم التدريب والتطوير'],
+                    ['code' => 'HR-PERF', 'name' => 'قسم تقييم الأداء'],
+                    ['code' => 'HR-DATA', 'name' => 'قسم إدارة البيانات'],
+                ],
+            ],
+            [
+                'code' => 'ADM', 'name' => 'إدارة الشؤون الإدارية', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'ADM-VEH', 'name' => 'قسم المركبات', 'children' => [
+                        ['code' => 'ADM-VEH-FUEL', 'name' => 'المحروقات'],
+                        ['code' => 'ADM-VEH-MNT', 'name' => 'صيانة الآليات'],
+                    ]],
+                    ['code' => 'ADM-SRV', 'name' => 'قسم الخدمات', 'children' => [
+                        // source: الإستعلامات
+                        ['code' => 'ADM-SRV-INFO', 'name' => 'الاستعلامات'],
+                        // source: "البوفيه " with a trailing space
+                        ['code' => 'ADM-SRV-CAF', 'name' => 'البوفيه'],
+                    ]],
+                    ['code' => 'ADM-IT', 'name' => 'قسم الدعم التقني'],
+                ],
+            ],
+            [
+                'code' => 'PR', 'name' => 'إدارة العلاقات العامة', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'PR-LOC', 'name' => 'قسم العلاقات المحلية', 'children' => [
+                        ['code' => 'PR-LOC-TEND', 'name' => 'مكتب المناقصات'],
+                        ['code' => 'PR-LOC-CS', 'name' => 'مكتب خدمة الزبائن'],
+                    ]],
+                    ['code' => 'PR-EXT', 'name' => 'قسم العلاقات الخارجية', 'children' => [
+                        ['code' => 'PR-EXT-TRN', 'name' => 'الترجمة'],
+                    ]],
+                ],
+            ],
+            [
+                'code' => 'MKT', 'name' => 'إدارة التسويق وتقنية المعلومات', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'MKT-DIG', 'name' => 'قسم التسويق الرقمي'],
+                    ['code' => 'MKT-MED', 'name' => 'القسم الإعلامي'],
+                    // From the chart only; absent from the HR sheet. See the
+                    // class docblock — the chart is four months newer.
+                    ['code' => 'MKT-IT', 'name' => 'قسم تقنية المعلومات'],
+                ],
+            ],
+            [
+                'code' => 'SEC', 'name' => 'إدارة الأمن والحماية', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'SEC-PROT', 'name' => 'قسم الحماية', 'children' => [
+                        // source: الكميرات
+                        ['code' => 'SEC-PROT-CAM', 'name' => 'الكاميرات'],
+                        ['code' => 'SEC-PROT-GRD', 'name' => 'الحراسة'],
+                    ]],
+                ],
+            ],
+            [
+                'code' => 'ARC', 'name' => 'إدارة الديوان والأرشيف', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    ['code' => 'ARC-MAIL', 'name' => 'قسم البريد'],
+                    ['code' => 'ARC-GEN', 'name' => 'قسم الأرشيف العام'],
+                ],
+            ],
+            [
+                'code' => 'LEG', 'name' => 'إدارة الشؤون القانونية', 'sector' => Sector::AdministrativeOffices,
+                'children' => [
+                    // source: قسم العقود والإتفاقيات
+                    ['code' => 'LEG-CON', 'name' => 'قسم العقود والاتفاقيات'],
+                    ['code' => 'LEG-CASE', 'name' => 'قسم المعاملات القانونية'],
+                ],
+            ],
 
-            ['code' => 'ENG', 'name' => 'الإدارة الهندسية', 'sector' => Sector::AdministrativeBodies],
-            ['code' => 'PRD', 'name' => 'إدارة المشاريع الإنتاجية', 'sector' => Sector::AdministrativeBodies],
-            ['code' => 'HEQ', 'name' => 'إدارة الآليات الثقيلة', 'sector' => Sector::AdministrativeBodies],
-            ['code' => 'SUP', 'name' => 'إدارة الإمداد والتوريد', 'sector' => Sector::AdministrativeBodies],
-            ['code' => 'REM', 'name' => 'إدارة التسويق العقاري', 'sector' => Sector::AdministrativeBodies],
+            // ------------------------------------------ الأجسام الإدارية (5)
+            [
+                'code' => 'ENG', 'name' => 'الإدارة الهندسية', 'sector' => Sector::AdministrativeBodies,
+                'children' => [
+                    ['code' => 'ENG-SUP', 'name' => 'قسم الرقابة الهندسية'],
+                    ['code' => 'ENG-PLAN', 'name' => 'قسم التخطيط والدراسات', 'children' => [
+                        ['code' => 'ENG-PLAN-TOPO', 'name' => 'الطبوغرافيا'],
+                        ['code' => 'ENG-PLAN-ARCH', 'name' => 'المعماري'],
+                        ['code' => 'ENG-PLAN-STRU', 'name' => 'الإنشائي'],
+                        ['code' => 'ENG-PLAN-MECH', 'name' => 'الميكانيك'],
+                        ['code' => 'ENG-PLAN-ELEC', 'name' => 'الكهرباء'],
+                    ]],
+                    ['code' => 'ENG-ADM', 'name' => 'القسم الإداري الهندسي', 'children' => [
+                        ['code' => 'ENG-ADM-ARC', 'name' => 'مكتب الديوان والأرشيف'],
+                    ]],
+                    ['code' => 'ENG-FIN', 'name' => 'القسم المالي الهندسي', 'children' => [
+                        ['code' => 'ENG-FIN-ACC', 'name' => 'الحسابات'],
+                        ['code' => 'ENG-FIN-VAULT', 'name' => 'أمانة الصندوق'],
+                        ['code' => 'ENG-FIN-DATA', 'name' => 'إدخال البيانات'],
+                    ]],
+                    ['code' => 'ENG-EXEC', 'name' => 'القسم التنفيذي الهندسي', 'children' => [
+                        ['code' => 'ENG-EXEC-TECH', 'name' => 'المكتب الفني'],
+                        ['code' => 'ENG-EXEC-WS', 'name' => 'مكتب الورشات الفنية'],
+                    ]],
+                ],
+            ],
+            [
+                'code' => 'PRD', 'name' => 'إدارة المشاريع الإنتاجية', 'sector' => Sector::AdministrativeBodies,
+                'children' => [
+                    ['code' => 'PRD-RES', 'name' => 'قسم الأبحاث والدراسات'],
+                    // The chart draws these as "وحدات" boxes; the HR sheet gives
+                    // them قسم rank, and the HR sheet is the structural source.
+                    ['code' => 'PRD-ASPH', 'name' => 'قسم مجبل الإسفلت'],
+                    ['code' => 'PRD-CONC', 'name' => 'قسم مجبل البيتون'],
+                    ['code' => 'PRD-CWS', 'name' => 'قسم ورش البيتون'],
+                    ['code' => 'PRD-INTL', 'name' => 'قسم معمل الأنترلوك'],
+                    ['code' => 'PRD-BLK', 'name' => 'قسم معمل البلوك'],
+                    ['code' => 'PRD-QSAL', 'name' => 'قسم مقلع السلامة'],
+                    ['code' => 'PRD-QISK', 'name' => 'قسم مقلع الإسكان'],
+                    ['code' => 'PRD-CRSH', 'name' => 'قسم الكسارة الراوترية'],
+                    ['code' => 'PRD-LATH', 'name' => 'قسم مخرطة الحجر'],
+                    ['code' => 'PRD-SAW', 'name' => 'قسم منشرة الحجر'],
+                    // source: "قسم الصيانة  " with trailing spaces
+                    ['code' => 'PRD-MNT', 'name' => 'قسم الصيانة', 'children' => [
+                        ['code' => 'PRD-MNT-MECH', 'name' => 'ميكانيك'],
+                        ['code' => 'PRD-MNT-ELEC', 'name' => 'كهرباء'],
+                        ['code' => 'PRD-MNT-SMTH', 'name' => 'حدادة'],
+                    ]],
+                    ['code' => 'PRD-FIN', 'name' => 'القسم المالي الإنتاجي', 'children' => [
+                        ['code' => 'PRD-FIN-ACC', 'name' => 'الحسابات'],
+                        ['code' => 'PRD-FIN-VAULT', 'name' => 'أمانة الصندوق'],
+                    ]],
+                    ['code' => 'PRD-ADM', 'name' => 'القسم الإداري الإنتاجي'],
+                    ['code' => 'PRD-MKT', 'name' => 'قسم تسويق الإنتاج'],
+                ],
+            ],
+            [
+                'code' => 'HEQ', 'name' => 'إدارة الآليات الثقيلة', 'sector' => Sector::AdministrativeBodies,
+                'children' => [
+                    ['code' => 'HEQ-SUP', 'name' => 'قسم الإشراف الفني'],
+                    ['code' => 'HEQ-MNT', 'name' => 'قسم الصيانة (رحبة الصيانة)', 'children' => [
+                        ['code' => 'HEQ-MNT-MECH', 'name' => 'ميكانيك الثقيل'],
+                        ['code' => 'HEQ-MNT-ELEC', 'name' => 'كهرباء الثقيل'],
+                        ['code' => 'HEQ-MNT-BODY', 'name' => 'كومجي الثقيل'],
+                        ['code' => 'HEQ-MNT-SMTH', 'name' => 'حدادة الثقيل'],
+                        ['code' => 'HEQ-MNT-WASH', 'name' => 'مغسلة الثقيل'],
+                        ['code' => 'HEQ-MNT-HYD', 'name' => 'صيانة هدروليك الثقيل'],
+                        ['code' => 'HEQ-MNT-PRESS', 'name' => 'مكبس هدروليك الثقيل'],
+                        ['code' => 'HEQ-MNT-LATH', 'name' => 'طورنو الثقيل'],
+                    ]],
+                    ['code' => 'HEQ-FIN', 'name' => 'القسم المالي والإداري للآليات الثقيلة', 'children' => [
+                        ['code' => 'HEQ-FIN-ACC', 'name' => 'الحسابات'],
+                        ['code' => 'HEQ-FIN-VAULT', 'name' => 'أمانة الصندوق'],
+                    ]],
+                    // No offices: its 15 source rows are equipment classes.
+                    ['code' => 'HEQ-DRV', 'name' => 'قسم السائقين'],
+                ],
+            ],
+            [
+                'code' => 'SUP', 'name' => 'إدارة الإمداد والتوريد', 'sector' => Sector::AdministrativeBodies,
+                'children' => [
+                    ['code' => 'SUP-PUR', 'name' => 'قسم المشتريات', 'children' => [
+                        ['code' => 'SUP-PUR-PROJ', 'name' => 'مشتريات المشاريع'],
+                        ['code' => 'SUP-PUR-SUB', 'name' => 'المشتريات الفرعية'],
+                        // Both sources mark it "معلق لحين الاجتماع". Seeded
+                        // inactive rather than omitted (project owner's ruling,
+                        // 2026-08-05): the row is out of the selection lists,
+                        // and activating it after the meeting is a data change
+                        // rather than an edit to this file.
+                        ['code' => 'SUP-PUR-SALE', 'name' => 'المبيعات', 'active' => false],
+                    ]],
+                    // source: اللوجستك والمستودعات
+                    ['code' => 'SUP-LOG', 'name' => 'قسم اللوجستيك والمستودعات', 'children' => [
+                        ['code' => 'SUP-LOG-CENT', 'name' => 'المستودع المركزي'],
+                        ['code' => 'SUP-LOG-SUB', 'name' => 'المستودعات الفرعية'],
+                        ['code' => 'SUP-LOG-LOG', 'name' => 'اللوجستي'],
+                    ]],
+                ],
+            ],
+            [
+                'code' => 'REM', 'name' => 'إدارة التسويق العقاري', 'sector' => Sector::AdministrativeBodies,
+                'children' => [
+                    ['code' => 'REM-PROM', 'name' => 'قسم الترويج والإعلان', 'children' => [
+                        ['code' => 'REM-PROM-CS', 'name' => 'مكتب خدمة الزبائن'],
+                        ['code' => 'REM-PROM-ADV', 'name' => 'مكتب الدعاية والإعلان'],
+                    ]],
+                    ['code' => 'REM-FIN', 'name' => 'القسم المالي للتسويق العقاري'],
+                ],
+            ],
         ];
     }
 }

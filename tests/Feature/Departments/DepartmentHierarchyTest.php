@@ -523,6 +523,32 @@ class DepartmentHierarchyTest extends TestCase
         $division->delete();
     }
 
+    /**
+     * The guard reads children(), not a tier, so the new bottom tier is covered
+     * by the same rule that always covered the others: a section holding
+     * offices strands them exactly as a division holding sections would.
+     */
+    public function test_a_section_holding_offices_cannot_be_soft_deleted(): void
+    {
+        $this->actingAsAdmin();
+        $section = $this->sectionUnder($this->divisionUnder($this->root()));
+        $office  = $this->officeUnder($section);
+
+        $this->deleteJson("/api/departments/{$section->id}")
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'لا يمكن حذف وحدة تنظيمية تحتوي على وحدات فرعية. الرجاء نقل أو حذف الوحدات الفرعية أولًا.',
+            );
+
+        $this->assertNotSoftDeleted('departments', ['id' => $section->id]);
+
+        // And once the office is gone, the section may follow.
+        $office->delete();
+        $this->deleteJson("/api/departments/{$section->id}")->assertOk();
+        $this->assertSoftDeleted('departments', ['id' => $section->id]);
+    }
+
     // ------------------------------------------------------- Undeletable root
 
     public function test_the_root_cannot_be_soft_deleted_via_http_even_with_no_children(): void
@@ -600,7 +626,13 @@ class DepartmentHierarchyTest extends TestCase
 
     // --------------------------------------------------------- Seeded tree
 
-    public function test_the_seeded_tree_has_all_three_tiers_and_a_single_root(): void
+    /**
+     * The full seeding path — RBAC, the real tree, and the development
+     * fixtures layered on top of it — still yields one tree with every tier
+     * populated. The exact company shape is DepartmentSeederTest's job; what
+     * matters here is that adding the dev fixtures does not fork the tree.
+     */
+    public function test_the_seeded_tree_populates_every_tier_under_a_single_root(): void
     {
         $this->seed(DatabaseSeeder::class);
 
@@ -609,8 +641,13 @@ class DepartmentHierarchyTest extends TestCase
         $root = Department::whereNull('parent_id')->firstOrFail();
         $this->assertSame(DepartmentLevel::GeneralAdministration, $root->level);
 
-        $this->assertGreaterThan(0, Department::atLevel(DepartmentLevel::Division)->count());
-        $this->assertGreaterThan(0, Department::atLevel(DepartmentLevel::Section)->count());
+        foreach (DepartmentLevel::cases() as $tier) {
+            $this->assertGreaterThan(
+                0,
+                Department::atLevel($tier)->count(),
+                "No unit was seeded at tier {$tier->label()}.",
+            );
+        }
     }
 
     // ------------------------------------------------------- Model / enum
