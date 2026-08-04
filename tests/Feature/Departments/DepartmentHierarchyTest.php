@@ -543,6 +543,15 @@ class DepartmentHierarchyTest extends TestCase
 
         $this->assertNotSoftDeleted('departments', ['id' => $section->id]);
 
+        // The 409 above is that exception surfacing through the handler; the
+        // rule itself is on the model, so a non-HTTP caller meets it directly.
+        try {
+            $section->delete();
+            $this->fail('Soft-deleting a section that still holds offices should have thrown.');
+        } catch (DepartmentHasChildrenException) {
+            // expected
+        }
+
         // And once the office is gone, the section may follow.
         $office->delete();
         $this->deleteJson("/api/departments/{$section->id}")->assertOk();

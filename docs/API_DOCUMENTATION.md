@@ -573,34 +573,64 @@ A "department" is an **organizational unit at any tier** of the company tree —
 | ------- | ------------------------ | ----------------- | --------------------------------------------- |
 | `1`     | General administration   | `الإدارة العامة`  | The **single root** — exactly one, no parent  |
 | `2`     | Division                 | `إدارة`           | Always directly under the root                |
-| `3`     | Section                  | `قسم`             | Always directly under a division (deepest tier) |
+| `3`     | Section                  | `قسم`             | Always directly under a division              |
+| `4`     | Office                   | `مكتب`            | Always directly under a section (deepest tier) |
 
 **Hierarchy rules** (enforced on every write; violations are `422` field errors):
 
 - A unit **without** `parent_id` must be level 1, and only **one** root may exist.
-- A unit **with** a parent must sit **exactly one level below it** (no skipping, nothing under level 3).
+- A unit **with** a parent must sit **exactly one level below it** (no skipping, nothing under level 4).
 - The parent must exist and not be soft‑deleted.
 - On update: a unit cannot be its own parent, or be moved under one of its own descendants.
+- `sector` may only be stored on a **level‑2** unit. See [الجهة](#الجهة--sector) below.
+
+### الجهة — `sector`
+
+Which of the company's two groupings a unit belongs to.
+
+| `sector` | `sector_label`      |
+| -------- | ------------------- |
+| `1`      | `المكاتب الإدارية`  |
+| `2`      | `الأجسام الإدارية`  |
+
+**It is stored on divisions only.** The root, the governance units
+(`مجلس الإدارة`, `مكتب المدير العام`), and every section and office store `NULL`
+and **inherit** their sector from the nearest ancestor that has one.
+
+The API therefore returns a **resolved** value: a section reads back
+`"sector": 1` even though its own row is `NULL`. Two consequences for clients:
+
+- **Read it, do not re‑post it.** Sending a non‑null `sector` for a unit whose
+  `level` is not 2 is rejected with `422` — including when the value is simply
+  echoed back from a `GET`. Send `sector` only when you are editing a division.
+  A `PATCH` that omits the field is always safe.
+- **Moving a unit changes its sector automatically.** Re‑parent a section into a
+  division in the other grouping and the section — and everything beneath it —
+  reports the new sector on the next read. No second call is needed, and none is
+  possible.
 
 **Department object shape**
 
 ```json
 {
   "id": 3,
-  "name": "قسم تطوير البرمجيات",
-  "code": "SW",
+  "name": "قسم النقدية",
+  "code": "FIN-CASH",
   "description": null,
   "is_active": true,
   "parent_id": 2,
   "level": 3,
   "level_label": "قسم",
+  "sector": 1,
+  "sector_label": "المكاتب الإدارية",
   "manager_id": 4,
   "created_at": "2026-06-21T10:00:00+00:00",
   "updated_at": "2026-06-21T10:00:00+00:00"
 }
 ```
 
-- `level` is the machine‑readable tier to filter on; `level_label` is the Arabic display name (resolved server‑side — do **not** hardcode a tier map in the frontend).
+- `level` is the machine‑readable tier to filter on; `level_label` is the Arabic display name (resolved server‑side — do **not** hardcode a tier map in the frontend). `sector` / `sector_label` work the same way, with the addition that the value is **inherited** — see [الجهة](#الجهة--sector).
+- `code` is a stable short identifier derived from the unit's path through the tree (`FIN` → `FIN-CASH` → `FIN-CASH-VAULT`). Prefer it over `name` when matching units against an external system: names repeat across the company — `الحسابات` and `أمانة الصندوق` each occur under three different divisions.
 
 | Method & path                          | Permission             | Notes                                   |
 | -------------------------------------- | ---------------------- | --------------------------------------- |
@@ -619,14 +649,15 @@ A "department" is an **organizational unit at any tier** of the company tree —
 | `description` | string  | optional, nullable, max 1000                                            |
 | `is_active`   | boolean | optional (defaults to `true`)                                           |
 | `parent_id`   | integer | nullable; must be an existing, **non‑deleted** unit; `null` = the root  |
-| `level`       | integer | required on create; must be a defined tier (1–3) obeying the rules above |
+| `level`       | integer | required on create; must be a defined tier (1–4) obeying the rules above |
+| `sector`      | integer | optional, nullable; `1` or `2`; **only accepted when `level` is 2** — every other unit inherits it |
 | `manager_id`  | integer | optional, nullable; must be an existing, **non‑deleted employee**       |
 
 **Messages:** index `تم جلب الوحدات التنظيمية.` · show `تم جلب الوحدة التنظيمية.` · create `تم إنشاء الوحدة التنظيمية.` · update `تم تحديث الوحدة التنظيمية.` · delete `تم حذف الوحدة التنظيمية.`
 
 **Errors**
 
-- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.`
+- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · nothing under the deepest tier `لا يمكن إضافة وحدات فرعية تحت مكتب لأنها أدنى مستوى في هيكل الشركة.` · sector on a non‑division `الجهة تُحدَّد على مستوى إدارة (المستوى 2) فقط؛ الوحدات الأدنى ترث جهتها من الوحدة الأعلى.` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.`
 - `409` — deleting the **root**: `لا يمكن حذف الإدارة العامة، فهي الوحدة الجذر لهيكل الشركة.`
 - `409` — deleting a unit that still has live children: `لا يمكن حذف وحدة تنظيمية تحتوي على وحدات فرعية. الرجاء نقل أو حذف الوحدات الفرعية أولًا.`
 
