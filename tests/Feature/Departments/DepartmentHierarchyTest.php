@@ -14,11 +14,12 @@ use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
+use ValueError;
 
 /**
  * The organizational hierarchy contract:
  *
- *   الإدارة العامة (1, the single root) -> إدارة (2) -> قسم (3) -> [future tiers].
+ *   الإدارة العامة (1, the single root) -> إدارة (2) -> قسم (3) -> مكتب (4).
  *
  * The FK on parent_id only proves the parent row exists. Everything asserted
  * here is a rule the schema cannot express, enforced ONCE in
@@ -56,6 +57,15 @@ class DepartmentHierarchyTest extends TestCase
             'name'      => $name,
             'parent_id' => $parent->id,
             'level'     => DepartmentLevel::Section->value,
+        ]);
+    }
+
+    private function officeUnder(Department $parent, string $name = 'المكتب المعماري'): Department
+    {
+        return Department::create([
+            'name'      => $name,
+            'parent_id' => $parent->id,
+            'level'     => DepartmentLevel::Office->value,
         ]);
     }
 
@@ -210,19 +220,113 @@ class DepartmentHierarchyTest extends TestCase
             ->assertJsonValidationErrors('level');
     }
 
-    public function test_nesting_under_the_deepest_tier_is_rejected(): void
+    public function test_an_office_under_a_section_is_accepted(): void
     {
         $this->actingAsAdmin();
         $section = $this->sectionUnder($this->divisionUnder($this->root()));
 
-        // Section is currently the deepest defined tier; level 4 maps to no case.
         $this->postJson('/api/departments', [
-            'name'      => 'وحدة تحت قسم',
+            'name'      => 'مكتب الطبوغرافيا',
             'parent_id' => $section->id,
-            'level'     => 4,
+            'level'     => DepartmentLevel::Office->value,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.parent_id', $section->id)
+            ->assertJsonPath('data.level', 4)
+            ->assertJsonPath('data.level_label', 'مكتب');
+    }
+
+    public function test_an_office_cannot_skip_the_section_tier(): void
+    {
+        $this->actingAsAdmin();
+        $division = $this->divisionUnder($this->root());
+
+        $this->postJson('/api/departments', [
+            'name'      => 'مكتب تحت إدارة',
+            'parent_id' => $division->id,
+            'level'     => DepartmentLevel::Office->value,
         ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('level');
+
+        $this->assertDatabaseMissing('departments', ['name' => 'مكتب تحت إدارة']);
+    }
+
+    public function test_nesting_under_the_deepest_tier_is_rejected(): void
+    {
+        $this->actingAsAdmin();
+        $office = $this->officeUnder($this->sectionUnder($this->divisionUnder($this->root())));
+
+        // The ceiling is the enum's case list, not a constant: one past the
+        // deepest tier maps to no case, so nothing may nest under مكتب.
+        $this->postJson('/api/departments', [
+            'name'      => 'وحدة تحت مكتب',
+            'parent_id' => $office->id,
+            'level'     => DepartmentLevel::Office->value + 1,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('level');
+    }
+
+    /**
+     * The model-layer path for the same ceiling — and the two refusals a
+     * non-HTTP writer actually gets, which are NOT the same mechanism.
+     *
+     * A level-5 row never reaches the guard: the enum cast rejects it inside
+     * setAttribute, before the save begins. That is the depth registry doing its
+     * job one layer earlier than expected, and it is why the guard's
+     * defined-level branch exists for raw-attribute writers rather than for this.
+     *
+     * A level-4 row under a level-4 parent is a different failure entirely: the
+     * level is perfectly valid, so the cast is happy and the guard is what
+     * refuses it — مكتب has no tier beneath it.
+     */
+    public function test_the_depth_ceiling_holds_on_a_non_http_write(): void
+    {
+        $office = $this->officeUnder($this->sectionUnder($this->divisionUnder($this->root())));
+
+        try {
+            Department::create([
+                'name'      => 'طبقة خامسة',
+                'parent_id' => $office->id,
+                'level'     => DepartmentLevel::Office->value + 1,
+            ]);
+            $this->fail('A level-5 unit written straight through the model should have thrown.');
+        } catch (ValueError $exception) {
+            $this->assertStringContainsString('not a valid backing value', $exception->getMessage());
+        }
+
+        try {
+            Department::create([
+                'name'      => 'مكتب تحت مكتب',
+                'parent_id' => $office->id,
+                'level'     => DepartmentLevel::Office->value,
+            ]);
+            $this->fail('An office nested under an office should have thrown.');
+        } catch (DepartmentHierarchyException $exception) {
+            $this->assertSame(
+                'لا يمكن إضافة وحدات فرعية تحت مكتب لأنها أدنى مستوى في هيكل الشركة.',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertDatabaseMissing('departments', ['name' => 'طبقة خامسة']);
+        $this->assertDatabaseMissing('departments', ['name' => 'مكتب تحت مكتب']);
+    }
+
+    /**
+     * The raw-attribute path the cast cannot intercept — the one the guard's
+     * defined-level branch is actually there for.
+     */
+    public function test_an_undefined_level_written_past_the_cast_is_rejected_by_the_guard(): void
+    {
+        $orphan = new Department();
+        $orphan->setRawAttributes(['name' => 'مستوى خارج السجل', 'level' => 9]);
+
+        $this->expectException(DepartmentHierarchyException::class);
+        $this->expectExceptionMessage('المستوى المحدد غير معرّف في هيكل الشركة.');
+
+        $orphan->save();
     }
 
     // ---------------------------------------------------------------- Rule 3
@@ -531,9 +635,26 @@ class DepartmentHierarchyTest extends TestCase
         $this->assertSame(DepartmentLevel::GeneralAdministration, $root->fresh()->level);
         $this->assertSame(DepartmentLevel::Division, $division->fresh()->level);
         $this->assertSame('إدارة', $division->level->label());
-        $this->assertSame(DepartmentLevel::Division, DepartmentLevel::GeneralAdministration->next());
-        $this->assertSame(DepartmentLevel::Section, DepartmentLevel::Division->next());
-        $this->assertNull(DepartmentLevel::Section->next());
+    }
+
+    /**
+     * next()/previous() are the only definition of "what sits under what", and
+     * the case list is the only definition of how deep the tree goes. Naming a
+     * tier as the leaf — `assertNull(Section->next())` — is what this assertion
+     * used to do, and it is why adding مكتب broke a test that was supposed to be
+     * checking the enum's derivation rather than its contents.
+     */
+    public function test_the_tier_chain_is_derived_from_the_enum_case_list(): void
+    {
+        $tiers = DepartmentLevel::cases();
+
+        foreach ($tiers as $index => $tier) {
+            $this->assertSame($tiers[$index + 1] ?? null, $tier->next());
+            $this->assertSame($tiers[$index - 1] ?? null, $tier->previous());
+        }
+
+        $this->assertSame(DepartmentLevel::root(), $tiers[0]);
+        $this->assertNull(end($tiers)->next());
     }
 
     /**

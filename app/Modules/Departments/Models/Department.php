@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * An organizational unit at ANY tier of the company tree:
  *
  *   الإدارة العامة (GeneralAdministration, level 1) -> إدارة (Division, level 2)
- *     -> قسم (Section, level 3) -> [future tiers…]
+ *     -> قسم (Section, level 3) -> مكتب (Office, level 4)
  *
  * NAMING (deliberate): "Department" is the superordinate term for a unit at any
  * tier — it is NOT the Arabic "الإدارة العامة" (level 1) specifically. A row
@@ -106,9 +106,16 @@ class Department extends Model
      *
      * saving — runs the shared DepartmentHierarchyGuard against the pending
      *   attributes and throws on the first broken invariant. The SAME rules the
-     *   form requests validate, owned once and enforced everywhere. Raw
-     *   attributes are read (not the cast accessor) so an undefined level
-     *   surfaces as our domain exception rather than the enum cast's ValueError.
+     *   form requests validate, owned once and enforced everywhere.
+     *
+     *   It reads RAW attributes rather than the cast accessor, because by the
+     *   time this hook runs the cast has already had its say: assigning an
+     *   undefined level (`level => 9`) throws the enum cast's ValueError inside
+     *   setAttribute, before any save begins. That is a loud, correct refusal —
+     *   nothing invalid persists — it simply is not OUR exception. The guard's
+     *   defined-level branch still matters for the paths the cast never sees:
+     *   setRawAttributes, and rows already in the table when a tier is removed
+     *   from the enum.
      *
      * deleting — two refusals:
      *   1. The single root (الإدارة العامة) may never be deleted by ANY path,

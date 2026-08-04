@@ -19,9 +19,9 @@ use App\Modules\Departments\Models\Department;
  *
  * WHY rule 6 matters even though rule 2 already constrains the level:
  * - Rule 2 blocks most cycles as a side effect (a descendant sits below you, so
- *   the tier maths usually will not add up). But with three tiers defined, a
- *   move can satisfy parent.level + 1 and still close a loop — e.g. re-parenting
- *   a level-2 division under a level-3 section inside its own subtree. A loop
+ *   the tier maths usually will not add up). But the moment more than two tiers
+ *   exist, a move can satisfy parent.level + 1 and still close a loop — e.g.
+ *   re-parenting a level-2 division under a level-3 section in its own subtree. A loop
  *   detaches the whole branch: it is unreachable from the root, yet every row
  *   still validates. The guard walks ancestors to catch it.
  *

@@ -99,8 +99,10 @@ return new class extends Migration
                 ->constrained('departments')
                 ->restrictOnDelete();
 
-            // Authoritative tier marker: 1 = الإدارة العامة (general
-            // administration), 2 = division (إدارة), 3 = section (قسم).
+            // Authoritative tier marker. The tier NAMES are not re-listed here:
+            // DepartmentLevel is their single registry, and a comment that
+            // enumerates them goes stale the first time a tier is appended —
+            // which it since has (مكتب, level 4).
             // Business logic reads THIS, never `parent_id IS NULL` — the root
             // is the general administration because level says so, not because
             // it happens to lack a parent. Must map to a DepartmentLevel case;
