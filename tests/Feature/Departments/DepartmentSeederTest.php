@@ -28,7 +28,7 @@ class DepartmentSeederTest extends TestCase
 
     private const DIVISIONS = 13;
 
-    private const SECTIONS = 52;
+    private const SECTIONS = 53;
 
     private const OFFICES = 50;
 
@@ -52,6 +52,12 @@ class DepartmentSeederTest extends TestCase
         $this->assertSame(self::DIVISIONS, Department::whereNotNull('sector')->count());
     }
 
+    /**
+     * The root is the administration itself, not the company as a legal entity.
+     * Asserting that its name equals its tier's label is the cheapest way to
+     * catch a regression to the invented `شركة الراقي للإنشاءات` row: the tier
+     * has always been called الإدارة العامة, and the one row at it should be it.
+     */
     public function test_the_tree_has_exactly_one_root(): void
     {
         $this->seed(DepartmentSeeder::class);
@@ -59,8 +65,30 @@ class DepartmentSeederTest extends TestCase
         $this->assertSame(1, Department::whereNull('parent_id')->count());
 
         $root = Department::whereNull('parent_id')->firstOrFail();
-        $this->assertSame('شركة الراقي للإنشاءات', $root->name);
         $this->assertSame(DepartmentLevel::GeneralAdministration, $root->level);
+        $this->assertSame('الإدارة العامة', $root->name);
+        $this->assertSame($root->level->label(), $root->name);
+        $this->assertNull($root->sector);
+    }
+
+    /**
+     * مجلس الإدارة is a container for people, not a node anything reports to.
+     * Both halves matter: it must exist (its members are employees and need a
+     * department_id), and it must stay childless (no unit reports to the board).
+     * If a subtree ever appears under it, the compromise recorded in the
+     * seeder's docblock has expired and the tree shape needs revisiting.
+     */
+    public function test_the_board_is_a_childless_container_beside_the_divisions(): void
+    {
+        $this->seed(DepartmentSeeder::class);
+
+        $board = Department::where('code', 'BOD')->firstOrFail();
+        $root = Department::whereNull('parent_id')->firstOrFail();
+
+        $this->assertSame(DepartmentLevel::Division, $board->level);
+        $this->assertSame($root->id, $board->parent_id);
+        $this->assertSame(0, $board->children()->count());
+        $this->assertNull($board->sector);
     }
 
     public function test_running_it_twice_changes_nothing(): void
@@ -166,10 +194,31 @@ class DepartmentSeederTest extends TestCase
         // قسم الصيانة (رحبة الصيانة).
         $heavyMaintenance = Department::where('code', 'HEQ-MNT')->firstOrFail();
         $this->assertNotContains('قسم الصيانة', $heavyMaintenance->children()->pluck('name')->all());
+    }
 
-        // قسم الشؤون القانونية duplicated under إدارة التسويق العقاري.
-        $realEstate = Department::where('code', 'REM')->firstOrFail();
-        $this->assertNotContains('قسم الشؤون القانونية', $realEstate->children()->pluck('name')->all());
+    /**
+     * The tree follows the sources even where they look wrong to a reader.
+     *
+     * قسم الشؤون القانونية exists under إدارة التسويق العقاري AND as a division
+     * of its own. That is what both source artefacts show, so both are seeded.
+     * This is also the strongest case for `code` being the import key: these two
+     * units are indistinguishable by name and sit in different sectors.
+     */
+    public function test_the_duplicated_legal_unit_is_kept_and_distinguished_by_code(): void
+    {
+        $this->seed(DepartmentSeeder::class);
+
+        $division = Department::where('code', 'LEG')->firstOrFail();
+        $section = Department::where('code', 'REM-LEG')->firstOrFail();
+
+        $this->assertSame('إدارة الشؤون القانونية', $division->name);
+        $this->assertSame('قسم الشؤون القانونية', $section->name);
+
+        $this->assertSame(DepartmentLevel::Division, $division->level);
+        $this->assertSame(DepartmentLevel::Section, $section->level);
+
+        $this->assertSame(Sector::AdministrativeOffices, $division->sector);
+        $this->assertSame(Sector::AdministrativeBodies, $section->sector);
     }
 
     public function test_no_unit_name_was_normalized_away_or_left_untidy(): void

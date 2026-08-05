@@ -27,7 +27,7 @@ class DepartmentSectorTest extends TestCase
     private function root(): Department
     {
         return Department::create([
-            'name'  => 'شركة الراقي للإنشاءات',
+            'name'  => 'الإدارة العامة',
             'level' => DepartmentLevel::GeneralAdministration->value,
         ]);
     }

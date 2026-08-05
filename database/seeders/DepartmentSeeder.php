@@ -41,16 +41,18 @@ use RuntimeException;
  *     categories, not offices. قسم السائقين therefore has no offices at all.
  *   - The row قسم الصيانة appearing as an OFFICE inside
  *     قسم الصيانة (رحبة الصيانة). A data-entry duplicate of its own parent.
- *   - قسم الشؤون القانونية under إدارة التسويق العقاري, which duplicated the
- *     standalone إدارة الشؤون القانونية (project owner's ruling, 2026-08-05:
- *     source error).
+ *
+ * NOT EXCLUDED, though it looks like a duplicate: قسم الشؤون القانونية under
+ * إدارة التسويق العقاري, which repeats the name of the standalone
+ * إدارة الشؤون القانونية division. Both sources show it, and the tree follows
+ * the sources (project owner's ruling, 2026-08-05). It is seeded as REM-LEG.
  *
  * NAMES NORMALIZED ON THE WAY IN (the source spelling is in the comment):
  *   الإستعلامات → الاستعلامات · قسم العقود والإتفاقيات → قسم العقود والاتفاقيات
  *   الكميرات → الكاميرات · اللوجستك → اللوجستيك · trailing spaces stripped
  *   (`قسم الصيانة  `, `البوفيه `). No unit name is translated: they are Arabic.
  *
- * EXPECTED SHAPE: 13 divisions · 52 sections · 50 offices, 118 rows with the
+ * EXPECTED SHAPE: 13 divisions · 53 sections · 50 offices, 119 rows with the
  * root and the two governance units. DepartmentSeederTest asserts it.
  *
  * IDEMPOTENT, and keyed on `code` rather than `name`: names repeat across the
@@ -65,21 +67,59 @@ use RuntimeException;
  * earlier seeder produced four roots without erroring. Every one of these rows
  * passes the same DepartmentHierarchyGuard the API enforces.
  *
- * `manager_id` IS DELIBERATELY UNSET, including on the root, whose manager is
- * المدير العام (docs/phase-1.5-foundation-truth-up.md §4.3). Setting it would
+ * `manager_id` IS DELIBERATELY UNSET here, including on the root, whose manager
+ * is المدير العام (docs/phase-1.5-foundation-truth-up.md §4.3). Setting it would
  * mean inventing an employee, and the real staff arrive by import. The column
- * stays NULL until they do.
+ * stays NULL until they do. (DevDepartmentSeeder does point units at invented
+ * staff, so a development database shows managers this seeder never set.)
+ *
+ * ── THE ROOT, AND WHY IT IS NOT NAMED AFTER THE COMPANY ──────────────────────
+ *
+ * §4.3 of the ratified spec puts a row called `شركة الراقي للإنشاءات` at level 1.
+ * That row is in neither source artefact: the org chart's top box is
+ * مجلس الإدارة, and the HR sheet lists مجلس الإدارة and المدير العام as two
+ * values in its أسماء الإدارات column. The company-as-an-entity row was the
+ * price of flattening the chart's top into four tiers.
+ *
+ * Read literally, the chart is five deep — مجلس الإدارة → المدير العام →
+ * إدارة → قسم → مكتب — and five tiers means renumbering `level` on every row,
+ * moving the sector rule off level 2, and revising the published API contract.
+ * Too much bought for one relationship.
+ *
+ * So the root is `الإدارة العامة`, headed by المدير العام (project owner's
+ * ruling, 2026-08-05). It removes the invented entity, and it makes the tier
+ * label and the row name finally agree — the tier was always called
+ * الإدارة العامة while the only row at it was named something else.
+ *
+ * ONE RELATIONSHIP IS KNOWINGLY WRONG, and this is the only place it is
+ * recorded: `مجلس الإدارة` sits UNDER the administration the GM heads, whereas
+ * in reality the board oversees him. `parent_id` here is administrative
+ * containment, not a line of authority.
+ *
+ * It is affordable because the board is a container and nothing else: it holds
+ * members who carry a job title (`عضو مجلس إدارة`, grade 1) and draw pay, no
+ * unit reports to it, and no approval escalates to it (project owner, same
+ * ruling — this also settles §9 open question 2: board members ARE `employees`
+ * rows, which is why the unit has to exist at all).
+ *
+ * **Whoever writes the escalation walk must skip BOD.** Nothing terminates
+ * there. If that ever changes — if a decision genuinely needs board sign-off —
+ * this compromise expires and the five-tier shape becomes the correct one.
  */
 class DepartmentSeeder extends Seeder
 {
     /**
      * The single root. Its code prefixes nothing — the divisions start their own
-     * namespaces — because a shared prefix on all 118 rows would carry no
+     * namespaces — because a shared prefix on all 119 rows would carry no
      * information.
+     *
+     * The name matches DepartmentLevel::GeneralAdministration's label exactly,
+     * and that is the point: the tier is called الإدارة العامة, so the one row
+     * at that tier should be it. See the class docblock for what this replaced.
      */
-    private const ROOT_CODE = 'RAQI';
+    private const ROOT_CODE = 'GA';
 
-    private const ROOT_NAME = 'شركة الراقي للإنشاءات';
+    private const ROOT_NAME = 'الإدارة العامة';
 
     /**
      * Seed the whole tree in one transaction: a run that fails halfway leaves no
@@ -149,15 +189,17 @@ class DepartmentSeeder extends Seeder
     }
 
     /**
-     * Governance units — level 2, beside the divisions rather than above them
-     * (docs/phase-1.5-foundation-truth-up.md §4.3).
+     * Governance units — level 2, beside the divisions rather than above them.
      *
-     * The chart draws them on top of the divisions, which would make them a tier
-     * of their own and give the tree two roots. Placing them at level 2 with a
-     * NULL sector keeps the single-root invariant Phase 1 fought for while
-     * giving the board and the GM's office somewhere real to live. مكتب المدير
-     * العام is also what the new-hire intake form calls `a13` and treats as a
-     * division, so the form needs no special case at import time.
+     * مجلس الإدارة is here for one reason: its members are `employees`, and an
+     * employee needs a `department_id`. It is a container, not an authority
+     * node — see the class docblock for the relationship that is knowingly
+     * inverted by placing it at this level, and for why that is affordable.
+     *
+     * مكتب المدير العام is the GM's office STAFF, which is a different thing
+     * from الإدارة العامة (the root) being the administration he heads. The
+     * new-hire intake form calls it `a13` and treats it as a division, so
+     * keeping it at level 2 means the import needs no special case for it.
      *
      * NULL sector, not a third case: neither unit is in either box on slide 1.
      *
@@ -388,6 +430,13 @@ class DepartmentSeeder extends Seeder
                         ['code' => 'REM-PROM-ADV', 'name' => 'مكتب الدعاية والإعلان'],
                     ]],
                     ['code' => 'REM-FIN', 'name' => 'القسم المالي للتسويق العقاري'],
+                    // Duplicates the name of the standalone إدارة الشؤون
+                    // القانونية division, and is kept anyway: both sources show
+                    // it, and the tree follows the sources (project owner's
+                    // ruling, 2026-08-05). This is the case that justifies
+                    // keying everything on `code` — REM-LEG and LEG are two
+                    // different units whose names alone cannot tell them apart.
+                    ['code' => 'REM-LEG', 'name' => 'قسم الشؤون القانونية'],
                 ],
             ],
         ];

@@ -180,20 +180,50 @@ it — the same reasoning that put `level_label` there.
 
 ### 4.3 The top of the tree
 
-> **✅ Implemented 2026-08-05** — the table below is seeded verbatim by
-> [DepartmentSeeder](../database/seeders/DepartmentSeeder.php): one root, the two
+> **✅ Implemented 2026-08-05, with the root row changed. Read this before the
+> table below.**
+>
+> **The root is `الإدارة العامة`, headed by المدير العام — not
+> `شركة الراقي للإنشاءات`.** That row appears in neither source artefact: the
+> chart's top box is `مجلس الإدارة`, and the HR sheet lists `مجلس الإدارة` and
+> `المدير العام` as two values in its `أسماء الإدارات` column. It was the price
+> of flattening the chart's top into four tiers, and it left the tier label
+> (`الإدارة العامة`) disagreeing with the name of the only row at that tier.
+>
+> Read literally the chart is **five** deep — `مجلس الإدارة` → `المدير العام` →
+> `إدارة` → `قسم` → `مكتب`. Five tiers renumbers `level` on every row, moves the
+> §4.2 sector rule off level 2, and revises the published API contract: too much
+> bought for one relationship. (Note that ratified decision #6's "max depth = 4"
+> was a statement about the *bottom* of the tree — the ورشة and machine rows —
+> so this is a cost argument, not a rule violation.)
+>
+> **One relationship is knowingly wrong:** `مجلس الإدارة` sits under the
+> administration the GM heads, whereas the board oversees him. `parent_id` there
+> is administrative containment, not authority. It is affordable because the
+> board is a container and nothing else — **and whoever writes the escalation
+> walk must skip it.** If a decision ever genuinely needs board sign-off, this
+> compromise expires and the five-tier shape becomes correct.
+>
+> **This also settles §9 open question 2:** board members ARE `employees` rows
+> (project owner, 2026-08-05), which is why the unit must exist at all.
+>
+> Everything else in the table below is seeded as written by
+> [DepartmentSeeder](../database/seeders/DepartmentSeeder.php): the two
 > governance units at level 2 with a `NULL` sector, and the thirteen divisions.
 > `manager_id` on the root is left `NULL` rather than pointing at المدير العام,
 > because setting it would mean inventing an employee row; the real staff arrive
 > with the §7.4 import.
 >
-> Seeded shape: **13 divisions · 52 sections · 50 offices**, 118 rows,
-> `parent_id IS NULL` count = 1. Four readings the spec left open were ruled on
+> Seeded shape: **13 divisions · 53 sections · 50 offices**, 119 rows,
+> `parent_id IS NULL` count = 1. Three readings the spec left open were ruled on
 > by the project owner (2026-08-05) and are recorded in the seeder's docblock:
-> `إدارة التسويق وتقنية المعلومات` follows the chart (§7.1's first discrepancy,
-> resolved in the chart's favour); `المبيعات` is seeded `is_active = false`
-> pending its meeting; the `قسم الشؤون القانونية` duplicated under
-> `إدارة التسويق العقاري` is a source error and is dropped.
+> `إدارة التسويق وتقنية المعلومات` follows the chart, with a
+> `قسم تقنية المعلومات` under it (§7.1's first discrepancy, resolved in the
+> chart's favour); `المبيعات` is seeded `is_active = false` pending its meeting;
+> and the `قسم الشؤون القانونية` under `إدارة التسويق العقاري` is **kept**
+> despite duplicating the standalone `إدارة الشؤون القانونية` — the governing
+> instruction is that the tree matches the source artefacts, including where
+> they look wrong to a reader.
 
 The chart shows `مجلس الإدارة` and `المدير العام` above the divisions, but the
 intake form lists `المدير العام` as though it were a division (`q1` code `a13`,
@@ -581,8 +611,15 @@ before the module it touches is finished.
    identifier, `legacy_number` for the imported one. Confirm HR is content to
    see a new number, or say the word and the generator adopts the `M` format
    for new hires too.
-2. **`مجلس الإدارة` membership.** Are board members `employees` rows? They have
-   a job title (`عضو مجلس إدارة`, grade 1) in the workbook, which suggests yes.
+2. **`مجلس الإدارة` membership.** ✅ **Answered 2026-08-05: yes.** Board members
+   are `employees` rows, which is why the unit must exist in the tree at all —
+   an employee needs a `department_id`. The project owner also characterised the
+   board as *"مجرد وعاء"*: no unit reports to it and no approval escalates to
+   it. That is what makes §4.3's placement of it under `الإدارة العامة`
+   affordable, and it is a **precondition** — see the §4.3 marker.
+
+   Original note: they have a job title (`عضو مجلس إدارة`, grade 1) in the
+   workbook, which suggests yes.
 3. **`الحالة` beyond two values.** The workbook shows only `متعاقد` and
    `إنهاء عمل`. Does the company distinguish suspended / on-loan / seconded
    staff, which the current `inactive` case could carry?
