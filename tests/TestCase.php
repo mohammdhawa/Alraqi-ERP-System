@@ -66,7 +66,7 @@ abstract class TestCase extends BaseTestCase
     {
         $this->seedRbac();
 
-        $role = Role::create(['name' => 'test-role-' . uniqid()]);
+        $role = Role::create(['name' => 'test-role-'.uniqid()]);
         $role->permissions()->sync(
             Permission::whereIn('name', $permissions)->pluck('id'),
         );

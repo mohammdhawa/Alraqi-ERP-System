@@ -96,7 +96,7 @@ class Employee extends Model
     {
         $next = (int) (self::withTrashed()->max('id') ?? 0) + 1;
 
-        return 'EMP-' . str_pad((string) $next, 5, '0', STR_PAD_LEFT);
+        return 'EMP-'.str_pad((string) $next, 5, '0', STR_PAD_LEFT);
     }
 
     /**

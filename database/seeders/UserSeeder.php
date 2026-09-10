@@ -2,10 +2,10 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Support\PermissionCache;
+use Illuminate\Database\Seeder;
 
 class UserSeeder extends Seeder
 {
