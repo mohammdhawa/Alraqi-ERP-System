@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace App\Modules\Auth\Controllers;
 
 use App\Modules\Auth\Models\Role;
-use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Requests\AssignRoleRequest;
 use App\Modules\Auth\Requests\CreateRoleRequest;
 use App\Modules\Auth\Requests\UpdateRoleRequest;
 use App\Modules\Auth\Resources\RoleResource;
+use App\Modules\Auth\Resources\UserResource;
 use App\Modules\Auth\Services\RoleService;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
@@ -37,10 +38,13 @@ class RoleController extends Controller
         private readonly RoleService $roleService,
     ) {}
 
-    public function index(): JsonResponse
+    /**
+     * Built with paginated(), never success() (C21) — see UserController::index.
+     */
+    public function index(Request $request): JsonResponse
     {
-        return $this->success(
-            data: RoleResource::collection($this->roleService->list()),
+        return $this->paginated(
+            data: RoleResource::collection($this->roleService->paginate($this->perPage($request))),
             message: 'تم جلب الأدوار.',
         );
     }
@@ -76,27 +80,37 @@ class RoleController extends Controller
         return $this->success(message: 'تم حذف الدور.');
     }
 
+    /**
+     * Ids go to the service; it does the loading (C3). This action used to call
+     * User::findOrFail() and Role::findOrFail() itself — repository work in a
+     * handler, which also produced a 404 whose message leaked the model class.
+     *
+     * The response now carries the user's resulting role set, so a client does
+     * not need a follow-up request to refresh what it just changed.
+     */
     public function assign(AssignRoleRequest $request): JsonResponse
     {
-        $user = User::findOrFail($request->validated('user_id'));
-        $role = Role::findOrFail($request->validated('role_id'));
-
-        $this->roleService->assign($user, $role);
+        $user = $this->roleService->assign(
+            (int) $request->validated('user_id'),
+            (int) $request->validated('role_id'),
+        );
 
         return $this->success(
-            message: "تم إسناد الدور '{$role->name}' إلى {$user->email}.",
+            data: new UserResource($user),
+            message: 'تم إسناد الدور إلى المستخدم.',
         );
     }
 
     public function unassign(AssignRoleRequest $request): JsonResponse
     {
-        $user = User::findOrFail($request->validated('user_id'));
-        $role = Role::findOrFail($request->validated('role_id'));
-
-        $this->roleService->unassign($user, $role);
+        $user = $this->roleService->unassign(
+            (int) $request->validated('user_id'),
+            (int) $request->validated('role_id'),
+        );
 
         return $this->success(
-            message: "تم سحب الدور '{$role->name}' من {$user->email}.",
+            data: new UserResource($user),
+            message: 'تم سحب الدور من المستخدم.',
         );
     }
 }

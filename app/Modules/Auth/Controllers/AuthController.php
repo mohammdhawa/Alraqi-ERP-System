@@ -73,7 +73,10 @@ class AuthController extends Controller
                 'access_token'  => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
                 'token_type'    => 'Bearer',
-                'expires_in'    => 15 * 60, // seconds — helps client set a timer
+                // Passed through from the service, not computed here. This was
+                // `15 * 60`, one of four independent copies of the token
+                // lifetime, and the only one a client could see.
+                'expires_in'    => $result['expires_in'],
             ],
             message: 'تم تسجيل الدخول بنجاح.',
         );
@@ -101,7 +104,7 @@ class AuthController extends Controller
                 'access_token'  => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
                 'token_type'    => 'Bearer',
-                'expires_in'    => 15 * 60,
+                'expires_in'    => $result['expires_in'],
             ],
             message: 'تم تحديث الرموز بنجاح.',
         );

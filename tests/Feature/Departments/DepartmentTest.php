@@ -101,6 +101,60 @@ class DepartmentTest extends TestCase
             ->assertJsonPath('data.name', 'Engineering');
     }
 
+    /**
+     * show() must not leave the ancestor walk to the Resource layer.
+     *
+     * DepartmentResource exposes a RESOLVED `sector`, which the model finds by
+     * walking up to the first non-null ancestor — one query per hop when
+     * `parent` is not loaded. The list endpoint was covered by the service's
+     * withAncestors(); show() used bare route-model binding, so rendering one
+     * level-4 office cost 3 queries against `departments`, two of them issued
+     * from inside the Resource — the one layer whose contract forbids queries.
+     *
+     * ⚠️ NOTE THE COUNT GOES UP, NOT DOWN: 3 before, 4 after. Preloading a
+     * nested chain costs one query PER LEVEL, while the lazy walk stopped as
+     * soon as it found a stored sector. So this is not a performance fix and
+     * must not be described as one — it is a LAYER fix. What it buys is that
+     * the cost is now paid in the controller, is bounded by the tier count, and
+     * does not vary with what a Resource happens to dereference. The place this
+     * genuinely saves queries is the list endpoint, where the same walk ran once
+     * per row; that was already handled by the service's withAncestors().
+     *
+     * Asserting the exact count still discriminates: the lazy version stops at
+     * the division that stores the sector (3), the eager version walks to the
+     * root (4).
+     */
+    public function test_show_loads_the_ancestor_chain_rather_than_walking_it_lazily(): void
+    {
+        $this->actingAsAdmin();
+
+        $root     = Department::create(['name' => 'الإدارة العامة', 'level' => 1]);
+        $division = Department::create(['name' => 'إدارة', 'level' => 2, 'parent_id' => $root->id, 'sector' => 1]);
+        $section  = Department::create(['name' => 'قسم', 'level' => 3, 'parent_id' => $division->id]);
+        $office   = Department::create(['name' => 'مكتب', 'level' => 4, 'parent_id' => $section->id]);
+
+        $queries = [];
+        \DB::listen(function ($query) use (&$queries) {
+            if (str_contains($query->sql, 'from "departments"')) {
+                $queries[] = $query->sql;
+            }
+        });
+
+        $this->getJson("/api/departments/{$office->id}")
+            ->assertOk()
+            // The sector still resolves — it is preloaded now, not walked.
+            ->assertJsonPath('data.sector', 1);
+
+        // 1 binding + one per ancestor level, all issued by the controller
+        // before the Resource ever runs.
+        $this->assertCount(
+            4,
+            $queries,
+            'expected the binding plus a preloaded ancestor chain; got '.count($queries)
+                .' — the Resource is probably walking ancestors lazily again',
+        );
+    }
+
     public function test_update_modifies_a_department(): void
     {
         $this->actingAsAdmin();

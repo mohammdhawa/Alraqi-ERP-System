@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Middleware;
 
+use App\Shared\Traits\ApiErrors;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -35,15 +36,21 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class CheckPermission
 {
+    // The envelope is the trait's, not this class's. §3's layer contract says a
+    // middleware may reject early with a status code but must never hand-build
+    // JSON — this used to do exactly that, twice, duplicating the envelope
+    // outside ApiRespond (C16).
+    use ApiErrors;
+
     public function handle(Request $request, Closure $next, string $permission): Response
     {
         $user = $request->user();
 
+        // C9: 401 and 403 are different answers. This arm is reachable only if a
+        // route carries permission: without auth:sanctum in front of it, which
+        // would be a routing mistake — but it fails closed rather than assuming.
         if (! $user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'غير مصرّح بالوصول.',
-            ], Response::HTTP_UNAUTHORIZED);
+            return $this->unauthorized();
         }
 
         // RBAC is enforced: the authenticated user is the Auth module's User
@@ -52,10 +59,7 @@ class CheckPermission
         // method. There is deliberately NO fail-open fallback: a user who lacks
         // the permission is denied, full stop.
         if (! $user->hasPermission($permission)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.',
-            ], Response::HTTP_FORBIDDEN);
+            return $this->forbidden('ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
         }
 
         return $next($request);

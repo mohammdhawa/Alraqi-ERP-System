@@ -29,8 +29,17 @@ class PermissionSeeder extends Seeder
     private const RESOURCES = [
         // Departments module
         'departments' => ['departments.view', 'departments.create', 'departments.update', 'departments.delete'],
-        // HR module
-        'hr'   => ['hr.employees.view', 'hr.employees.create', 'hr.employees.update', 'hr.employees.delete'],
+        // HR module.
+        //
+        // viewSalary and viewIdentity are FIELD-LEVEL permissions, not route
+        // permissions: no route carries them. They are checked inside
+        // EmployeeResource to decide whether `salary` / `national_id` appear in
+        // the payload (C11). They are real permissions all the same — seeded,
+        // assignable, and shown in the admin UI like any other.
+        'hr'   => [
+            'hr.employees.view', 'hr.employees.create', 'hr.employees.update', 'hr.employees.delete',
+            'hr.employees.viewSalary', 'hr.employees.viewIdentity',
+        ],
         // Auth module
         'auth' => [
             'auth.users.view', 'auth.users.create', 'auth.users.update', 'auth.users.delete',
@@ -45,22 +54,24 @@ class PermissionSeeder extends Seeder
      * @var array<string, string>
      */
     private const LABELS = [
-        'departments.view'    => 'عرض الوحدات التنظيمية',
-        'departments.create'  => 'إنشاء وحدة تنظيمية',
-        'departments.update'  => 'تعديل وحدة تنظيمية',
-        'departments.delete'  => 'حذف وحدة تنظيمية',
-        'hr.employees.view'   => 'عرض الموظفين',
-        'hr.employees.create' => 'إضافة موظف',
-        'hr.employees.update' => 'تعديل موظف',
-        'hr.employees.delete' => 'حذف موظف',
-        'auth.users.view'     => 'عرض المستخدمين',
-        'auth.users.create'   => 'إنشاء مستخدم',
-        'auth.users.update'   => 'تعديل مستخدم',
-        'auth.users.delete'   => 'حذف مستخدم',
-        'auth.roles.view'     => 'عرض الأدوار',
-        'auth.roles.create'   => 'إنشاء دور',
-        'auth.roles.update'   => 'تعديل دور',
-        'auth.roles.delete'   => 'حذف دور',
+        'departments.view'          => 'عرض الوحدات التنظيمية',
+        'departments.create'        => 'إنشاء وحدة تنظيمية',
+        'departments.update'        => 'تعديل وحدة تنظيمية',
+        'departments.delete'        => 'حذف وحدة تنظيمية',
+        'hr.employees.view'         => 'عرض الموظفين',
+        'hr.employees.create'       => 'إضافة موظف',
+        'hr.employees.update'       => 'تعديل موظف',
+        'hr.employees.delete'       => 'حذف موظف',
+        'hr.employees.viewSalary'   => 'عرض رواتب الموظفين',
+        'hr.employees.viewIdentity' => 'عرض أرقام هوية الموظفين',
+        'auth.users.view'           => 'عرض المستخدمين',
+        'auth.users.create'         => 'إنشاء مستخدم',
+        'auth.users.update'         => 'تعديل مستخدم',
+        'auth.users.delete'         => 'حذف مستخدم',
+        'auth.roles.view'           => 'عرض الأدوار',
+        'auth.roles.create'         => 'إنشاء دور',
+        'auth.roles.update'         => 'تعديل دور',
+        'auth.roles.delete'         => 'حذف دور',
     ];
 
     public function run(): void
@@ -88,6 +99,6 @@ class PermissionSeeder extends Seeder
         $parts  = explode('.', $name);
         $action = array_pop($parts);
 
-        return ucfirst($action) . ' ' . implode(' ', $parts);
+        return ucfirst($action).' '.implode(' ', $parts);
     }
 }

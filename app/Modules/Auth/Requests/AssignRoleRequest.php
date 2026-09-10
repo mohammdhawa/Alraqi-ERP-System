@@ -23,11 +23,18 @@ class AssignRoleRequest extends FormRequest
     /**
      * @return array<string, array<int, mixed>>
      */
+    /**
+     * Both exists rules carry ->whereNull('deleted_at') (C24). A bare exists
+     * accepts a trashed row, which would grant a role to a deleted account or
+     * grant a deleted role — writing a pivot row that grants nothing and
+     * reporting success. These rules were correct only for as long as neither
+     * table was soft-deletable; both now are.
+     */
     public function rules(): array
     {
         return [
-            'user_id' => ['required', 'integer', Rule::exists('users', 'id')],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            'user_id' => ['required', 'integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')->whereNull('deleted_at')],
         ];
     }
 

@@ -10,7 +10,7 @@ use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Support\PermissionCache;
 use App\Shared\Services\AuditLogService;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -33,13 +33,25 @@ class RoleService
     ) {}
 
     /**
-     * All roles with their permissions, for admin listing.
+     * A page of roles with their permissions, for admin listing.
      *
-     * @return Collection<int, Role>
+     * WAS UNPAGINATED (C27, GAP-11) — see UserService::paginate() for why that
+     * mattered. Roles grow more slowly than users, but "there is no unpaginated
+     * list endpoint in this API" is the rule precisely so that nobody has to
+     * judge which tables will stay small.
+     *
+     * Ordered by name then id (C29): role names are unique, but the tie-break
+     * is uniform across every list query rather than case-by-case.
+     *
+     * @return LengthAwarePaginator<Role>
      */
-    public function list(): Collection
+    public function paginate(int $perPage = 15): LengthAwarePaginator
     {
-        return Role::query()->with('permissions')->orderBy('name')->get();
+        return Role::query()
+            ->with('permissions')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->paginate($perPage);
     }
 
     /**
@@ -159,15 +171,28 @@ class RoleService
     private function guardNotSystem(Role $role): void
     {
         if ($role->is_system) {
-            throw new SystemRoleException();
+            throw new SystemRoleException;
         }
     }
 
     /**
      * Grant a role to a user (idempotent — no duplicate pivot rows).
+     *
+     * TAKES IDS, NOT MODELS. RoleController used to resolve both rows itself
+     * with User::findOrFail() / Role::findOrFail() before calling in, which put
+     * repository work in a handler (C3). Loading them is the service's job, so
+     * every caller — HTTP, console, a future bulk-grant screen — gets the same
+     * lookup and the same failure behaviour.
+     *
+     * A missing id raises ModelNotFoundException, which the central renderer
+     * maps to a generic 404 that names no model class (C12). The FormRequest
+     * normally catches this first and returns a friendlier field-level 422.
      */
-    public function assign(User $user, Role $role): User
+    public function assign(int $userId, int $roleId): User
     {
+        $user = User::findOrFail($userId);
+        $role = Role::findOrFail($roleId);
+
         $user->roles()->syncWithoutDetaching([$role->id]);
 
         PermissionCache::flush();
@@ -177,7 +202,14 @@ class RoleService
             description: "Role '{$role->name}' assigned to user {$user->email}.",
         );
 
-        return $user->load('roles');
+        // `employee` is loaded alongside `roles` because UserResource resolves
+        // the account's display name through it — a user row has no name of its
+        // own. Returning only `roles` left the Resource to dereference
+        // `$this->employee` during serialization, which lazy-loads inside the
+        // response layer and breaks the Resource contract ("MUST NOT perform
+        // queries or trigger lazy loads"). Verified: one extra SELECT against
+        // `employees` per assign/unassign response.
+        return $user->load(['roles', 'employee']);
     }
 
     /**
@@ -185,8 +217,11 @@ class RoleService
      * not hold is a harmless no-op). Revoking access is security-relevant, so
      * it is audited just like assignment.
      */
-    public function unassign(User $user, Role $role): User
+    public function unassign(int $userId, int $roleId): User
     {
+        $user = User::findOrFail($userId);
+        $role = Role::findOrFail($roleId);
+
         $user->roles()->detach($role->id);
 
         PermissionCache::flush();
@@ -196,6 +231,13 @@ class RoleService
             description: "Role '{$role->name}' revoked from user {$user->email}.",
         );
 
-        return $user->load('roles');
+        // `employee` is loaded alongside `roles` because UserResource resolves
+        // the account's display name through it — a user row has no name of its
+        // own. Returning only `roles` left the Resource to dereference
+        // `$this->employee` during serialization, which lazy-loads inside the
+        // response layer and breaks the Resource contract ("MUST NOT perform
+        // queries or trigger lazy loads"). Verified: one extra SELECT against
+        // `employees` per assign/unassign response.
+        return $user->load(['roles', 'employee']);
     }
 }

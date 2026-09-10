@@ -34,10 +34,15 @@ class UserController extends Controller
         private readonly UserService $userService,
     ) {}
 
-    public function index(): JsonResponse
+    /**
+     * Built with paginated(), never success() (C21). Passing a ResourceCollection
+     * to success() nests it under `data` and silently drops the metadata — which
+     * is exactly what this endpoint used to do, leaving clients unable to page.
+     */
+    public function index(Request $request): JsonResponse
     {
-        return $this->success(
-            data: UserResource::collection($this->userService->list()),
+        return $this->paginated(
+            data: UserResource::collection($this->userService->paginate($this->perPage($request))),
             message: 'تم جلب المستخدمين.',
         );
     }
@@ -64,13 +69,10 @@ class UserController extends Controller
 
     public function destroy(Request $request, User $user): JsonResponse
     {
-        // Safety guard: deleting your own account mid-session would lock you out
-        // with no way to undo it, so self-deletion is blocked.
-        if ($user->id === $request->user()->id) {
-            return $this->error('لا يمكنك حذف حسابك الخاص.', 422);
-        }
-
-        $this->userService->delete($user);
+        // The self-deletion guard lives in UserService::delete(), which every
+        // caller crosses (C4) — this only reports who is asking, which §3
+        // explicitly permits a controller to do. No business `if` here (C2).
+        $this->userService->delete($user, $request->user()?->getKey());
 
         return $this->success(message: 'تم حذف المستخدم.');
     }

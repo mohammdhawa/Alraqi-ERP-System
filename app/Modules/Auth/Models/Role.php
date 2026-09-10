@@ -7,6 +7,7 @@ namespace App\Modules\Auth\Models;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Role Model
@@ -27,6 +28,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class Role extends Model
 {
     use HasAuditLog;
+
+    /**
+     * WHY SoftDeletes (C23): Stage 2's shared approval engine will reference
+     * roles by id, and a hard delete would strand those rows. Access is not
+     * affected — the global scope applies through the belongsToMany, so a
+     * trashed role vanishes from $user->roles() and grants nothing, while its
+     * user_roles and role_permissions rows survive so a restore is faithful.
+     */
+    use SoftDeletes;
 
     protected $fillable = [
         'name',

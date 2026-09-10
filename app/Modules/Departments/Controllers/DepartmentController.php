@@ -11,6 +11,7 @@ use App\Modules\Departments\Resources\DepartmentResource;
 use App\Modules\Departments\Services\DepartmentService;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
@@ -36,9 +37,13 @@ class DepartmentController extends Controller
         private readonly DepartmentService $departmentService,
     ) {}
 
-    public function index(): JsonResponse
+    /**
+     * The controller is the only layer that knows a query string exists (C1):
+     * it resolves and clamps per_page, then hands the service an int.
+     */
+    public function index(Request $request): JsonResponse
     {
-        $departments = $this->departmentService->paginate();
+        $departments = $this->departmentService->paginate($this->perPage($request));
 
         return $this->paginated(
             data: DepartmentResource::collection($departments),
@@ -56,10 +61,17 @@ class DepartmentController extends Controller
         );
     }
 
+    /**
+     * loadAncestors() is not optional decoration: DepartmentResource resolves
+     * `sector` by walking up the tree, so without it the Resource performs that
+     * walk itself — a query per tier, from the layer whose contract forbids
+     * queries. The list endpoint got this via the service's withAncestors();
+     * a bound model arrives with nothing loaded.
+     */
     public function show(Department $department): JsonResponse
     {
         return $this->success(
-            data: new DepartmentResource($department),
+            data: new DepartmentResource($department->loadAncestors()),
             message: 'تم جلب الوحدة التنظيمية.',
         );
     }

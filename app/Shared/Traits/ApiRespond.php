@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Shared\Traits;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -15,7 +16,7 @@ use Symfony\Component\HttpFoundation\Response;
  * Every API response follows the same structure:
  *
  * Success: { "success": true, "message": "...", "data": {...} }
- * Error:   { "success": false, "message": "...", "errors": {...} }
+ * Error:   { "success": false, "message": "...", "errors": {...} }  (see ApiErrors)
  *
  * WHY a trait and not a base controller:
  * - Traits compose; base controllers inherit. Composition is more flexible.
@@ -30,6 +31,13 @@ use Symfony\Component\HttpFoundation\Response;
  */
 trait ApiRespond
 {
+    /**
+     * The error half of the envelope, composed rather than duplicated —
+     * so a controller keeps the full vocabulary while ApiExceptionRenderer
+     * and CheckPermission can take only the errors. One `error()` exists.
+     */
+    use ApiErrors;
+
     protected function success(
         mixed $data = null,
         string $message = 'تمت العملية بنجاح.',
@@ -55,9 +63,40 @@ trait ApiRespond
         return $this->success($data, $message, Response::HTTP_CREATED);
     }
 
-    protected function noContent(string $message = 'تمت العملية بنجاح.'): JsonResponse
+    /**
+     * The page size to apply to a list query, read from the query string and
+     * CLAMPED to 1–100 (C28).
+     *
+     * WHY THIS LIVES HERE and not in each controller: it is one rule, so it is
+     * written once (P1). Before it existed, every service accepted
+     * `int $perPage = 15` and every controller called `paginate()` with no
+     * argument — so `per_page` was silently DEAD on every list endpoint
+     * (verified 2026-09-08: per_page=5, 0, -1, abc and 1000000 all returned
+     * per_page 15), and no cap existed for the moment it was wired up.
+     *
+     * WHY THE CLAMP IS NOT DECORATION: without it `?per_page=1000000` is a
+     * cheap denial of service against a table that will hold hundreds of
+     * thousands of audit rows.
+     *
+     * WHY IT IS CLAMPED, NOT REJECTED: a page size is a client hint, not a
+     * business fact — silently honouring the nearest legal value is kinder than
+     * a 422 and matches the documented contract. An unknown `sort` or filter
+     * value IS a 422 (C30); those are different, because a wrong sort returns
+     * wrong data while a wrong page size returns correct data in a different
+     * batch.
+     *
+     * The result is passed to the service as an int, so the service never reads
+     * the query string and stays callable from a console command or a job (C1).
+     */
+    protected function perPage(Request $request, int $default = 15): int
     {
-        return $this->success(message: $message, statusCode: Response::HTTP_NO_CONTENT);
+        $requested = $request->query('per_page');
+
+        if (! is_numeric($requested)) {
+            return $default;
+        }
+
+        return max(1, min(100, (int) $requested));
     }
 
     /**
@@ -93,49 +132,5 @@ trait ApiRespond
                 'to'           => $paginator->lastItem(),
             ],
         ], $statusCode);
-    }
-
-    protected function error(
-        string $message = 'حدث خطأ ما.',
-        int $statusCode = Response::HTTP_BAD_REQUEST,
-        mixed $errors = null,
-    ): JsonResponse {
-        $response = [
-            'success' => false,
-            'message' => $message,
-        ];
-
-        if ($errors !== null) {
-            $response['errors'] = $errors;
-        }
-
-        return response()->json($response, $statusCode);
-    }
-
-    protected function unauthorized(string $message = 'غير مصرّح بالوصول.'): JsonResponse
-    {
-        return $this->error($message, Response::HTTP_UNAUTHORIZED);
-    }
-
-    protected function forbidden(string $message = 'ليس لديك صلاحية لتنفيذ هذا الإجراء.'): JsonResponse
-    {
-        return $this->error($message, Response::HTTP_FORBIDDEN);
-    }
-
-    protected function notFound(string $message = 'العنصر المطلوب غير موجود.'): JsonResponse
-    {
-        return $this->error($message, Response::HTTP_NOT_FOUND);
-    }
-
-    protected function validationError(
-        mixed $errors,
-        string $message = 'فشل التحقق من البيانات المُدخلة.',
-    ): JsonResponse {
-        return $this->error($message, Response::HTTP_UNPROCESSABLE_ENTITY, $errors);
-    }
-
-    protected function serverError(string $message = 'حدث خطأ داخلي في الخادم.'): JsonResponse
-    {
-        return $this->error($message, Response::HTTP_INTERNAL_SERVER_ERROR);
     }
 }

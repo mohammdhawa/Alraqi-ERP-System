@@ -22,3 +22,10 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local agent tooling. settings.local.json is per-developer and holds machine
+# specific command allowlists; it must never be shared. Ignoring the whole
+# directory rather than the one file so a future .claude/* addition cannot be
+# committed by accident — the protection has to live in the REPO, not in an
+# individual's global gitignore, or it does not exist for anyone who clones this.
+/.claude

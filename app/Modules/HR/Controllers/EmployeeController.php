@@ -10,6 +10,7 @@ use App\Modules\HR\Resources\EmployeeResource;
 use App\Modules\HR\Services\EmployeeService;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
@@ -34,9 +35,13 @@ class EmployeeController extends Controller
         private readonly EmployeeService $employeeService,
     ) {}
 
-    public function index(): JsonResponse
+    /**
+     * The controller is the only layer that knows a query string exists (C1):
+     * it resolves and clamps per_page, then hands the service an int.
+     */
+    public function index(Request $request): JsonResponse
     {
-        $employees = $this->employeeService->paginate();
+        $employees = $this->employeeService->paginate($this->perPage($request));
 
         return $this->paginated(
             data: EmployeeResource::collection($employees),

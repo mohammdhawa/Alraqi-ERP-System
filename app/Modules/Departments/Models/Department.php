@@ -276,17 +276,53 @@ class Department extends Model
     }
 
     /**
+     * The nested relation path covering every ancestor: `parent.parent.…`,
+     * one hop shorter than the tier count (the root has no parent).
+     *
+     * Derived from the enum rather than written out, so appending a tier does
+     * not quietly reintroduce the N+1 this exists to remove. It is a named
+     * method rather than an inline expression because BOTH loading paths need
+     * it — the query scope below for result sets, and loadAncestors() for a
+     * single already-bound row — and two hand-written copies of "how deep is
+     * the tree" is exactly the drift P1 forbids.
+     */
+    public static function ancestorRelationPath(): string
+    {
+        return implode('.', array_fill(0, count(DepartmentLevel::cases()) - 1, 'parent'));
+    }
+
+    /**
      * Eager-load the ancestor chain, so reading sector() across a result set
      * costs a fixed number of queries instead of one per hop per row.
-     *
-     * The chain length is derived from the tier count rather than written out,
-     * so appending a tier does not quietly reintroduce the N+1 that this scope
-     * exists to remove.
      *
      * @param  Builder<self>  $query
      */
     public function scopeWithAncestors(Builder $query): void
     {
-        $query->with(implode('.', array_fill(0, count(DepartmentLevel::cases()) - 1, 'parent')));
+        $query->with(self::ancestorRelationPath());
+    }
+
+    /**
+     * The same eager-load for a single row that is already in hand — a
+     * route-model-bound department, typically.
+     *
+     * WHY THIS EXISTS: DepartmentResource exposes a RESOLVED `sector`, and
+     * resolving it walks up the tree one query per hop (see the sector()
+     * accessor). The list endpoint was covered by the scope; `show()` used bare
+     * route-model binding and so performed that walk from inside the Resource —
+     * the one layer whose contract forbids queries outright. Whoever hands a
+     * Department to the Resource owes it this call.
+     *
+     * ⚠️ THIS IS NOT A QUERY-COUNT OPTIMISATION for a single row, and should
+     * not be sold as one. Preloading costs one query per ancestor level, while
+     * the lazy walk stopped at the first stored sector — so rendering one
+     * level-4 office went from 3 queries to 4. What it buys is that the cost is
+     * paid by the caller, is bounded by the tier count, and cannot change
+     * because someone edited a Resource. The real saving is on lists, where the
+     * scope turns N walks into a fixed few.
+     */
+    public function loadAncestors(): self
+    {
+        return $this->load(self::ancestorRelationPath());
     }
 }

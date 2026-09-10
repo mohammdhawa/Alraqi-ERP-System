@@ -22,20 +22,17 @@ use Illuminate\Support\Facades\Route;
 |   - Protected routes (logout, me): auth:sanctum middleware.
 |   - Rate limiting on login/refresh to prevent brute force.
 |
-| RATE LIMITING:
-|   - Login: 5 attempts per minute (prevents credential stuffing).
-|   - Refresh: 10 attempts per minute (slightly higher for legitimate rapid refreshes).
-|   - Protected routes use the default API throttle.
+| RATE LIMITING (all three limiters are registered in AppServiceProvider::boot):
+|   - Login:   5/min, keyed on IP **and** email. Keying on IP alone lets one
+|              attacker behind a company NAT lock out everyone sharing that
+|              address, which turns the protection into the outage.
+|   - Refresh: 10/min (higher, for legitimate rapid refreshes).
+|   - Everything else: the baseline `api` limiter at 60/min, applied by
+|              $middleware->throttleApi() in bootstrap/app.php.
 |
-| Register the rate limiters in AppServiceProvider::boot():
-|
-|   RateLimiter::for('auth-login', function (Request $request) {
-|       return Limit::perMinute(5)->by($request->ip());
-|   });
-|
-|   RateLimiter::for('auth-refresh', function (Request $request) {
-|       return Limit::perMinute(10)->by($request->ip());
-|   });
+| That last line was previously untrue in a way this comment helped hide: the
+| `api` group carried no throttle at all, so every route except login and refresh
+| was unlimited.
 |
 */
 
@@ -53,6 +50,14 @@ Route::post('/refresh', [AuthController::class, 'refresh'])
 // authenticated action. Login/refresh are audited at the action level
 // inside AuthService instead, since they run before authentication.
 Route::middleware(['auth:sanctum', 'audit'])->group(function () {
+    // AUTHORIZATION MODEL for these two: SELF-SCOPED (C7). They carry no
+    // `permission:` because they act on the caller's own session and profile
+    // and on nothing else — logout revokes only the caller's tokens, /me reads
+    // only the caller's record. There is no permission that could sensibly gate
+    // them: a user who may not read their own profile has no reason to hold a
+    // token at all. C7 requires a permission OR a stated model; this is the
+    // stated model, and it must stay stated — an unguarded route with no
+    // comment is indistinguishable from one where the permission was forgotten.
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('auth.logout');
 
@@ -108,15 +113,31 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 });
 
 // --- Notifications ---
-// Each user reads/manages only their own notifications, so authorization is
-// ownership (enforced in NotificationService) and no permission middleware is
-// needed. Deliberately NOT in the 'audit' group: the list and unread-count
-// endpoints are polled frequently and would flood the audit log.
+// AUTHORIZATION MODEL: owner-scoped (C7). Each user reads and manages only their
+// own notifications; the scoping is enforced in NotificationService by resolving
+// every row through $user->notifications(), so no permission middleware applies.
+//
+// AUDITING IS PER-ROUTE, NOT PER-GROUP. The two READ endpoints are excluded from
+// the 'audit' middleware because clients poll them constantly and they would
+// flood the trail with no information in it. That exclusion was previously
+// applied to the whole group, which silently swept up the one route here that
+// CHANGES STATE — marking a notification read left no trace anywhere, since the
+// Notification model also carries no HasAuditLog (deliberately, so the bulk
+// fan-out insert stays event-free). C13 has no carve-out for cheap writes, and
+// "it sits next to two polled endpoints" is not one.
 Route::middleware('auth:sanctum')
     ->prefix('notifications')
     ->name('auth.notifications.')
     ->group(function () {
+        // Polled reads — deliberately unaudited.
         Route::get('/', [NotificationController::class, 'index'])->name('index');
         Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('unread-count');
-        Route::post('/{notification}/read', [NotificationController::class, 'markRead'])->name('read');
+
+        // A write: audited like every other state change.
+        // whereNumber keeps a non-numeric id from reaching the controller's int
+        // parameter, so a junk segment is a 404 from routing rather than a cast.
+        Route::post('/{notification}/read', [NotificationController::class, 'markRead'])
+            ->middleware('audit')
+            ->whereNumber('notification')
+            ->name('read');
     });

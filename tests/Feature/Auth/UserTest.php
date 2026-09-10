@@ -177,17 +177,55 @@ class UserTest extends TestCase
         $this->assertTrue(Hash::check('keep-this-password', $user->fresh()->password));
     }
 
-    public function test_delete_user_removes_it(): void
+    public function test_delete_user_soft_deletes_it_and_preserves_audit_attribution(): void
     {
         $this->actingAsAdmin();
         $target = User::factory()->create();
+
+        // An action by the target, recorded BEFORE they are deleted. This is the
+        // row the old hard delete used to anonymise.
+        $target->update(['is_active' => false]);
 
         $this->deleteJson("/api/auth/users/{$target->id}")
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertDatabaseMissing('users', ['id' => $target->id]);
+        // The row survives, so every reference to it stays resolvable.
+        $this->assertSoftDeleted('users', ['id' => $target->id]);
         $this->assertDatabaseHas('audit_logs', ['event' => 'user_deleted']);
+
+        // The point of the whole change: audit rows still name who did it.
+        // audit_logs.user_id is nullOnDelete, so a hard delete nulled these.
+        $this->assertDatabaseHas('audit_logs', [
+            // Morph alias, not the class name (C12) — audit rows survive a class
+            // moving between modules, which the legacy merge will do.
+            'auditable_type' => 'user',
+            'auditable_id'   => $target->id,
+            'event'          => 'updated',
+        ]);
+
+        // The account is gone as far as every normal query is concerned.
+        $this->assertNull(User::find($target->id));
+    }
+
+    public function test_deleted_user_cannot_authenticate(): void
+    {
+        $this->actingAsAdmin();
+        $target = User::factory()->create();
+        $token  = $target->createToken('test')->plainTextToken;
+
+        $this->deleteJson("/api/auth/users/{$target->id}")->assertOk();
+
+        // Sanctum::actingAs (used by actingAsAdmin) pins the guard's user for
+        // the rest of the test and would shadow the bearer token below, so drop
+        // the resolved guards first and let the header actually be the identity.
+        $this->app['auth']->forgetGuards();
+
+        // A soft delete does not fire the FK cascade that used to clear tokens,
+        // so the service revokes them explicitly. Either way the answer is 401.
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/auth/me')
+            ->assertUnauthorized();
     }
 
     public function test_cannot_delete_own_account(): void
@@ -207,6 +245,42 @@ class UserTest extends TestCase
         $target = User::factory()->create();
 
         $this->actingAsRolelessUser();
+
+        $this->putJson("/api/auth/users/{$target->id}", ['is_active' => false])->assertForbidden();
+        $this->deleteJson("/api/auth/users/{$target->id}")->assertForbidden();
+    }
+
+    /**
+     * §10 test 2. Users and Roles were the only two resources with no
+     * unauthenticated check at all.
+     */
+    public function test_index_requires_authentication(): void
+    {
+        $this->getJson('/api/auth/users')->assertUnauthorized();
+    }
+
+    /**
+     * §10 test 4 — the one people skip, and the one that catches the
+     * highest-impact mistake: a write route guarded by .view.
+     *
+     * A ROLELESS user (which is what the other tests here use) proves only that
+     * *something* is enforced. This proves the write routes are guarded by their
+     * OWN permissions, by giving the caller read access and nothing else.
+     */
+    public function test_a_read_only_user_cannot_write(): void
+    {
+        $target   = User::factory()->create();
+        $employee = Employee::create(['name' => 'Someone']);
+
+        $this->actingAsUserWithPermissions(['auth.users.view']);
+
+        $this->getJson('/api/auth/users')->assertOk();
+
+        $this->postJson('/api/auth/users', [
+            'employee_id' => $employee->id,
+            'email'       => 'nope@example.com',
+            'password'    => 'secret-password',
+        ])->assertForbidden();
 
         $this->putJson("/api/auth/users/{$target->id}", ['is_active' => false])->assertForbidden();
         $this->deleteJson("/api/auth/users/{$target->id}")->assertForbidden();

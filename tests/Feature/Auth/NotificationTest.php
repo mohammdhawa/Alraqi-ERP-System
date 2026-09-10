@@ -85,6 +85,44 @@ class NotificationTest extends TestCase
         ]);
     }
 
+    /**
+     * C13: every state-changing endpoint is audited.
+     *
+     * The notifications group was excluded from the `audit` middleware wholesale,
+     * because its two READ endpoints are polled constantly and would flood the
+     * trail. That exclusion silently swept up this route, which is a write — and
+     * the Notification model carries no HasAuditLog either (deliberately, to keep
+     * the bulk fan-out insert event-free), so marking a notification read left no
+     * trace anywhere at all. The exclusion is now per-route.
+     */
+    public function test_marking_a_notification_read_is_audited(): void
+    {
+        $user = $this->actingAsRolelessUser();
+        $notification = $user->notifications()->create(['title' => 'عنوان']);
+
+        $this->postJson("/api/auth/notifications/{$notification->id}/read")->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'api_request',
+        ]);
+        $this->assertStringContainsString(
+            'notifications',
+            (string) \DB::table('audit_logs')->where('event', 'api_request')->value('description'),
+        );
+    }
+
+    public function test_polled_read_endpoints_stay_unaudited(): void
+    {
+        $this->actingAsRolelessUser();
+
+        $this->getJson('/api/auth/notifications')->assertOk();
+        $this->getJson('/api/auth/notifications/unread-count')->assertOk();
+
+        // Still deliberately excluded — clients poll these and the trail would
+        // carry nothing but noise.
+        $this->assertDatabaseMissing('audit_logs', ['event' => 'api_request']);
+    }
+
     public function test_cannot_mark_another_users_notification(): void
     {
         $me    = User::factory()->create();

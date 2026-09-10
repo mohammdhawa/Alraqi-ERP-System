@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Services;
 
+use App\Modules\Auth\Exceptions\AccountDisabledException;
 use App\Modules\Auth\Exceptions\AuthenticationException;
 use App\Modules\Auth\Exceptions\InvalidRefreshTokenException;
-use App\Modules\Auth\Exceptions\AccountDisabledException;
 use App\Modules\Auth\Models\RefreshToken;
 use App\Modules\Auth\Models\User;
 use App\Shared\Services\AuditLogService;
@@ -52,11 +52,42 @@ use Illuminate\Support\Str;
 class AuthService
 {
     /**
-     * Access token lifetime in minutes.
-     * Short-lived to limit exposure if intercepted.
-     * 15 minutes balances security with UX (frequent refreshes are handled by the client).
+     * The access-token lifetime is READ FROM CONFIG, never redeclared here.
+     *
+     * WHY (P1 — one fact, one place): this used to be a hardcoded
+     * `ACCESS_TOKEN_EXPIRATION_MINUTES = 15` const, while `config/sanctum.php`
+     * separately declared `'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 15)`
+     * and AuthController twice published `15 * 60` to clients. Four copies of
+     * one number, and only the config one responded to the env var it exposes.
+     *
+     * The failure that made this worth fixing: set SANCTUM_TOKEN_EXPIRATION=5
+     * and Sanctum's guard starts rejecting tokens at five minutes, while this
+     * service still stamps expires_at at fifteen and the API still advertises
+     * expires_in: 900. Every client schedules its refresh for minute 15 on a
+     * token that died at minute 5 — a 401 storm that reads as a client bug.
+     *
+     * NULL is meaningful and is Laravel's own default: it means access tokens
+     * do not expire on their own. It is carried through honestly rather than
+     * coerced to a number — expiresAt stays null, and expires_in is reported as
+     * null so a client does not schedule a refresh it never needs.
      */
-    private const ACCESS_TOKEN_EXPIRATION_MINUTES = 15;
+    private function accessTokenLifetimeMinutes(): ?int
+    {
+        $minutes = config('sanctum.expiration');
+
+        return $minutes === null ? null : (int) $minutes;
+    }
+
+    /**
+     * The same lifetime as seconds, for the `expires_in` the API advertises.
+     * Derived, never written down a second time.
+     */
+    private function accessTokenLifetimeSeconds(): ?int
+    {
+        $minutes = $this->accessTokenLifetimeMinutes();
+
+        return $minutes === null ? null : $minutes * 60;
+    }
 
     /**
      * Refresh token lifetime in days.
@@ -87,7 +118,7 @@ class AuthService
         }
 
         if (! $user->isActive()) {
-            throw new AccountDisabledException();
+            throw new AccountDisabledException;
         }
 
         return DB::transaction(function () use ($user): array {
@@ -108,6 +139,10 @@ class AuthService
             return [
                 'access_token'  => $accessToken,
                 'refresh_token' => $refreshToken,
+                // The lifetime is a business fact about the token this service
+                // just minted, so this service reports it. The controller used
+                // to write `15 * 60` inline, which is how it drifted.
+                'expires_in'    => $this->accessTokenLifetimeSeconds(),
                 'user'          => $user,
             ];
         });
@@ -119,7 +154,7 @@ class AuthService
      * This is the core of the refresh flow. Every refresh token is single-use.
      * Using it a second time (replay) means it was stolen.
      *
-     * @return array{access_token: string, refresh_token: string}
+     * @return array{access_token: string, refresh_token: string, expires_in: int|null}
      *
      * @throws InvalidRefreshTokenException
      */
@@ -185,6 +220,7 @@ class AuthService
                 return [
                     'access_token'  => $newAccessToken,
                     'refresh_token' => $newRefreshToken,
+                    'expires_in'    => $this->accessTokenLifetimeSeconds(),
                 ];
             });
         } catch (InvalidRefreshTokenException $e) {
@@ -261,10 +297,14 @@ class AuthService
         // For an ERP with controlled access, cleanup is cleaner.
         $user->tokens()->delete();
 
+        $minutes = $this->accessTokenLifetimeMinutes();
+
         $token = $user->createToken(
             name: 'access_token',
             abilities: self::DEFAULT_TOKEN_ABILITIES,
-            expiresAt: now()->addMinutes(self::ACCESS_TOKEN_EXPIRATION_MINUTES),
+            // Null means "no per-token expiry" — the same thing config/sanctum's
+            // null means — rather than a silently different lifetime here.
+            expiresAt: $minutes === null ? null : now()->addMinutes($minutes),
         );
 
         return $token->plainTextToken;

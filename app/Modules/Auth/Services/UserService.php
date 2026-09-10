@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Services;
 
+use App\Modules\Auth\Exceptions\CannotDeleteOwnAccountException;
 use App\Modules\Auth\Models\User;
 use App\Shared\Services\AuditLogService;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,16 +27,33 @@ class UserService
     ) {}
 
     /**
-     * All users with their roles and linked employee (the source of the display
-     * name), for admin listing. Ordered by email since the account itself has no
-     * name column. The employee is eager-loaded so the resource resolves each
+     * A page of users with their roles and linked employee (the source of the
+     * display name). The employee is eager-loaded so the resource resolves each
      * user's name without an N+1.
      *
-     * @return Collection<int, User>
+     * WAS UNPAGINATED (C27, GAP-11). This returned every row through a bare
+     * ->get(), so the endpoint carried no `meta` and a client could not write
+     * one pager against the API. `users` is a table that grows: Batch 4 imports
+     * 242 active employees, and every one of them who needs a login lands here.
+     *
+     * ORDERED BY email THEN id (C29). Email is unique today, so the tie-break
+     * looks redundant — it is not. It costs nothing, it survives the column
+     * becoming non-unique, and it makes the rule visibly uniform across every
+     * list query in the system rather than something each author re-derives.
+     *
+     * $perPage arrives as an int from the controller, already clamped. This
+     * signature never reads the query string, so it stays callable from a
+     * console command or a job (C1).
+     *
+     * @return LengthAwarePaginator<User>
      */
-    public function list(): Collection
+    public function paginate(int $perPage = 15): LengthAwarePaginator
     {
-        return User::query()->with(['roles', 'employee'])->orderBy('email')->get();
+        return User::query()
+            ->with(['roles', 'employee'])
+            ->orderBy('email')
+            ->orderBy('id')
+            ->paginate($perPage);
     }
 
     /**
@@ -102,13 +120,40 @@ class UserService
     }
 
     /**
-     * Delete a user. The user_roles and refresh_tokens rows cascade.
+     * Delete a user.
+     *
+     * SELF-DELETION IS REFUSED HERE, not in the controller (C4, C10). Deleting
+     * the account you are signed in as locks you out mid-session with no way to
+     * undo it. The rule used to sit in UserController::destroy, where it
+     * protected exactly one path and left this method — reachable from a console
+     * command, a job, or any future screen — wide open.
+     *
+     * $actingUserId is REQUIRED and has no default (P3): a caller must state who
+     * is performing the deletion, or explicitly pass null. Null means "no
+     * session" — a console command or a queued job, where there is no `self` for
+     * the rule to be about — and is not a way to opt out of the check.
+     *
+     * @throws CannotDeleteOwnAccountException
      */
-    public function delete(User $user): void
+    public function delete(User $user, ?int $actingUserId): void
     {
+        if ($actingUserId !== null && (int) $user->getKey() === $actingUserId) {
+            throw new CannotDeleteOwnAccountException;
+        }
+
         $email = $user->email;
 
-        $user->delete();
+        DB::transaction(function () use ($user): void {
+            // The delete is now SOFT, so the FK cascades that used to clear
+            // these no longer fire. Revoke explicitly rather than relying on a
+            // trashed user resolving to null in the guard: that is true, but it
+            // is a second-order consequence of a global scope, and "the deleted
+            // account's tokens are dead" should be a fact this method asserts.
+            $user->tokens()->delete();
+            $user->refreshTokens()->delete();
+
+            $user->delete();
+        });
 
         $this->auditLogService->logAction(
             event: 'user_deleted',

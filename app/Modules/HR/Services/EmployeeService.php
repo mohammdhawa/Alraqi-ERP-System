@@ -22,6 +22,14 @@ class EmployeeService
      *
      * Eager-loads the department to avoid N+1 when the resource renders it.
      *
+     * ORDERING IS DETERMINISTIC (C29): ->latest() alone is ORDER BY created_at
+     * DESC, and rows created in one import or one seeding run share a single
+     * created_at — verified: 20 employees created in a loop produced exactly ONE
+     * distinct value. When the sort key is fully tied, page 1 and page 2 are two
+     * separate queries with nothing in the SQL standard requiring them to agree
+     * on which rows fall where, so a row can appear twice while another is never
+     * returned. The primary-key tie-break closes it.
+     *
      * @return LengthAwarePaginator<Employee>
      */
     public function paginate(int $perPage = 15): LengthAwarePaginator
@@ -29,17 +37,19 @@ class EmployeeService
         return Employee::query()
             ->with('department')
             ->latest()
+            ->orderByDesc('id')
             ->paginate($perPage);
     }
 
     /**
-     * All employees (unpaginated).
+     * All employees (unpaginated). For select inputs only — deliberately NOT
+     * wired to a route, and it must stay that way or gain a hard cap (C27).
      *
      * @return Collection<int, Employee>
      */
     public function all(): Collection
     {
-        return Employee::query()->with('department')->latest()->get();
+        return Employee::query()->with('department')->latest()->orderByDesc('id')->get();
     }
 
     /**

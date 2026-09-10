@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -41,9 +42,22 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     use HasApiTokens;
+    use HasAuditLog;
     use HasFactory;
     use Notifiable;
-    use HasAuditLog;
+
+    /**
+     * WHY SoftDeletes (C23): four tables FK into users, and a hard delete NULLED
+     * the account's user_id across the whole append-only audit trail while
+     * cascading their notifications away. A departed user's identity has to stay
+     * resolvable for the history that references it to keep meaning anything.
+     *
+     * The global scope this adds is load-bearing for security, not just for
+     * queries: a trashed user is invisible to the auth provider, so their access
+     * tokens resolve to no tokenable and their refresh tokens resolve to no
+     * user. A deleted account cannot authenticate by any path.
+     */
+    use SoftDeletes;
 
     /**
      * The built-in role whose holders bypass every permission check. Its power

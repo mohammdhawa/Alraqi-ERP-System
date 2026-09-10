@@ -51,12 +51,19 @@ class NotificationService
     /**
      * The authenticated user's notifications, newest first, paginated.
      *
+     * The id tie-break (C29) matters more here than anywhere else in the API: a
+     * department- or role-wide send writes one row per recipient in a SINGLE
+     * bulk insert sharing one `$now`, so every notification from one company
+     * announcement is exactly tied on created_at. Without the tie-break, a user
+     * paging through a burst of them has no guarantee of seeing each once.
+     *
      * @return LengthAwarePaginator<Notification>
      */
     public function listForUser(User $user, int $perPage = 15): LengthAwarePaginator
     {
         return $user->notifications()
             ->latest()
+            ->orderByDesc('id')
             ->paginate($perPage);
     }
 
