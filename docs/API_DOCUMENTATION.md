@@ -37,7 +37,10 @@ Authentication uses **Laravel Sanctum bearer tokens** with a custom refresh‑to
   Authorization: Bearer {access_token}
   ```
 
-- **Access token** lifetime: **15 minutes** (`expires_in: 900` seconds).
+- **Access token** lifetime: **15 minutes** by default (`expires_in: 900` seconds).
+  Read `expires_in` from the login/refresh response rather than hardcoding 900 —
+  it is derived from server config (`SANCTUM_TOKEN_EXPIRATION`) and is `null` if
+  access tokens are configured never to expire.
 - **Refresh token** lifetime: **30 days**, single‑use (rotated on every refresh).
 - On `401 Unauthorized`, call `POST /api/auth/refresh` with the refresh token to obtain a new pair, then retry the original request.
 - Tokens are per‑user and replace each other: logging in (or refreshing) **deletes the previous access token**, so a user effectively holds one active access token at a time.
@@ -55,11 +58,36 @@ Authentication uses **Laravel Sanctum bearer tokens** with a custom refresh‑to
 
 Almost every endpoint returns the **same envelope**, so you can write a single parser.
 
-> ⚠️ **Two exceptions that do NOT carry `success`** (they are rendered by Laravel's defaults, not our handler):
-> - **`401` from a missing/expired/invalid access token** → `{ "message": "Unauthenticated." }` (English, no `success` key). This is the response that drives the refresh flow — **trigger your refresh interceptor on the HTTP `401` status, not on `success === false`**.
-> - **`429` rate-limit** → `{ "message": "Too Many Requests" }` plus a `Retry-After` header (seconds) and `X-RateLimit-*` headers. Read `Retry-After` to back off.
+> ✅ **There are now NO exceptions. Every response carries `success`** — success and error, application-generated and framework-generated, in every environment.
 >
-> Every other error (business rules, validation, permissions, disabled account, refresh-token failures) **does** use the envelope below.
+> **This changed on 2026-09-08, and it changed in your favour.** The previous
+> version of this section listed `401` and `429` as the only two bare responses.
+> That was wrong, and wrong in the direction that costs you: `422` validation —
+> the most common error any client handles — also arrived with **no `success`
+> key**, as did `404`, `405` and `5xx`. The `404` from a bad id additionally
+> leaked the internal model class name into `message`. All of it now goes
+> through one mapper.
+>
+> **What this means for your code**
+>
+> - You can now read `success` on **every** response, including `401` and `429`.
+> - **Keep triggering your refresh interceptor on the HTTP `401` status**, not on
+>   `success === false`. That advice has not changed and is still correct — a
+>   `403` also carries `success: false` and must never trigger a refresh.
+> - `401` and `429` messages are now Arabic and display-ready like everything
+>   else. If you were special-casing the English `"Unauthenticated."` or
+>   `"Too Many Requests"` strings, delete that branch.
+> - `429` still carries `Retry-After` (seconds) and `X-RateLimit-*` headers, and
+>   `405` still carries `Allow`. Those are unchanged.
+> - `message` on a `404` is now a generic Arabic string. Do not parse it — a
+>   missing row and an unknown route deliberately return the same text, so that a
+>   `404` never reveals which rows exist.
+>
+> 🆕 **`X-Request-Id` on every response.** Each response carries a correlation id,
+> and it is recorded on the matching audit rows. If you send your own
+> `X-Request-Id` (up to 64 chars of `A-Za-z0-9._-`) it is honoured and echoed
+> back; anything else is replaced. Send one per user action and log it, and a bug
+> report becomes traceable to the exact server-side rows that handled it.
 
 **Success**
 
@@ -109,9 +137,18 @@ Most validation/business messages are returned in **Arabic**. Display `message` 
 
 ### Pagination ⚠️ (important for list endpoints)
 
-List endpoints (`departments.index`, `hr/employees.index`, `notifications.index`) are paginated server‑side at **15 items per page**.
+**Every list endpoint in this API is paginated, and they all page identically** —
+`departments.index`, `hr/employees.index`, `notifications.index`,
+`auth/users.index` and `auth/roles.index`. Write one pager; it works on all five.
 
 - Request a page with the query string: `?page=2`.
+- Request a page size with `?per_page=50`. **Default 15, clamped to 1–100.**
+  Out-of-range values are clamped rather than rejected, so `?per_page=1000000`
+  returns 100 and `?per_page=0` returns 1 — neither is an error. A non-numeric
+  value falls back to 15. `meta.per_page` always reports the size actually
+  applied, so read it back rather than assuming your request was honoured.
+- An out-of-range `?page=99` is a **`200`** with `"data": []` and correct `meta`,
+  never a `404`.
 - `data` is a **flat array of items**, and pagination metadata is returned alongside it under a sibling **`meta`** key:
 
 ```json
@@ -134,11 +171,28 @@ List endpoints (`departments.index`, `hr/employees.index`, `notifications.index`
 | -------------- | ------------------------------------------------ |
 | `current_page` | the page returned                                |
 | `last_page`    | total number of pages (build pager from this)    |
-| `per_page`     | items per page (15)                              |
+| `per_page`     | items per page actually applied (after clamping) |
 | `total`        | total item count across all pages                |
 | `from` / `to`  | 1‑based index range of items on this page (`null` when the page is empty) |
 
-Roles and Users list endpoints (`/api/auth/roles`, `/api/auth/users`) return the **full collection** (not paginated) and have **no** `meta` key.
+These six keys are the **whole** contract — there is no `links` or `path`, and
+`meta` is a sibling of `data`, never nested inside it. `data` is **always an
+array**, never an object keyed by id and never `null`; an empty page is `[]` with
+`from`/`to` set to `null`. `last_page` is `1` when there are no results, never `0`.
+
+> ⚠️ **Changed 2026-09-08 — action needed if you consume roles or users.**
+> `/api/auth/roles` and `/api/auth/users` previously returned the **full
+> collection** with no `meta`. They are now paginated like everything else, so
+> they return **15 items by default instead of all of them**. If you were relying
+> on receiving every row in one response — populating a role dropdown, for
+> instance — page through with `?per_page=100` or read `meta.last_page`. This is
+> the one breaking change in this revision, and `users` is about to grow past 242
+> rows in Batch 4, so the old behaviour was not survivable.
+>
+> Also changed: `POST /api/auth/roles/assign` and `/unassign` now return the
+> updated user (with their resulting `roles`) in `data`, where they previously
+> returned a message only. Purely additive — existing `message`-only clients are
+> unaffected — but it saves you a follow-up request to refresh what you changed.
 
 ---
 
@@ -158,8 +212,34 @@ Permission string format: `{module}.{resource}.{action}`.
 | ------------- | ------------------------------------------------------------------------------------------------ |
 | Departments   | `departments.view`, `departments.create`, `departments.update`, `departments.delete`             |
 | HR            | `hr.employees.view`, `hr.employees.create`, `hr.employees.update`, `hr.employees.delete`         |
+| HR – fields   | `hr.employees.viewSalary`, `hr.employees.viewIdentity` — **field-level**, see below              |
 | Auth – Users  | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`                 |
 | Auth – Roles  | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`                 |
+
+### Field-level permissions (new, 2026-09-08)
+
+The last two guard **fields inside a payload**, not routes. No endpoint requires
+them; they decide whether two keys appear in an employee response:
+
+| Permission | Unlocks |
+| --- | --- |
+| `hr.employees.viewSalary` | `salary` |
+| `hr.employees.viewIdentity` | `national_id` |
+
+**Without the permission the key is ABSENT, not `null`.** Do not read
+`employee.salary === null` as "this employee has no salary" — check whether the
+key exists, or gate your UI on the permission array you already receive from
+login and `/me`. A `null` would be a claim about the employee; an absent key is a
+statement about the reader.
+
+They are separate on purpose: payroll needs pay and not identity documents, HR
+administration often needs the reverse. Previously both fields were visible to
+anyone holding plain `hr.employees.view`.
+
+Batch 2 extends `viewSalary` to `agreed_salary`, `sham_cash_account` and the
+classification axes (`activity_type`, `organizational_grade`, …) — the axes are
+the inputs the salary is computed from, so hiding the result while exposing them
+would be theatre.
 
 A missing permission yields:
 
@@ -521,7 +601,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
   "title": "New employee added",
   "body": "Jane Doe joined Engineering.",
   "type": "employee_created",
-  "reference": { "type": "App\\Modules\\HR\\Models\\Employee", "id": 5 },
+  "reference": { "type": "employee", "id": 5 },
   "is_read": false,
   "created_at": "2026-06-21T10:00:00+00:00"
 }
@@ -529,6 +609,24 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
+
+> ⚠️ **Changed 2026-09-08 — `reference.type` is now a short alias.** It
+> previously returned the PHP class name (`App\Modules\HR\Models\Employee`), and
+> this document published that as the contract. It now returns a stable
+> lower-case alias, and the set is closed:
+>
+> | `reference.type` | Record |
+> | --- | --- |
+> | `employee` | an HR employee |
+> | `department` | an organizational unit |
+> | `user` | a login account |
+> | `role` | an RBAC role |
+> | `permission` | a permission |
+>
+> **If you were switching on the class name, switch on the alias instead.** The
+> aliases are deliberately decoupled from PHP namespaces, so a model moving
+> between modules — which the legacy merge will do — no longer changes what you
+> receive. Any new type will be added to this table, never as a raw class name.
 
 ### 6.1 List my notifications
 
@@ -691,13 +789,19 @@ Base path `/api/hr`. **Protected**, guarded by `hr.employees.*` permissions.
 ```
 
 - `employee_number` is the unique staff identifier. **Auto‑generated** (`EMP-00001`, …) when omitted on create; a client‑supplied value is honoured but must be unique.
-- `national_id` is nullable, unique when present.
-- `salary` is serialized as a **string** (decimal 12,2). `hire_date` is a plain `YYYY-MM-DD` date.
+- `national_id` is nullable, unique when present. ⚠️ **Only present if you hold
+  `hr.employees.viewIdentity`** — otherwise the key is absent entirely.
+- `salary` is serialized as a **string** (decimal 12,2). ⚠️ **Only present if you
+  hold `hr.employees.viewSalary`.** `hire_date` is a plain `YYYY-MM-DD` date.
 - `status` is one of `active` | `inactive` | `terminated`.
+
+> Both gated keys behave identically on the list and single-resource endpoints —
+> there is no endpoint that returns one but not the other. See
+> [field-level permissions](#field-level-permissions-new-2026-09-08).
 
 | Method & path                              | Permission              | Notes                               |
 | ------------------------------------------ | ----------------------- | ----------------------------------- |
-| `GET /api/hr/employees`                    | `hr.employees.view`     | Paginated list (15/page). `?page=N` |
+| `GET /api/hr/employees`                    | `hr.employees.view`     | Paginated. `?page=N`, `?per_page=N` |
 | `POST /api/hr/employees`                   | `hr.employees.create`   | 201 on success                      |
 | `GET /api/hr/employees/{employee}`         | `hr.employees.view`     | Single resource                     |
 | `PUT\|PATCH /api/hr/employees/{employee}`  | `hr.employees.update`   | Partial update                      |
@@ -764,10 +868,11 @@ Base path `/api/hr`. **Protected**, guarded by `hr.employees.*` permissions.
 
 1. **HTTP client:** set base URL `{APP_URL}/api`, default headers `Accept: application/json` + `Content-Type: application/json`.
 2. **Auth interceptor:** attach `Authorization: Bearer {access_token}` on every request.
-3. **Refresh flow:** trigger on the HTTP **`401` status** (the expired-token body is `{ "message": "Unauthenticated." }` and has no `success` key). Call `/api/auth/refresh` once with the stored refresh token, swap in the new pair, and retry the failed request. If refresh fails (any `401`), clear tokens and route to login. Do **not** refresh on `403` (that's a permission denial or a disabled account, not an expired token).
+3. **Refresh flow:** trigger on the HTTP **`401` status** — still the status, not the body, even though `401` now carries the envelope like everything else. Call `/api/auth/refresh` once with the stored refresh token, swap in the new pair, and retry the failed request. If refresh fails (any `401`), clear tokens and route to login. Do **not** refresh on `403` (that's a permission denial or a disabled account, not an expired token) — and note that `403` also has `success: false`, which is exactly why the trigger is the status code.
 4. **Single‑use refresh:** persist the new `refresh_token` returned by **both** login and refresh; never reuse an old one. Store it where your JS can read it — it is sent in the request body, not a cookie.
 5. **Session bootstrap:** on app start, if a token exists, call `/api/auth/me` to validate it and (re)load the user **and their `permissions`**.
-6. **Error handling:** for most responses, read `success`; on `false`, show `message` and, if `errors` exists, map field errors to inputs. Treat `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, since those two don't carry `success`.
+6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
 8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval.
-9. **Lists:** paginated endpoints return items in `data` plus a `meta` block (`current_page`, `last_page`, `total`, …); use `?page=N` to page and `meta.last_page` to build the pager.
+9. **Lists:** **all five** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.
