@@ -2,6 +2,9 @@
 
 > **Status:** specification, ratified 2026-07-30. **§4 (Departments) implemented
 > 2026-08-05** — see the per-section markers below. §5–§7 not yet implemented.
+> **§6.1 job-title uniqueness ratified 2026-09-13** (§9 question 4 closed); that
+> marker is the one place where a ratified answer *changes* the spec table rather
+> than only annotating it.
 > **Predecessor:** [phase1-completion-report.md](phase1-completion-report.md)
 > **Successor:** [legacy-system-merge-plan.md](legacy-system-merge-plan.md)
 >
@@ -436,6 +439,33 @@ as a column on every row.
 
 ### 6.1 `job_titles` — the catalogue
 
+> **✅ Uniqueness ratified 2026-09-13: one shared catalogue, `unique(name)`.**
+> This settles §9 open question 4 and **changes the table below** — the
+> `department_id` column is dropped. A title is a company-wide fact: `محاسب` is
+> one row, one job description, one suggested `السوية`, whichever divisions
+> happen to employ accountants.
+>
+> **`department_id` is dropped rather than left nullable.** Under `unique(name)`
+> a scalar division pointer is NULL for precisely the titles the question was
+> about — the shared ones — and non-NULL only by accident of a title currently
+> having one employer. "Which divisions use `محاسب`?" is answered by
+> `SELECT DISTINCT department_id FROM employees WHERE job_title_id = ?`, which
+> is derived from real postings and cannot drift. Storing it on the title too
+> would be P1 violated, in the same shape as `سنوات القدم` and inherited
+> `sector`.
+>
+> **The known limit, and its escape hatch.** That derived query only knows
+> divisions where someone is *already* posted, so it cannot express "this title
+> is offerable in إدارة الإمداد, which has not hired one yet." Nothing needs
+> that today — the ERP has no intake form. **If** a division-filtered title
+> picker is ever built, add a `job_title_department` pivot; do not re-add the
+> scalar column, which would be the same half-fact in a new migration.
+>
+> **`q4`'s division binding is not evidence against this.** XLSForm cascading
+> selects require every option to carry a parent code, so all 197 rows are
+> division-tagged whether or not the company thinks that way — the same class of
+> form plumbing as the self-referential office rows dropped in §7.3.
+
 `employees.job_title` is a free string today. The company has a governed
 catalogue: 197 titles in the intake form's `q4`, each bound to a division; and
 the workbook's `دليل الهيكل والمسميات الوظيفية` sheet (691 rows) carries the
@@ -444,8 +474,7 @@ same list with a `تم التوصيف` ("has been described") flag — the outpu
 
 | Column | Type | Notes |
 |---|---|---|
-| `name` | string | المسمى الوظيفي |
-| `department_id` | FK → departments, nullable | The `إدارة` it belongs to (the form filters `q4` by `q1`) |
+| `name` | string, **unique** | المسمى الوظيفي — the catalogue is company-wide |
 | `default_organizational_grade` | tinyint, nullable | Suggested `السوية` for new hires |
 | `default_activity_type` | enum, nullable | Suggested `نوع النشاط` |
 | `is_described` | boolean, default false | `تم التوصيف` |
@@ -453,6 +482,12 @@ same list with a `تم التوصيف` ("has been described") flag — the outpu
 | `is_active` | boolean, default true | |
 
 `employees.job_title` (string) becomes `employees.job_title_id` (FK).
+
+Because the table soft-deletes (C23 — `employees` FKs into it), the unique index
+counts trashed rows: a deleted title's name cannot be reused until the row is
+force-deleted. Same trade-off, and the same reasoning, as `users.email`. Validate
+`name` against **all** rows including trashed, or the DB rejects the insert after
+validation has already passed.
 
 ### 6.2 `employee_documents`
 
@@ -529,7 +564,20 @@ paper may not have gained it in fact.
 | `q1` | 13 | Level 2 `إدارة` | Cross-check against the chart per §7.1 |
 | `q2` | 48 | Level 3 `قسم` | Drop `b1000 المدير العام` — it is the level-2 unit itself |
 | `q3` | 114 | Level 4 `مكتب` | **Filtered** — see §7.3 |
-| `q4` | 197 | `job_titles` | `department_id` from the `q1` code in the filter column |
+| `q4` | 197 | `job_titles` | **Dedup by name** — see the §6.1 marker |
+
+⚙️ **`q4` is 197 form rows, not 197 titles.** Since 2026-09-13 the catalogue is
+`unique(name)`, so the importer collapses the list by name and discards the `q1`
+division code it was previously told to carry across. The row count that lands is
+the distinct-name count, which is **not yet known** — it is whatever the 197
+rows, cross-checked against the workbook's 691-row sheet, dedup to.
+
+Two things the importer must **report** rather than silently resolve, in the same
+spirit as §7.4's data problems: how many rows collapsed, and any name that
+arrives with **conflicting** `تم التوصيف` or suggested-grade values across its
+duplicates. A conflict there is evidence that the divisions really do mean
+different jobs by one word — which is the answer to §9 question 4 arriving late,
+and it needs a human, not a tie-break rule.
 
 ### 7.3 The office filter — where decision #6 is enforced
 
@@ -623,10 +671,17 @@ before the module it touches is finished.
 3. **`الحالة` beyond two values.** The workbook shows only `متعاقد` and
    `إنهاء عمل`. Does the company distinguish suspended / on-loan / seconded
    staff, which the current `inactive` case could carry?
-4. **Job-title uniqueness.** `محاسب` and `أمين صندوق` appear under several
-   divisions in `q4`. Confirm these are genuinely per-division rows rather than
-   one shared title — it decides whether `(name, department_id)` is unique or
-   `name` alone is.
+4. **Job-title uniqueness.** ✅ **Answered 2026-09-13: one shared title.**
+   `unique(name)`, and `job_titles.department_id` is dropped rather than left
+   nullable. The full reasoning, the derived replacement for the dropped column,
+   and the pivot that is the escape hatch if a division-filtered title picker is
+   ever built are in the §6.1 status marker. §7.2 carries the importer
+   consequence — dedup by name, and report collisions that disagree.
+
+   Original note: `محاسب` and `أمين صندوق` appear under several divisions in
+   `q4`. Confirm these are genuinely per-division rows rather than one shared
+   title — it decides whether `(name, department_id)` is unique or `name` alone
+   is.
 
 ---
 

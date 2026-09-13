@@ -668,6 +668,14 @@ Two more were answered on 2026-08-05: board members **are** `employees` rows; an
 `إدارة التسويق وتقنية المعلومات` follows the chart, with a
 `قسم تقنية المعلومات` under it.
 
+And one on **2026-09-13**: a job title is **one shared, company-wide row** —
+`job_titles.name` is unique and the `department_id` column is dropped, so `محاسب`
+is a single title with a single job description no matter how many divisions
+employ accountants. This was open question 3 in §11. The reasoning, and the
+`job_title_department` pivot that is the escape hatch if a division-filtered
+title picker is ever needed, are in
+[`phase-1.5-foundation-truth-up.md` §6.1](phase-1.5-foundation-truth-up.md).
+
 ---
 
 ## 10. What to do next — Batch 2, step by step
@@ -747,9 +755,14 @@ reports outside their unit head.
   means current. `employees.department_id` stays as the denormalised *current*
   pointer because it is on every hot query path — keep the two in step in **one**
   `saving` hook so no writer can desynchronise them.
-- `job_titles` — the governed catalogue (197 titles in the intake form, 691 rows
-  in the workbook sheet, with a `تم التوصيف` flag). `employees.job_title`
-  (string) becomes `employees.job_title_id` (FK).
+- `job_titles` — the governed catalogue (197 rows in the intake form, 691 in the
+  workbook sheet, with a `تم التوصيف` flag). `employees.job_title` (string)
+  becomes `employees.job_title_id` (FK). **`name` is unique and there is no
+  `department_id`** — ratified 2026-09-13, see §9. The two source lists are form
+  rows, not distinct titles; the importer dedups by name and reports any name
+  whose duplicates disagree on `تم التوصيف` or suggested grade. Validate `name`
+  against trashed rows too — the table soft-deletes, so the unique index counts
+  them, exactly as `users.email` does.
 - `employee_documents` — the four images the intake form collects per hire.
 - `employee_warnings` — the workbook stores warnings as three columns, so an
   employee can hold exactly one warning forever. Make it rows.
@@ -814,10 +827,7 @@ it touches is finished.
 2. **`الحالة` beyond two values.** The workbook shows only `متعاقد` and
    `إنهاء عمل`. Does the company distinguish suspended / on-loan / seconded
    staff, which the existing `inactive` case could carry?
-3. **Job-title uniqueness.** `محاسب` and `أمين صندوق` appear under several
-   divisions. Are these genuinely per-division rows, or one shared title? It
-   decides whether `(name, department_id)` is unique or `name` alone is.
-4. **Two source discrepancies to confirm before the import runs:**
+3. **Two source discrepancies to confirm before the import runs:**
    `إدارة الإمداد والتوريد` (absent from the intake form, a division in the
    chart) and `إدارة التسويق` vs `إدارة التسويق وتقنية المعلومات`. The chart is
    four months newer than the workbook, and a division that gained a section on

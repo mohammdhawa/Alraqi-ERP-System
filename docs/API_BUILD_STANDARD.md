@@ -395,7 +395,7 @@ app/Shared/
 **Every endpoint that returns a collection is paginated. There is no such thing
 as an unpaginated list endpoint in this API** (C27). A list that is "small today"
 is a list that is large after the import — `users` becomes 242+ rows in Batch 4,
-and `job_titles` starts life at 691.
+and `job_titles` starts life in the hundreds.
 
 #### The shape — exactly this, on every list endpoint
 
@@ -494,8 +494,9 @@ InnoDB choosing a different plan or index between the two queries has no reason
 to match it. The precondition is real, verified, and one word wide. Fix it by
 adding the tie-break, not by relying on the accident.
 
-The same applies to `orderBy('name')` and `orderBy('email')` — names collide
-(`محاسب` appears under several divisions), so those need the tie-break too.
+The same applies to `orderBy('name')` and `orderBy('email')` — names collide (two
+employees called `محمد أحمد` is ordinary, not exotic), so those need the
+tie-break too.
 
 #### Sorting and filtering
 
@@ -657,14 +658,26 @@ next in the roadmap, and it exercises every layer.
 ```php
 Schema::create('job_titles', function (Blueprint $table) {
     $table->id();
-    $table->string('name');
-    $table->foreignId('department_id')->nullable()->constrained()->nullOnDelete();
+    $table->string('name')->unique();                  // one shared, company-wide catalogue
     $table->boolean('is_described')->default(false);   // تم التوصيف
     $table->timestamps();
     $table->softDeletes();                             // C23 — employees will FK here
     $table->index('is_described');                     // C26
 });
 ```
+
+⚙️ **No `department_id`, by decision.** A title is company-wide: `محاسب` is one
+row whichever divisions employ accountants (ratified 2026-09-13 — the reasoning
+is in `phase-1.5-foundation-truth-up.md` §6.1). "Which divisions use this title?"
+is `SELECT DISTINCT department_id FROM employees WHERE job_title_id = ?` — read
+from real postings, so it cannot drift out of step with them.
+
+**`unique` + `softDeletes` interact, and the FormRequest below is where that is
+paid for.** The index counts trashed rows, so a deleted title's name is not
+reusable until the row is force-deleted — the same trade-off `users.email`
+carries, taken for the same reason. A `Rule::unique(...)->whereNull('deleted_at')`
+here would be a bug: validation passes, then the insert hits the index and the
+user gets a `500` where they should have had a `422`.
 
 **2. Model** — `app/Modules/HR/Models/JobTitle.php`
 
@@ -674,7 +687,7 @@ class JobTitle extends Model
     use HasAuditLog;      // C13
     use SoftDeletes;
 
-    protected $fillable = ['name', 'department_id', 'is_described'];
+    protected $fillable = ['name', 'is_described'];
 
     protected function casts(): array
     {
@@ -715,7 +728,7 @@ class JobTitleService
     // C1 — no Request anywhere in this signature or body.
     public function paginate(int $perPage = 15): LengthAwarePaginator
     {
-        return JobTitle::query()->with('department')->latest()->paginate($perPage);
+        return JobTitle::query()->latest()->orderByDesc('id')->paginate($perPage);
     }
 
     public function create(array $data): JobTitle
@@ -753,19 +766,19 @@ class JobTitleRequest extends FormRequest
         $required = $this->isMethod('POST') ? 'required' : 'sometimes';
 
         return [
-            'name'          => [$required, 'string', 'max:255'],
-            // C24 — a bare exists would accept a trashed department.
-            'department_id' => ['nullable', 'integer',
-                Rule::exists('departments', 'id')->whereNull('deleted_at')],
-            'is_described'  => ['sometimes', 'boolean'],
+            // No ->whereNull('deleted_at') — the index counts trashed rows, so
+            // the rule must too, or a 422 arrives as a 500. See the migration.
+            'name'         => [$required, 'string', 'max:255',
+                Rule::unique('job_titles', 'name')->ignore($this->route('jobTitle'))],
+            'is_described' => ['sometimes', 'boolean'],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'name.required'        => 'اسم المسمى الوظيفي مطلوب.',
-            'department_id.exists' => 'الوحدة التنظيمية المحددة غير موجودة أو تم حذفها.',
+            'name.required' => 'اسم المسمى الوظيفي مطلوب.',
+            'name.unique'   => 'هذا المسمى الوظيفي موجود مسبقاً.',
         ];
     }
 }
@@ -782,10 +795,6 @@ class JobTitleResource extends JsonResource
             'id'           => $this->id,
             'name'         => $this->name,
             'is_described' => $this->is_described,
-            'department'   => $this->whenLoaded('department', fn () => [
-                'id'   => $this->department->id,
-                'name' => $this->department->name,
-            ]),
             'created_at'   => $this->created_at->toIso8601String(),
         ];
     }
@@ -824,7 +833,7 @@ class JobTitleController extends Controller
     public function show(JobTitle $jobTitle): JsonResponse
     {
         return $this->success(
-            data: new JobTitleResource($jobTitle->load('department')),
+            data: new JobTitleResource($jobTitle),
             message: 'تم جلب المسمى الوظيفي.',
         );
     }
