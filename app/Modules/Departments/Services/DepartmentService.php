@@ -53,6 +53,11 @@ class DepartmentService
      * resolved `sector`, which walks up the tree, so without it every row on
      * the page issues its own chain of parent lookups.
      *
+     * `manager` is loaded for the same reason one tier down: the Resource
+     * embeds the managing employee, so without this the page costs one
+     * `employees` query per managed unit — an N+1 that only shows up once real
+     * departments have managers, which the seeded tree mostly does.
+     *
      * ORDERING IS DETERMINISTIC (C29). This is not pedantry here — it is the
      * live case. All 119 seeded department rows share a SINGLE created_at
      * value, because the seeder writes them in one run. ->latest() is ORDER BY
@@ -69,6 +74,7 @@ class DepartmentService
     {
         return Department::query()
             ->withAncestors()
+            ->with('manager')
             ->latest()
             ->orderByDesc('id')
             ->paginate($perPage);
@@ -82,7 +88,7 @@ class DepartmentService
      */
     public function all(): Collection
     {
-        return Department::query()->withAncestors()->latest()->orderByDesc('id')->get();
+        return Department::query()->withAncestors()->with('manager')->latest()->orderByDesc('id')->get();
     }
 
     /**

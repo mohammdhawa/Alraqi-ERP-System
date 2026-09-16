@@ -9,7 +9,13 @@ use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Support\PermissionCache;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Enums\ActivityType;
+use App\Modules\HR\Enums\EmployeeStatus;
+use App\Modules\HR\Enums\EngineeringRank;
+use App\Modules\HR\Enums\Gender;
+use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Models\JobTitle;
 use Illuminate\Database\Seeder;
 
 /**
@@ -54,32 +60,40 @@ class DevDepartmentSeeder extends Seeder
         $qa = $this->seedUnit('DEV-QA', 'قسم ضمان الجودة', $marketing);
 
         // --- Staff, spread across the tiers ----------------------------------
+        //
+        // Names are three-part now (الاسم الثلاثي) because `employees.name` no
+        // longer exists, and each person carries a real classification: the
+        // fixtures have to exercise the axes, or a developer clicking around
+        // never sees the pay-gated block at all. There is no `salary` — for
+        // نظام رواتب staff it is computed, not stored.
         $rootEmployee = $this->seedStaff($root, [
-            ['name' => 'Test User', 'job_title' => 'Administrator', 'salary' => 0],
+            ['first' => 'Test', 'middle' => 'M', 'last' => 'User', 'title' => 'مدير عام', 'activity' => ActivityType::Administrative, 'grade' => 1],
         ]);
 
         $hrLead = $this->seedStaff($hr, [
-            ['name' => 'Sara Ahmed', 'job_title' => 'HR Manager', 'salary' => 18000],
+            ['first' => 'Sara', 'middle' => 'Ahmed', 'last' => 'Khoury', 'title' => 'مدير الموارد البشرية', 'activity' => ActivityType::Administrative, 'grade' => 2],
         ]);
         $this->seedStaff($recruitment, [
-            ['name' => 'Layla Hassan', 'job_title' => 'Recruiter', 'salary' => 11000],
+            ['first' => 'Layla', 'middle' => 'Hassan', 'last' => 'Nasser', 'title' => 'أخصائي استقطاب', 'activity' => ActivityType::Administrative, 'grade' => 4],
         ]);
 
         $this->seedStaff($finance, [
-            ['name' => 'Omar Khalil', 'job_title' => 'Finance Manager',  'salary' => 22000],
-            ['name' => 'Nour Saleh',  'job_title' => 'Accountant',       'salary' => 13000],
-            ['name' => 'Yusuf Ali',   'job_title' => 'Accounts Payable', 'salary' => 9500],
+            ['first' => 'Omar',  'middle' => 'Khalil', 'last' => 'Haddad', 'title' => 'مدير مالي', 'activity' => ActivityType::Financial, 'grade' => 2],
+            ['first' => 'Nour',  'middle' => 'Saleh',  'last' => 'Aziz',   'title' => 'محاسب',     'activity' => ActivityType::Financial, 'grade' => 4],
+            ['first' => 'Yusuf', 'middle' => 'Ali',    'last' => 'Deeb',   'title' => 'أمين صندوق', 'activity' => ActivityType::Financial, 'grade' => 5],
         ]);
 
+        // The engineering staff are what make the engineering-rank axis
+        // reachable in development — it is refused on every other activity type.
         $this->seedStaff($engineering, [
-            ['name' => 'Ahmed Mansour', 'job_title' => 'Engineering Lead', 'salary' => 25000],
+            ['first' => 'Ahmed', 'middle' => 'Mansour', 'last' => 'Rifai', 'title' => 'رئيس القسم الهندسي', 'activity' => ActivityType::Engineering, 'grade' => 2, 'rank' => EngineeringRank::Consultant],
         ]);
         $this->seedStaff($software, [
-            ['name' => 'Khaled Ibrahim', 'job_title' => 'Backend Developer',  'salary' => 17000],
-            ['name' => 'Mona Farouk',    'job_title' => 'Frontend Developer', 'salary' => 16000],
+            ['first' => 'Khaled', 'middle' => 'Ibrahim', 'last' => 'Omar',  'title' => 'مطور برمجيات', 'activity' => ActivityType::Engineering, 'grade' => 4, 'rank' => EngineeringRank::Practitioner],
+            ['first' => 'Mona',   'middle' => 'Farouk',  'last' => 'Sabbagh', 'title' => 'مصمم واجهات', 'activity' => ActivityType::Engineering, 'grade' => 4, 'rank' => EngineeringRank::Associate],
         ]);
         $this->seedStaff($qa, [
-            ['name' => 'Tariq Said', 'job_title' => 'QA Engineer', 'salary' => 14000],
+            ['first' => 'Tariq', 'middle' => 'Said', 'last' => 'Jaber', 'title' => 'مهندس جودة', 'activity' => ActivityType::Engineering, 'grade' => 4, 'rank' => EngineeringRank::AssistantEngineer],
         ]);
 
         $this->seedAccounts($rootEmployee, $hrLead);
@@ -168,27 +182,38 @@ class DevDepartmentSeeder extends Seeder
      * The null-check before ->update guards the exact bug the previous seeder
      * had: dereferencing $first->id for a department seeded with no staff.
      *
-     * @param  array<int, array{name: string, job_title: string, salary: int|float}>  $people
+     * @param  array<int, array{first: string, middle: string, last: string, title: string, activity: ActivityType, grade: int, rank?: EngineeringRank}>  $people
      */
     private function seedStaff(Department $department, array $people): ?Employee
     {
         $first = null;
 
         foreach ($people as $person) {
-            $email = $this->emailFor($person['name']);
+            $displayName = implode(' ', [$person['first'], $person['middle'], $person['last']]);
+            $email       = $this->emailFor($displayName);
 
             $employee = Employee::query()->updateOrCreate(
                 ['email' => $email],
                 [
-                    'name'          => $person['name'],
-                    'phone'         => $this->phoneFor($person['name']),
+                    'first_name'    => $person['first'],
+                    'middle_name'   => $person['middle'],
+                    'last_name'     => $person['last'],
+                    'gender'        => Gender::Male,
+                    'phone'         => $this->phoneFor($displayName),
                     'email'         => $email,
-                    'address'       => 'Riyadh, Saudi Arabia',
+                    'address'       => 'حلب، سوريا',
                     'department_id' => $department->id,
-                    'job_title'     => $person['job_title'],
-                    'hire_date'     => $this->hireDateFor($person['name']),
-                    'salary'        => $person['salary'],
-                    'status'        => 'active',
+                    'job_title_id'  => $this->seedJobTitle($person)->id,
+                    'hire_date'     => $this->hireDateFor($displayName),
+
+                    // The pay-gated axes, so the viewSalary gate has something
+                    // to hide in development. `rank` is only ever present on
+                    // engineering people — the guard refuses it on the rest.
+                    'activity_type'        => $person['activity'],
+                    'organizational_grade' => $person['grade'],
+                    'engineering_rank'     => $person['rank'] ?? null,
+                    'salary_mode'          => SalaryMode::Scale,
+                    'status'               => EmployeeStatus::Active,
                 ],
             );
 
@@ -203,8 +228,31 @@ class DevDepartmentSeeder extends Seeder
     }
 
     /**
+     * Find or create the catalogue entry for a fixture person's title.
+     *
+     * Keyed on `name` because the catalogue is company-wide and unique on it —
+     * so two accountants in two divisions resolve to ONE row, which is the whole
+     * point of the ratified shared catalogue and is worth having the fixtures
+     * demonstrate.
+     *
+     * @param  array{title: string, activity: ActivityType, grade: int}  $person
+     */
+    private function seedJobTitle(array $person): JobTitle
+    {
+        return JobTitle::query()->updateOrCreate(
+            ['name' => $person['title']],
+            [
+                'default_activity_type'        => $person['activity'],
+                'default_organizational_grade' => $person['grade'],
+                'is_described'                 => false,
+                'is_active'                    => true,
+            ],
+        );
+    }
+
+    /**
      * Build a deterministic example email from a person's name.
-     * "Sara Ahmed" -> "sara.ahmed@example.com"
+     * "Sara Ahmed Khoury" -> "sara.ahmed.khoury@example.com"
      */
     private function emailFor(string $name): string
     {

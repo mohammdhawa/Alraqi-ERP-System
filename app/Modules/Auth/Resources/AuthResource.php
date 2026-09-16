@@ -52,7 +52,11 @@ class AuthResource extends JsonResource
     {
         return [
             'id'                => $this->id,
-            'name'              => $this->employee?->name,
+            // Joined from the employee's three name parts by the model's
+            // accessor — `employees.name` was split in Batch 2. The key stays
+            // `name`: this is the signed-in person's display name, and the
+            // session header has no use for the parts.
+            'name'              => $this->employee?->full_name,
             'email'             => $this->email,
             'is_active'         => $this->is_active,
             'roles'             => $this->whenLoaded(

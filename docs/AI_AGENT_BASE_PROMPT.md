@@ -18,7 +18,7 @@
 > | tests are minimal | 179 pass, 809 assertions |
 >
 > **`API_BUILD_STANDARD.md` is the binding standard**: numbered constraints
-> (C1–C30) you can cite in review, per-layer contracts, the build workflow, a
+> (C1–C31) you can cite in review, per-layer contracts, the build workflow, a
 > worked example, the review checklist, and a live gap register. Read it first.
 > Rewrite or delete this file rather than patching it.
 

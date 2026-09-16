@@ -163,7 +163,7 @@ class ApiEnvelopeTest extends TestCase
         // The morph map's job: `reference.type` was emitting
         // "App\Modules\HR\Models\Employee" to clients (C12), and
         // API_DOCUMENTATION.md published that as the contract.
-        $employee = Employee::create(['name' => 'مرجع']);
+        $employee = Employee::factory()->named('مرجع')->create();
         app(NotificationService::class)
             ->sendToUser($user, 'عنوان', reference: $employee);
 

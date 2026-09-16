@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Modules\HR\Controllers\EmployeeAssignmentController;
 use App\Modules\HR\Controllers\EmployeeController;
+use App\Modules\HR\Controllers\EmployeeWarningController;
+use App\Modules\HR\Controllers\JobTitleController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -15,28 +18,76 @@ use Illuminate\Support\Facades\Route;
 |   - Prefix:     /api/hr   (the lowercased module folder name)
 |   - Middleware: api
 |
-| The module prefix (hr) differs from the resource name (employees), so a
-| standard apiResource maps cleanly to /api/hr/employees with no doubling.
+| The module prefix (hr) differs from every resource name, so the resources are
+| registered at the module root with no doubling.
 |
-| MIDDLEWARE:
-|   - auth:sanctum  every endpoint requires an authenticated user.
-|   - audit         records a request-level trail for each action.
-|   - permission:hr.employees.{action}  each route is guarded by the permission
-|                  matching its action (view/create/update/delete), now enforced
-|                  by RBAC (Package D). The apiResource was expanded into explicit
-|                  routes so read actions (index/show) require .view while writes
-|                  require their own create/update/delete permission — a read-only
-|                  role cannot mutate data.
+| MIDDLEWARE — every route carries all three:
+|   - auth:sanctum  no endpoint here is public.
+|   - audit         a request-level trail for each action.
+|   - permission:…  the permission matching the action. Reads take `.view`;
+|                   each write takes its OWN create/update/delete, so a
+|                   read-only role cannot mutate anything (C8). apiResource is
+|                   deliberately NOT used: it collapses all five routes onto one
+|                   middleware list, which is exactly how a write ends up
+|                   guarded by `.view`.
+|
+| ROUTE ORDER: literal segments are declared before wildcards, or the wildcard
+| swallows them. `job-titles` and `warnings` are declared ahead of
+| `employees/{employee}`-shaped paths for that reason, even though the current
+| segment counts happen not to collide — the habit is what survives the next
+| route somebody adds.
+|
+| NESTING: assignments and warnings are read and created UNDER an employee,
+| because neither has meaning apart from a person and there is no company-wide
+| listing of either. Amending a warning is NOT nested — the row's employee is
+| already fixed by its FK, and a nested edit URL invites two ids that disagree.
 |
 */
 
-Route::middleware(['auth:sanctum', 'audit'])
-    ->name('employees.')
-    ->group(function () {
+Route::middleware(['auth:sanctum', 'audit'])->group(function () {
+
+    // ── دليل المسميات الوظيفية — the governed catalogue ──────────────────
+    Route::name('job-titles.')->group(function () {
+        Route::get('job-titles', [JobTitleController::class, 'index'])
+            ->middleware('permission:hr.job_titles.view')->name('index');
+        Route::post('job-titles', [JobTitleController::class, 'store'])
+            ->middleware('permission:hr.job_titles.create')->name('store');
+        Route::get('job-titles/{jobTitle}', [JobTitleController::class, 'show'])
+            ->middleware('permission:hr.job_titles.view')->name('show');
+        Route::match(['put', 'patch'], 'job-titles/{jobTitle}', [JobTitleController::class, 'update'])
+            ->middleware('permission:hr.job_titles.update')->name('update');
+        Route::delete('job-titles/{jobTitle}', [JobTitleController::class, 'destroy'])
+            ->middleware('permission:hr.job_titles.delete')->name('destroy');
+    });
+
+    // ── الإنذارات — amendments, addressed by the warning's own id ─────────
+    Route::name('warnings.')->group(function () {
+        Route::match(['put', 'patch'], 'warnings/{warning}', [EmployeeWarningController::class, 'update'])
+            ->middleware('permission:hr.warnings.update')->name('update');
+        Route::delete('warnings/{warning}', [EmployeeWarningController::class, 'destroy'])
+            ->middleware('permission:hr.warnings.delete')->name('destroy');
+    });
+
+    // ── الموظفون ─────────────────────────────────────────────────────────
+    Route::name('employees.')->group(function () {
         Route::get('employees', [EmployeeController::class, 'index'])
             ->middleware('permission:hr.employees.view')->name('index');
         Route::post('employees', [EmployeeController::class, 'store'])
             ->middleware('permission:hr.employees.create')->name('store');
+
+        // سجل التعيين — read and append only. There is no update or delete
+        // route, and no permission that could authorize one: a posting
+        // recorded wrongly is corrected by recording the correction.
+        Route::get('employees/{employee}/assignments', [EmployeeAssignmentController::class, 'index'])
+            ->middleware('permission:hr.assignments.view')->name('assignments.index');
+        Route::post('employees/{employee}/assignments', [EmployeeAssignmentController::class, 'store'])
+            ->middleware('permission:hr.assignments.create')->name('assignments.store');
+
+        Route::get('employees/{employee}/warnings', [EmployeeWarningController::class, 'index'])
+            ->middleware('permission:hr.warnings.view')->name('warnings.index');
+        Route::post('employees/{employee}/warnings', [EmployeeWarningController::class, 'store'])
+            ->middleware('permission:hr.warnings.create')->name('warnings.store');
+
         Route::get('employees/{employee}', [EmployeeController::class, 'show'])
             ->middleware('permission:hr.employees.view')->name('show');
         Route::match(['put', 'patch'], 'employees/{employee}', [EmployeeController::class, 'update'])
@@ -44,3 +95,4 @@ Route::middleware(['auth:sanctum', 'audit'])
         Route::delete('employees/{employee}', [EmployeeController::class, 'destroy'])
             ->middleware('permission:hr.employees.delete')->name('destroy');
     });
+});

@@ -1,7 +1,9 @@
 # Phase 1.5 — Foundation Truth-Up
 
 > **Status:** specification, ratified 2026-07-30. **§4 (Departments) implemented
-> 2026-08-05** — see the per-section markers below. §5–§7 not yet implemented.
+> 2026-08-05; §5 and §6 (Employees + the supporting tables) implemented
+> 2026-09-13** — see the per-section markers below. §7 (the import) not yet
+> implemented.
 > **§6.1 job-title uniqueness ratified 2026-09-13** (§9 question 4 closed); that
 > marker is the one place where a ratified answer *changes* the spec table rather
 > than only annotating it.
@@ -246,6 +248,59 @@ level 1 — while giving the board and the GM's office somewhere real to live.
 
 ## 5. Employees
 
+> **✅ Implemented 2026-09-13 (Batch 2)**, by
+> [restructure_employees_table.php](../database/migrations/HR/2026_09_13_110000_restructure_employees_table.php).
+> The spec below is unchanged; what implementation resolved is recorded here.
+>
+> **Everything in §5.1–§5.7 landed as written**, plus seven fields the later
+> full scan of the HR folder showed the company actually collects and this spec
+> did not have: `mother_name`, `phone_secondary`, `nationality` /
+> `second_nationality`, `did_military_service` / `military_discharge_date`, and
+> `employment_type`.
+>
+> **Four readings changed, each on evidence:**
+>
+> 1. **`children_count` became `sons_count` + `daughters_count`.** The intake
+>    form counts them separately (عدد الأبناء الذكور / الاناث), so those are the
+>    stored facts and the total is an accessor. Storing all three would be the
+>    same number twice.
+>
+> 2. **`governorate` is an enum, not a string** (§5.1 specified `string`), and
+>    it split into `origin_governorate` and `residence_governorate`. The HR scan
+>    names this exact column as a drift case — حماة versus حماه, 22 distinct
+>    spellings of a 14-member set. §6.4's own test for enum-versus-table is
+>    whether the set is stable, and the governorates of Syria are a stronger
+>    stability claim than the sets already accepted.
+>
+> 3. ⚠️ **The "mutually exclusive" rule in §5.3 is enforced only halfway, on
+>    purpose.** §5.3 says the three experience axes are mutually exclusive by
+>    `activity_type`, which reads as forbidding `experience_level` on
+>    engineering and industrial staff. The pay matrix in the HR folder
+>    contradicts that directly: it carries TWO experience rate tables, one keyed
+>    to `إداري/مالي/أمني` and one to `هندسي/صناعي`, so an engineer carries an
+>    experience level AND a rank. `EmployeeClassificationGuard` therefore
+>    enforces only what both sources agree on — a rank belongs to engineering
+>    work, industrial years to industrial work. Enforcing the stricter reading
+>    would have rejected genuine rows at import time. **Which table an
+>    engineer's pay actually reads is an open question for HR**, recorded in
+>    `START_HERE.md` §11; every input it could need is stored either way.
+>
+> 4. **`status` is now an int-backed enum with `Suspended` (موقوف)** rather than
+>    the vague `inactive`, which closes §9 question 3 — and the workbook's
+>    `الحالة` turned out to hold a *second* fact (متعاقد / يحتاج تثبيت / جماعة /
+>    مثبت), now its own `employment_type` column. The old glossary mapping had
+>    been reading one of the two and discarding the other.
+>
+> **One thing was ruled OUT that the HR scan proposed:** الديانة، المذهب،
+> السوابق الجنائية. The intake form collects them; nothing in these requirements
+> reads them, so they enter no table (project owner, 2026-09-13).
+>
+> **Nullability is looser than this spec implies, deliberately.** Almost every
+> column is nullable even where the intake form makes it mandatory, because §7.4
+> requires the importer to REPORT flawed rows rather than absorb them — which
+> means those rows have to be able to land. Completeness is enforced at the API
+> front door instead (`EmployeeRequest` requires the name parts and gender).
+
 The current table ([create_employees_table.php](../database/migrations/HR/2026_06_21_110000_create_employees_table.php))
 has: `employee_number`, `name`, `national_id`, `phone`, `email`, `address`,
 `department_id`, `job_title`, `hire_date`, `salary`, `status`.
@@ -436,6 +491,47 @@ as a column on every row.
 ---
 
 ## 6. New supporting tables
+
+> **✅ Implemented 2026-09-13 (Batch 2).** All three tables landed as specified,
+> with these implementation notes:
+>
+> - **`job_titles`** gained a `description` column (the job description itself)
+>   as ONE text field rather than the seven the HR scan proposes (summary,
+>   qualifications, skills, authorities, duties…). Nothing in this phase reads
+>   the parts separately, and columns nothing queries are columns nobody fills in
+>   correctly. Splitting later is a migration; un-splitting is data loss.
+>   The in-use guard refuses to delete a title anyone holds **or ever held** —
+>   the history half matters more, because a posting that cannot resolve its
+>   title cannot explain the payslip computed from it.
+>
+> - **`employee_assignments`** is as specified, plus the piece §5.5 named but did
+>   not design: the two-way synchronisation with `employees.department_id`. It is
+>   a model hook in EACH direction, and the recursion is broken by having the
+>   assignment→employee direction write through `DB::table()` (no model events) —
+>   the same technique `AuditLogService` uses so auditing cannot audit itself. A
+>   static "currently syncing" flag would also work and is worse: invisible at
+>   the call site, and it leaks across a queue worker's jobs.
+>
+>   The "at most one open posting" rule is a partial unique index, which MySQL
+>   does not have, so it lives in the `saving` hook.
+>
+> - **`employee_warnings`** stores no `sequence` column. Whether this is
+>   someone's third warning is counted from the live rows at read time, so
+>   withdrawing #2 of 3 renumbers the third — which a stored counter would not.
+>
+> - **`employee_documents`** landed as SCHEMA AND MODEL ONLY, with no endpoints.
+>   The table is here because the Batch 3/4 importer attaches the intake form's
+>   images as it creates each employee, and a table that arrives after the import
+>   is a second migration against real rows. Upload, storage, size/type limits
+>   and signed downloads belong to the Documents module arriving by port in
+>   Stage 2, which already solves all of them in production.
+>   ⚠️ Its `ShamCash` type is a photograph of a payment account — i.e. the
+>   account number — and must read through `hr.employees.viewSalary` when those
+>   endpoints are built, or a document listing walks straight around the
+>   column's own gate.
+>
+> **§6.4 was followed and then extended by one.** `Governorate` became an enum
+> too, on the same test: the set is stable. See the §5 marker.
 
 ### 6.1 `job_titles` — the catalogue
 

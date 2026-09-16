@@ -6,6 +6,7 @@ namespace Tests\Feature\Departments;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -152,6 +153,117 @@ class DepartmentTest extends TestCase
             $queries,
             'expected the binding plus a preloaded ancestor chain; got '.count($queries)
                 .' — the Resource is probably walking ancestors lazily again',
+        );
+    }
+
+    /**
+     * `manager_id` stays exactly as it is — it is the write contract — and
+     * `manager` is the same person as an object beside it (C31), so a client
+     * rendering "who runs this unit" no longer walks the Employees endpoint to
+     * find out.
+     */
+    public function test_show_embeds_the_manager(): void
+    {
+        $this->actingAsAdmin();
+        $manager    = Employee::factory()->named('سامر خليل')->create();
+        $department = Department::create([
+            'name'       => 'الإدارة العامة',
+            'level'      => DepartmentLevel::GeneralAdministration->value,
+            'manager_id' => $manager->id,
+        ]);
+
+        $this->getJson("/api/departments/{$department->id}")
+            ->assertOk()
+            ->assertJsonPath('data.manager_id', $manager->id)
+            ->assertJsonPath('data.manager.id', $manager->id)
+            ->assertJsonPath('data.manager.full_name', 'سامر خليل')
+            // The staff number is what tells two managers with the same
+            // الاسم الثلاثي apart.
+            ->assertJsonPath('data.manager.employee_number', $manager->employee_number);
+    }
+
+    /**
+     * ⚠️ NULL, NOT ABSENT, for a unit with no manager. An omitted key in this
+     * API means "you may not see this field" (C11), so an embed that vanished
+     * when there is nobody to embed would report a permission problem that does
+     * not exist.
+     */
+    public function test_manager_is_null_rather_than_absent_when_the_unit_has_none(): void
+    {
+        $this->actingAsAdmin();
+        $department = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        $data = $this->getJson("/api/departments/{$department->id}")->assertOk()->json('data');
+
+        $this->assertNull($data['manager_id']);
+        $this->assertArrayHasKey('manager', $data, 'the embed must be present even with nobody to embed');
+        $this->assertNull($data['manager']);
+    }
+
+    /**
+     * Reassigning the manager reassigns the embedded object with it — the
+     * controller reloads the relation after the write instead of echoing the
+     * employee the bound model was already holding.
+     */
+    public function test_reassigning_the_manager_updates_the_embedded_object(): void
+    {
+        $this->actingAsAdmin();
+        $first      = Employee::factory()->named('المدير الأول')->create();
+        $second     = Employee::factory()->named('المدير الثاني')->create();
+        $department = Department::create([
+            'name'       => 'الإدارة العامة',
+            'level'      => DepartmentLevel::GeneralAdministration->value,
+            'manager_id' => $first->id,
+        ]);
+
+        $this->putJson("/api/departments/{$department->id}", ['manager_id' => $second->id])
+            ->assertOk()
+            ->assertJsonPath('data.manager_id', $second->id)
+            ->assertJsonPath('data.manager.id', $second->id)
+            ->assertJsonPath('data.manager.full_name', 'المدير الثاني');
+    }
+
+    /**
+     * The list resolves every manager in ONE query, not one per unit.
+     *
+     * This matters more here than almost anywhere else: the seeded tree is 119
+     * units and most of them have a manager, so a lazy load is ~15 extra
+     * queries on every page of the departments list.
+     */
+    public function test_the_index_embeds_managers_without_an_n_plus_one(): void
+    {
+        $this->actingAsAdmin();
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        foreach (range(1, 3) as $i) {
+            Department::create([
+                'name'       => "إدارة {$i}",
+                'level'      => DepartmentLevel::Division->value,
+                'parent_id'  => $root->id,
+                'manager_id' => Employee::factory()->named("مدير {$i}")->create()->id,
+            ]);
+        }
+
+        $queries = [];
+        \DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'from "employees"')) {
+                $queries[] = $query->sql;
+            }
+        });
+
+        $this->getJson('/api/departments')->assertOk();
+
+        $this->assertCount(
+            1,
+            $queries,
+            'expected ONE employees query for the whole page; got '.count($queries)
+                .' — managers are probably being resolved per department again',
         );
     }
 

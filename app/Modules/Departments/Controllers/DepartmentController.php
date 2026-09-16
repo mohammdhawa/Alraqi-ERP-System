@@ -51,12 +51,19 @@ class DepartmentController extends Controller
         );
     }
 
+    /**
+     * `load('manager')` for the same reason show() loads ancestors: the
+     * Resource embeds the managing employee, and a freshly created row has no
+     * relation loaded. Without it the embed would be resolved from inside the
+     * Resource — or, worse, silently come back null on a unit that has a
+     * manager.
+     */
     public function store(StoreDepartmentRequest $request): JsonResponse
     {
         $department = $this->departmentService->create($request->validated());
 
         return $this->created(
-            data: new DepartmentResource($department),
+            data: new DepartmentResource($department->load('manager')),
             message: 'تم إنشاء الوحدة التنظيمية.',
         );
     }
@@ -67,21 +74,28 @@ class DepartmentController extends Controller
      * walk itself — a query per tier, from the layer whose contract forbids
      * queries. The list endpoint got this via the service's withAncestors();
      * a bound model arrives with nothing loaded.
+     *
+     * `manager` is the second relation the Resource reads, and it is owed here
+     * by the same rule.
      */
     public function show(Department $department): JsonResponse
     {
         return $this->success(
-            data: new DepartmentResource($department->loadAncestors()),
+            data: new DepartmentResource($department->loadAncestors()->load('manager')),
             message: 'تم جلب الوحدة التنظيمية.',
         );
     }
 
+    /**
+     * load(), not loadMissing(): an update may have REASSIGNED manager_id, and
+     * loadMissing would keep the stale employee the model was holding.
+     */
     public function update(UpdateDepartmentRequest $request, Department $department): JsonResponse
     {
         $department = $this->departmentService->update($department, $request->validated());
 
         return $this->success(
-            data: new DepartmentResource($department),
+            data: new DepartmentResource($department->load('manager')),
             message: 'تم تحديث الوحدة التنظيمية.',
         );
     }

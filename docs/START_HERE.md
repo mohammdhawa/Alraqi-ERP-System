@@ -4,7 +4,8 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-09-07 (commit `a30b213`, branch `phase_1`).
+> **Last verified against the code:** 2026-09-13, after Phase 1.5 **Batch 2**
+> (the employees rebuild) landed on branch `phase_1`.
 > When you change the system, update the sections marked ⚙️ — they state facts
 > about the code and go stale if ignored.
 
@@ -21,7 +22,7 @@
 7. [The API surface](#7-the-api-surface)
 8. [The roadmap — the real one](#8-the-roadmap--the-real-one)
 9. [Where we are, in detail](#9-where-we-are-in-detail)
-10. [What to do next — Batch 2, step by step](#10-what-to-do-next--batch-2-step-by-step)
+10. [What to do next — Batch 3, the import tooling](#10-what-to-do-next--batch-3-the-import-tooling)
 11. [Open questions waiting for an answer](#11-open-questions-waiting-for-an-answer)
 12. [Known limitations](#12-known-limitations)
 13. [Conventions — how code is written here](#13-conventions--how-code-is-written-here)
@@ -64,18 +65,18 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | `phase_1` — 24 commits ahead of `main`, **9 not yet pushed** |
-| **Last commit** | `a30b213`, 2026-08-06 — *"Rename the root to الإدارة العامة…"* |
-| **Test suite** | **197 passing**, 1050 assertions, ~5s |
-| **Working tree** | modified — the API compliance pass (`API_BUILD_STANDARD.md` §12) is uncommitted |
+| **Branch** | `phase_1` |
+| **Test suite** | **275 passing**, 1412 assertions, ~8s |
+| **Working tree** | modified — Batch 2 (the employees rebuild) is uncommitted |
 | **Production data** | none — the database has never held a real employee |
 
-**Done:** Phase 1 (the whole foundation) + Batch 1 of Phase 1.5 (departments).
+**Done:** Phase 1 (the whole foundation) + Batches 1 and 2 of Phase 1.5
+(departments, then the employees rebuild).
 
-**Not done:** Batches 2, 3 and 4 of Phase 1.5 — the employees rebuild, the import
-tooling, and the real data import.
+**Not done:** Batches 3 and 4 of Phase 1.5 — the import tooling and the real data
+import.
 
-**You stopped in the middle of Phase 1.5.** Restart at §10.
+**Next:** §10 — Batch 3, the import tooling.
 
 ---
 
@@ -320,14 +321,28 @@ bypass are all fully controlled.
   Requires a **shared** cache store in production; it is process-local under the
   SQLite test driver.
 
-The 18 permissions today — 16 route-level: `departments.{view,create,update,delete}`,
+⚙️ The **28** permissions today — 26 route-level:
+`departments.{view,create,update,delete}`,
 `hr.employees.{view,create,update,delete}`,
+`hr.job_titles.{view,create,update,delete}`,
+`hr.assignments.{view,create}`,
+`hr.warnings.{view,create,update,delete}`,
 `auth.users.{view,create,update,delete}`, `auth.roles.{view,create,update,delete}`;
 plus 2 **field-level**, checked inside `EmployeeResource` rather than by any
-route: `hr.employees.viewSalary` (gates `salary`) and `hr.employees.viewIdentity`
-(gates `national_id`). Without them the keys are absent from the payload, not
-null. `PermissionSeederTest` asserts the catalogue exactly and cross-checks that
-every permission any route references is actually seeded.
+route: `hr.employees.viewSalary` and `hr.employees.viewIdentity`. Without them
+the keys are absent from the payload, not null. `PermissionSeederTest` asserts
+the catalogue exactly and cross-checks that every permission any route
+references is actually seeded.
+
+`hr.assignments` has **no update or delete, deliberately**: the posting history
+is append-only, because editing a historical posting changes what a payslip was
+computed against with no trace of the original. There is no route either.
+
+⚙️ Batch 2 widened `viewSalary`. It no longer gates one amount but the whole pay
+block *and every classification axis* — `activity_type`,
+`organizational_grade`, `experience_level`, `engineering_rank`, the four flags,
+`agreed_salary`, `sham_cash_account`. The axes are the inputs the salary is
+computed from, so gating the result while publishing them would be theatre.
 
 ### 5.7 Audit trail
 
@@ -427,25 +442,80 @@ ordered migrations: create departments (no manager FK) -> create employees (with
 the department FK) -> add the manager FK to departments. `parent_id` is exempt,
 because a self-referencing FK can be declared at creation.
 
-### `employees` — every person who works here (Batch 2 rebuilds this)
+### `employees` — every person who works here ⚙️ (rebuilt in Batch 2)
 
-| Column | Type |
+Roughly 45 columns now, in six groups. The full list is in the migration
+`database/migrations/HR/2026_09_13_110000_restructure_employees_table.php`, which
+also records what was dropped and why.
+
+| Group | Columns |
 |---|---|
-| `id` | bigint PK |
-| `employee_number` | string **unique** — auto-generated `EMP-00001` in a model `creating` hook |
-| `name` | string |
-| `national_id` | string, nullable **unique** |
-| `phone`, `email`, `address` | string, nullable |
-| `department_id` | FK to `departments`, nullable, nullOnDelete |
-| `job_title` | string, nullable |
-| `hire_date` | date, nullable |
-| `salary` | decimal(12,2), default 0 |
-| `status` | enum(active, inactive, terminated), indexed |
-| timestamps + `deleted_at` | soft deletes |
+| Identity | `employee_number` (unique, auto-generated, **overridable**), `legacy_number` (the `M024333` values, nullable unique), `first_name`, `middle_name`, `last_name`, `mother_name`, `national_id`, `gender`, `birth_date`, `birth_place`, `origin_governorate`, `residence_governorate`, `nationality`, `second_nationality` |
+| Family | `marital_status`, `wives_count`, `sons_count`, `daughters_count` |
+| Contact | `phone`, `phone_secondary`, `email`, `address` |
+| Military | `did_military_service`, `military_discharge_date` |
+| Education | `education_level`, `qualification`, `specialization`, `is_graduated`, `graduation_date` |
+| **Classification (pay-determining)** | `activity_type`, `organizational_grade`, `experience_level`, `engineering_rank`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
+| Employment | `department_id`, `job_title_id`, `direct_manager_id`, `employment_type`, `workplace`, `hire_date`, `termination_date`, `status` |
+| Pay reference | `sham_cash_account` (16 digits, unique), `salary_mode`, `agreed_salary` |
+| | timestamps + `deleted_at` |
 
-**This is the Phase 1 shape and it is wrong for the real company.** §10 replaces
-it: `name` splits into three parts, `salary` is dropped, `job_title` becomes an
-FK, and roughly 25 columns arrive.
+**Three things are deliberately absent**, and each has a reason worth keeping:
+
+- **`salary`.** For `salary_mode = scale` — the large majority — pay is computed
+  from the criteria above, not stored. Caching it means changing the company
+  scale factor silently makes every row wrong.
+- **`name`.** Three parts, plus a `full_name` accessor. Storing both is two
+  columns for one fact — the failure mode the workbook demonstrates with its
+  `مقارنة الأسماء` column.
+- **`seniority_years`.** It is `hire_date` and the payroll period.
+
+Also absent by the owner's ruling (2026-09-13): **الديانة، المذهب،
+السوابق الجنائية**. The intake form collects them; no requirement here reads
+them, so they are not imported.
+
+⚠️ `organizational_grade` (السوية التنظيمية) is a **position grade** and
+`departments.level` is a **unit tier**. Both are 1–5 and they are *not* the same
+fact.
+
+### `job_titles` — the governed catalogue ⚙️ (new in Batch 2)
+
+`name` (**unique, company-wide — no `department_id`**),
+`default_organizational_grade`, `default_activity_type`, `is_described`
+(`تم التوصيف`, indexed), `description`, `is_active`, timestamps + soft deletes.
+
+A title staff hold — or ever held — cannot be deleted (**409**). The unique index
+counts trashed rows, so a deleted name stays reserved.
+
+### `employee_assignments` — سجل التعيين ⚙️ (new in Batch 2)
+
+`employee_id`, `department_id`, `job_title_id`, `organizational_grade`,
+`from_date`, `to_date` (NULL = current), `reason`, `legacy_workplace`,
+`legacy_manager_name`, `notes`, timestamps + soft deletes.
+
+Replaces the workbook's three frozen `بداية التعيين` columns *and* its separate
+`ملف النقل` transfer sheet. `employees.department_id` survives as the
+denormalised current pointer because it is on every hot query path; the two are
+kept in step by a model hook **in each direction**, so no writer can
+desynchronise them. The recursion is broken by the assignment→employee direction
+writing through `DB::table()` (no model events) — the same technique
+`AuditLogService` uses so auditing cannot audit itself.
+
+At most one row per employee may have `to_date IS NULL`. That is a partial unique
+index, which MySQL does not have, so it lives in the model's `saving` hook.
+
+### `employee_documents`, `employee_warnings` ⚙️ (new in Batch 2)
+
+`employee_documents` — schema and model only, **no endpoints yet**. It exists so
+the Batch 3/4 importer can attach the intake form's four images per hire; upload
+and download belong to the Documents module arriving by port in Stage 2.
+⚠️ Its `ShamCash` type is a payment account and must read through
+`hr.employees.viewSalary` when those endpoints are built.
+
+`employee_warnings` — `type`, `number`, `issued_on`, `issued_by`, `notes`. Rows,
+not the workbook's three columns, which let an employee hold exactly one warning
+forever. `sequence` is **derived at read time**, so withdrawing #2 of 3
+renumbers the third.
 
 ### `users` — accounts that can log in
 
@@ -489,9 +559,8 @@ together), `old_values` / `new_values` (JSON), `description`, `ip_address`,
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. 27 endpoints today —
-exactly 27 now that Laravel's scaffold `GET /api/user` (which returned a raw
-model outside the envelope) has been deleted.
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **38 endpoints**
+today — Batch 2 added eleven.
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -512,6 +581,10 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 17 | POST | `/api/auth/notifications/{id}/read` | bearer | owner-scoped |
 | 18–22 | GET/POST/GET/PUT/DELETE | `/api/departments` | bearer | `departments.*` |
 | 23–27 | GET/POST/GET/PUT/DELETE | `/api/hr/employees` | bearer | `hr.employees.*` |
+| 28–32 | GET/POST/GET/PUT/DELETE | `/api/hr/job-titles` | bearer | `hr.job_titles.*` |
+| 33–34 | GET/POST | `/api/hr/employees/{employee}/assignments` | bearer | `hr.assignments.{view,create}` |
+| 35–36 | GET/POST | `/api/hr/employees/{employee}/warnings` | bearer | `hr.warnings.{view,create}` |
+| 37–38 | PUT/DELETE | `/api/hr/warnings/{warning}` | bearer | `hr.warnings.{update,delete}` |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.
@@ -520,12 +593,25 @@ collection lives in `postman/`.
 — gate the UI on it rather than making an extra request. Refresh on `401` only,
 never on `403`.
 
-⚠️ **Two contract changes on 2026-09-08**, both documented in
-`API_DOCUMENTATION.md` §1: `/api/auth/users` and `/api/auth/roles` are now
-**paginated** (they returned the full collection before, so a client expecting
-every row now gets 15), and `salary` / `national_id` are omitted from employee
-payloads unless the caller holds `hr.employees.viewSalary` /
-`hr.employees.viewIdentity`.
+⚠️ **Contract changes on 2026-09-08**, documented in `API_DOCUMENTATION.md` §1:
+`/api/auth/users` and `/api/auth/roles` are now **paginated**, and `salary` /
+`national_id` are omitted from employee payloads unless the caller holds the
+matching field-level permission.
+
+⚠️⚙️ **BREAKING contract change on 2026-09-13 (Batch 2)** — every client that
+reads an employee must be updated. Written up as
+[`API_DOCUMENTATION.md` §8.0](API_DOCUMENTATION.md) with migration notes:
+
+- `name` → `first_name` / `middle_name` / `last_name` + read-only `full_name`
+- `job_title` (string) → `job_title_id` (FK) + an embedded `job_title` object
+- `salary` → **removed** (`agreed_salary` exists only on the إتفاق track)
+- `status: "active"` → `status: 1` + `status_label: "نشط"`, matching how `level`
+  / `level_label` already ship on departments. The old `inactive` case is now
+  **`موقوف` (suspended)**, which closes §11 open question 2.
+- every enum field ships as `{field}` (int) + `{field}_label` (Arabic)
+
+`/api/auth/me` and `/api/auth/users` still return `name` — that key is an
+*account's* display name and is unchanged. Only the employee resource split.
 
 ---
 
@@ -644,8 +730,8 @@ once.
 | Batch | Content | State |
 |---|---|---|
 | **1** | `Office` tier + `Sector` enum + `departments.sector` + resource/guard updates + the real tree seeded | **done, 2026-08-05/06** |
-| **2** | `employees` restructure (§5) + the three new tables (§6) + permission additions | **not started — do this next** |
-| **3** | Import tooling (§7) + the reviewable org-tree artefact | not started |
+| **2** | `employees` restructure (§5) + the new tables (§6) + permission additions | **done, 2026-09-13** |
+| **3** | Import tooling (§7) + the reviewable org-tree artefact | **not started — do this next** |
 | **4** | HR review pass, corrections, the real import | not started |
 
 Estimate for the whole of Phase 1.5 was 2–3 weeks, in four commits that each
@@ -668,6 +754,15 @@ Two more were answered on 2026-08-05: board members **are** `employees` rows; an
 `إدارة التسويق وتقنية المعلومات` follows the chart, with a
 `قسم تقنية المعلومات` under it.
 
+Four more on **2026-09-13**:
+
+| # | Question | Answer |
+|---|---|---|
+| 7 | Is a job title per-division or company-wide? | **One shared row.** `job_titles.name` is unique and `department_id` is dropped — `محاسب` is a single title with a single description however many divisions employ accountants. Was §11 question 3 |
+| 8 | Should the ERP store الديانة، المذهب، السوابق الجنائية? | **No.** The intake form collects them; nothing here reads them, so they are never imported. Data that is not stored cannot leak |
+| 9 | `employee_number` format | **Auto-generate when blank, allow a manual override** where it is unique. `legacy_number` keeps the imported `M024333`. Closes §11 question 1 |
+| 10 | Scope of the HR build | **Batch 2 as ratified.** Payroll, attendance, leave and documents are *not* rebuilt — attendance, leave and documents already run in production in the legacy system and arrive by port (Stages 2–3); payroll is Stage 4 |
+
 And one on **2026-09-13**: a job title is **one shared, company-wide row** —
 `job_titles.name` is unique and the `department_id` column is dropped, so `محاسب`
 is a single title with a single job description no matter how many divisions
@@ -678,19 +773,22 @@ title picker is ever needed, are in
 
 ---
 
-## 10. What to do next — Batch 2, step by step
+## 10. What to do next — Batch 3, the import tooling
 
-**Read `phase-1.5-foundation-truth-up.md` §5 and §6 first.** They hold the exact
-column list. This section is the execution order and the traps.
+⚙️ **Batch 2 is done (2026-09-13).** Jump to
+[Batch 3](#batch-3--import-tooling) for the next work. The rest of this section
+is the record of what Batch 2 built and why — it is the reference for anyone
+touching `employees` now, and it is written in the imperative because that is how
+it was specified.
 
-### Why now and not later
+### Why it had to happen before the import
 
-The database has **no production data**. Changing `employees` today costs a
-migration and some test updates. After the import it costs a data migration
-against 465 real rows, on a system HR depends on. Batch 2 must land before
-Batch 3 runs.
+The database had **no production data**. Changing `employees` then cost a
+migration and some test updates; after the import it would have cost a data
+migration against 465 real rows on a system HR depends on. That window closes
+exactly once, and Batch 2 went through it.
 
-### The order to do it in
+### What Batch 2 did, in the order it was done
 
 **Step 1 — split the name.** `employees.name` becomes `first_name`,
 `middle_name`, `last_name`, with a `full_name` accessor that joins them. This is
@@ -787,9 +885,23 @@ is the **monetary value** attached to each case, and those values live in Stage
 revision is a data change, while the criterion identity stays a compile-time
 constant the calculator can `match` on exhaustively.
 
-### After Batch 2
+### Batch 3 — import tooling
 
-**Batch 3 — import tooling.** Sources: the Excel workbook and the org chart.
+**Everything the importer writes into now exists**, which is the point of having
+done Batch 2 first: `employees` in its real shape, the `job_titles` catalogue to
+dedup titles into, `employee_assignments` to carry the opening posting, and
+`employee_documents` to attach the intake form's four images per hire.
+
+Two things the importer gets for free and should not re-implement:
+
+- **The opening posting writes itself.** Creating an employee with a
+  `department_id` opens a `تعيين` assignment dated from their `hire_date`, via a
+  model hook. Do not create it separately — a second open posting is refused.
+- **Every invariant is enforced at the model layer**, not just over HTTP, so a
+  bad row raises `EmployeeClassificationException` with an Arabic message naming
+  the field. That is the hook to catch and turn into the import report.
+
+**Sources:** the Excel workbook and the org chart.
 **Not** the Access DB. Where sources disagree, **the chart wins** for tiers 1–3;
 the intake form is used **only** for the office tier, because the chart draws
 offices inconsistently across slides.
@@ -817,21 +929,36 @@ a blank `أسماء الإدارات`, and `رقم الشام كاش` values tha
 
 ### For HR / the project owner
 
-None of these block starting Batch 2, but each must be answered before the module
-it touches is finished.
+Questions 1–3 were **closed on 2026-09-13** and are recorded as ratified
+decisions 7–10 in §9. What is left:
 
-1. **`employee_number` format.** New hires get `EMP-00001`; the company uses
-   `M024333`. The plan keeps both — the generator for the ERP identifier,
-   `legacy_number` for the imported one. Confirm HR is content to see a new
-   number, or the generator adopts the `M` format for new hires too.
-2. **`الحالة` beyond two values.** The workbook shows only `متعاقد` and
-   `إنهاء عمل`. Does the company distinguish suspended / on-loan / seconded
-   staff, which the existing `inactive` case could carry?
-3. **Two source discrepancies to confirm before the import runs:**
+1. **Two source discrepancies to confirm before the import runs:**
    `إدارة الإمداد والتوريد` (absent from the intake form, a division in the
    chart) and `إدارة التسويق` vs `إدارة التسويق وتقنية المعلومات`. The chart is
    four months newer than the workbook, and a division that gained a section on
-   paper may not have gained it in fact.
+   paper may not have gained it in fact. **Blocks Batch 3.**
+
+2. ⚙️ **Does an engineering employee's pay read the numeric experience table, the
+   engineering-rank table, or both added together?** New, and found while
+   building Batch 2. `phase-1.5-foundation-truth-up.md` §5.3 says the three
+   experience axes are mutually exclusive by activity type, which reads as
+   forbidding `experience_level` on engineering staff. The company's own pay
+   matrix contradicts that: it carries **two** experience rate tables, one keyed
+   to `إداري/مالي/أمني` (خبرة 1–5) and one to `هندسي/صناعي` (1–5), so an
+   engineer holds an experience level **and** a rank.
+
+   The schema stores every input either way, and
+   `EmployeeClassificationGuard` enforces only what both sources agree on — a
+   rank belongs to engineering work, industrial years to industrial work —
+   because the stricter reading would have rejected real rows at import time.
+   **This does not block Batch 3. It blocks the payroll calculator (Stage 4).**
+
+3. ⚙️ **What scale does `distinction_grade` (التمييز بحسب التقييم) use?** The
+   Phase 1.5 spec types it as a tinyint without stating a range; the later HR
+   scan models it as a monetary amount instead. It is stored here as a grade and
+   validated only against the column's own range, because inventing a bound
+   would be guessing. The performance-review module that sets it will need the
+   real answer.
 
 ### For the merge
 
@@ -871,13 +998,27 @@ Stated honestly, so none of these is mistaken for a bug.
   code resolves an employee's approver or climbs the chain.
 - **The المدير العام has no one above them.** By construction the chain
   terminates there. Intended, not a gap.
-- **`employees.salary` WRITE access is still ungoverned.** Read access is now
-  gated by `hr.employees.viewSalary` (and `national_id` by
-  `hr.employees.viewIdentity`), and both are redacted in the audit trail — but
-  *setting* a salary still requires only `hr.employees.update`, so a caller can
-  write a value they cannot read back. Narrowing that is a policy decision, not a
-  bug fix; it needs an answer before the real import. Tracked as GAP-12 in
-  `API_BUILD_STANDARD.md` §12.
+- ⚙️ **Pay-field WRITE access is still ungoverned.** Read access is gated by
+  `hr.employees.viewSalary` (and `national_id` by `hr.employees.viewIdentity`),
+  and all of it is redacted in the audit trail — but *setting* `agreed_salary`,
+  `sham_cash_account` or any classification axis still requires only
+  `hr.employees.update`, so a caller can write values they cannot read back.
+  Batch 2 **widened what is gated on read without narrowing the write side**, so
+  the asymmetry got larger rather than smaller. Narrowing it is a policy
+  decision, not a bug fix; it needs an answer before the real import. Tracked as
+  GAP-12 in `API_BUILD_STANDARD.md` §12.
+- ⚙️ **A direct write to `employees.department_id` rewrites the open posting
+  rather than appending to history.** The model hook keeps the pointer and the
+  open assignment in step on every path, so they can never disagree — but it can
+  only infer "something changed" and records `نقل داخلي` dated today. A transfer
+  with a real reason or a real effective date must go through
+  `POST /api/hr/employees/{employee}/assignments`. This is a deliberate split,
+  not a gap: the alternative is smuggling history fields onto a person's
+  profile.
+- ⚙️ **`employee_documents` has a table and no endpoints.** The importer will
+  write it; upload and download arrive with the Documents module in Stage 2.
+  Whoever builds them owes the `ShamCash` type the `viewSalary` gate — a photo
+  of a payment account is the account number.
 - **Concurrency guarantees are real only on MySQL with a shared lock and cache
   store.** The root-creation lock, the parent row locks and the permission cache
   are no-ops or process-local under the SQLite test driver — correct by
@@ -956,7 +1097,18 @@ The domain is Arabic and the code is English. This is the mapping used throughou
 | النسبة المئوية للقيمة | the company scale factor | currently `0.75`; belongs in the rate table |
 | الرقم الوظيفي | `legacy_number` | the `M024333` values |
 | رقم الشام كاش | `sham_cash_account` | exactly 16 digits |
-| متعاقد / إنهاء عمل | `status = active` / `terminated` | |
+| ~~متعاقد / إنهاء عمل~~ | ~~`status = active` / `terminated`~~ | ⚙️ **Superseded 2026-09-13 — this mapping read two facts as one.** See the two rows below |
+| نشط / موقوف / منتهي الخدمة | `EmployeeStatus` | *Is this person employed?* موقوف replaces the vague `inactive` |
+| متعاقد / يحتاج تثبيت / جماعة / مثبت | `EmploymentType` | *On what footing?* A separate column. The workbook's `الحالة` held both questions, and the old glossary row above silently picked one |
+| الاسم الثلاثي | `first_name` + `middle_name` + `last_name` | `full_name` joins them; never a column |
+| اسم الأب / الكنية / اسم الأم | `middle_name` / `last_name` / `mother_name` | the middle name IS the father's name, and is searched as such |
+| سجل التعيين | `employee_assignments` | posting history; `to_date IS NULL` = current |
+| تعيين / نقل داخلي / ترقية | `AssignmentReason` | why a posting row exists |
+| المسمى الوظيفي | `job_titles.name` | one shared, company-wide row |
+| الإنذار | `employee_warnings` | rows, not three columns; `sequence` is derived |
+| المرحلة الدراسية | `EducationLevel` | 13 rungs, ordered by pay value — **not** by the reference schema's `rank_order` |
+| المحافظة | `Governorate` | an enum of the 14, killing the حماة/حماه drift |
+| الخدمة العسكرية | `did_military_service` | routine HR data here |
 | تم التوصيف | `job_titles.is_described` | output of قسم التحليل والتوصيف |
 | قاعدة البيانات | the workbook's main sheet | 242 employees |
 | دليل الهيكل والمسميات الوظيفية | the structure and job-titles sheet | 691 rows; the tree's source of record |

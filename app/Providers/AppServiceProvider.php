@@ -7,6 +7,10 @@ use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Models\EmployeeAssignment;
+use App\Modules\HR\Models\EmployeeDocument;
+use App\Modules\HR\Models\EmployeeWarning;
+use App\Modules\HR\Models\JobTitle;
 use App\Shared\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -71,11 +75,15 @@ class AppServiceProvider extends ServiceProvider
         // decoupled from namespaces, so moving a class between modules — which
         // the legacy merge will do — no longer rewrites history.
         Relation::enforceMorphMap([
-            'employee'   => Employee::class,
-            'department' => Department::class,
-            'user'       => User::class,
-            'role'       => Role::class,
-            'permission' => Permission::class,
+            'employee'            => Employee::class,
+            'employee_assignment' => EmployeeAssignment::class,
+            'employee_document'   => EmployeeDocument::class,
+            'employee_warning'    => EmployeeWarning::class,
+            'job_title'           => JobTitle::class,
+            'department'          => Department::class,
+            'user'                => User::class,
+            'role'                => Role::class,
+            'permission'          => Permission::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

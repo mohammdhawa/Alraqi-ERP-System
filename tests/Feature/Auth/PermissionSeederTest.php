@@ -26,9 +26,12 @@ class PermissionSeederTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 16 route-level permissions + 2 field-level (C11).
+     * 26 route-level permissions + 2 field-level (C11).
+     *
+     * Batch 2 added ten: the job-title catalogue (4), posting history (2 — view
+     * and create ONLY, because سجل التعيين is append-only), and warnings (4).
      */
-    private const TOTAL = 18;
+    private const TOTAL = 28;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -40,8 +43,11 @@ class PermissionSeederTest extends TestCase
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update', 'departments.view',
+            'hr.assignments.create', 'hr.assignments.view',
             'hr.employees.create', 'hr.employees.delete', 'hr.employees.update', 'hr.employees.view',
             'hr.employees.viewIdentity', 'hr.employees.viewSalary',
+            'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update', 'hr.job_titles.view',
+            'hr.warnings.create', 'hr.warnings.delete', 'hr.warnings.update', 'hr.warnings.view',
         ];
 
         $this->assertSame($expected, Permission::orderBy('name')->pluck('name')->all());

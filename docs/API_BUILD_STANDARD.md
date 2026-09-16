@@ -157,7 +157,7 @@ This table is the fastest way to answer "where does this code go?".
 | **Service** | Own business logic, transactions, locks, and audit calls | Accept models, scalars, arrays, and a context object | Accept or touch `Illuminate\Http\Request`; return a `JsonResponse`; know a status code |
 | **Model** | Enforce invariants in `saving`/`creating`/`deleting` hooks (P2) | Expose scopes, casts, accessors, relations | Contain HTTP knowledge, or format output |
 | **Support guard** (`Support/`) | Be pure: primitives in, violations out; framework-free | Be called from *both* a FormRequest and a model hook | Depend on HTTP, or on a specific caller |
-| **Resource** | Shape the public JSON contract; gate sensitive fields | Use `whenLoaded` to avoid N+1 | Perform queries or trigger lazy loads |
+| **Resource** | Shape the public JSON contract; gate sensitive fields; embed an FK's record beside its id (C31) | Use `whenLoaded`, or read the FK first, to avoid N+1 | Perform queries or trigger lazy loads |
 | **Exception** | Carry a domain meaning and a message | Carry a status code as data | Build its own `response()->json(...)` — see §13 |
 
 ---
@@ -264,6 +264,20 @@ Cite these in review by number.
 - **C30** — Client-controlled `sort` and filter parameters are **allow-listed in
   the service**. Never interpolate a query parameter into `orderBy()`. An unknown
   value is a `422`, not a silent fallback.
+
+### Embedded references
+
+- **C31** — An FK a client must resolve to render the row ships the `*_id`
+  **and** the referenced record beside it, under the same name without the
+  suffix (`manager_id` + `manager`). The id keeps its meaning and is the write
+  contract; the object is read-only. The object is **`null` when there is
+  nothing to reference, never omitted** — omission is reserved for C11 gating,
+  and one key cannot carry both meanings. A person is always
+  `{id, full_name, employee_number}`, built by `HR\Resources\EmployeeStub` so
+  the shape cannot drift between modules. The relation is **eager-loaded by
+  whoever hands the model to the Resource**, and a test asserts the query count
+  on the list endpoint — an embed is otherwise an N+1 that only shows up in
+  production.
 
 ---
 
@@ -624,7 +638,10 @@ it in `after()` and surface each violation as a field error.
 
 **7. Write the Resource.** Decide the public contract deliberately — a new model
 column is *not* automatically public. Gate sensitive fields (C11). Use
-`whenLoaded()` and make sure the service eager-loads what you reference.
+`whenLoaded()` and make sure the service eager-loads what you reference. If the
+row carries an FK a client would otherwise resolve itself, embed the referenced
+record beside the id — `null`, never omitted, when there is none (C31); a person
+goes through `EmployeeStub`.
 
 **8. Write the controller.** One service call, one Resource, one envelope (C2).
 If it is longer than ten lines, something belongs in the service.
@@ -652,6 +669,17 @@ shipped.
 
 `job_titles` — the governed catalogue of job titles, from Batch 2 step 5. Real,
 next in the roadmap, and it exercises every layer.
+
+> ⚙️ **This shipped on 2026-09-13** and the code below is the real thing, not a
+> sketch — compare `app/Modules/HR/{Models,Services,Requests,Resources,Controllers}`.
+> Three things the built version added that this example omits, each worth
+> knowing before you copy it: the `deleting` guard also checks
+> `assignments()` (a title nobody currently holds may still be the title someone
+> held in 2024, and that row explains a payslip); the model carries
+> `$attributes` defaults mirroring the column defaults, because a DB default is
+> applied by the INSERT and so arrives too late for the create RESPONSE to show
+> it; and the service's list is ordered by `name`, not `latest()`, because a
+> catalogue is read as a catalogue.
 
 **1. Migration** — `database/migrations/HR/xxxx_create_job_titles_table.php`
 
@@ -960,6 +988,7 @@ A PR that adds or changes an endpoint must satisfy all of these.
 - [ ] State-changing actions are audited (C13)
 - [ ] New secrets added to `AuditLogService::sanitize()` (C14)
 - [ ] Sensitive fields gated in the Resource, inputs included (C11)
+- [ ] Every embedded FK object is `null` rather than omitted when empty, is eager-loaded by the caller, and has a query-count test on the list endpoint (C31)
 
 **Verification**
 - [ ] `php artisan test` green
@@ -985,7 +1014,7 @@ nothing tested it.
 | # | Gap | Breaks | Evidence | Fix |
 |---|---|---|---|---|
 | **GAP-3** | **No row-level authorization anywhere.** Permissions are verb-level only: `hr.employees.view` reads *every* employee; `departments.update` edits *any* unit. No `Policy` class exists; every `FormRequest::authorize()` returns bare `true` | C10, stage 4b | `grep -r Policy app/` → nothing | Add a thin policy layer for subtree scoping. **Blocked on a product decision: what is a manager's scope?** Partially mitigated — the salary and national-id exposure that made this urgent is now gated field-level (C11) |
-| **GAP-12** | **Sensitive fields are gated on READ but not on WRITE.** `hr.employees.viewSalary` decides who may *see* a salary; who may *set* one is still plain `hr.employees.update`. So a caller can write a value they cannot read back | C11 | `EmployeeRequest` vs `EmployeeResource` | Decide the intended rule before the real import. Narrowing write access is a policy decision, not a bug fix, so it was deliberately not taken unilaterally |
+| **GAP-12** | **Sensitive fields are gated on READ but not on WRITE.** `hr.employees.viewSalary` decides who may *see* pay; who may *set* it is still plain `hr.employees.update`. So a caller can write values they cannot read back. ⚙️ **Widened by Batch 2** — the read gate now covers `agreed_salary`, `sham_cash_account` and all nine classification axes, while the write side is unchanged, so the asymmetry is larger than when this was filed | C11 | `EmployeeRequest` vs `EmployeeResource` | Decide the intended rule before the real import. Narrowing write access is a policy decision, not a bug fix, so it was deliberately not taken unilaterally |
 
 ### Closed
 
@@ -1069,9 +1098,13 @@ inspects what it changed will keep missing what it did not.
 
 ### Deliberately not done
 
-- **`employees.status` is a DB enum + `Rule::in`, not an int-backed PHP enum**
-  (C26). Batch 2 rebuilds the `employees` table wholesale; changing it now is
-  churn against a ratified plan. Fix it as part of that rebuild.
+- ~~**`employees.status` is a DB enum + `Rule::in`, not an int-backed PHP enum**
+  (C26).~~ ⚙️ **Closed 2026-09-13** in the Batch 2 rebuild, exactly as this
+  entry said it would be: the column is an indexed `unsignedTinyInteger` cast to
+  `EmployeeStatus`, and the vague `inactive` case became `Suspended` (موقوف) on
+  the evidence of the HR folder scan. It is a published contract change —
+  `status` is now `1` with a `status_label` beside it — documented in
+  `API_DOCUMENTATION.md` §8.0.
 - **Repo-wide Pint.** Seven files unrelated to this work still fail
   (`ModuleServiceProvider`, `config/auth.php`, `config/sanctum.php`,
   `UserSeeder`, `routes/console.php`, `tests/TestCase.php`,

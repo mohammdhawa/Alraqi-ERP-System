@@ -308,7 +308,7 @@ class RoleTest extends TestCase
      */
     public function test_assign_and_unassign_return_a_user_ready_to_serialize(): void
     {
-        $employee = Employee::create(['name' => 'اسم المستخدم']);
+        $employee = Employee::factory()->named('اسم المستخدم')->create();
         $target   = User::factory()->create(['employee_id' => $employee->id]);
         $role     = Role::create(['name' => 'temp']);
         $service  = app(RoleService::class);
@@ -347,7 +347,7 @@ class RoleTest extends TestCase
     public function test_assign_response_still_resolves_the_display_name(): void
     {
         $this->actingAsAdmin();
-        $employee = Employee::create(['name' => 'اسم المستخدم']);
+        $employee = Employee::factory()->named('اسم المستخدم')->create();
         $target   = User::factory()->create(['employee_id' => $employee->id]);
         $roleId   = Role::where('name', User::SUPER_ADMIN_ROLE)->value('id');
 

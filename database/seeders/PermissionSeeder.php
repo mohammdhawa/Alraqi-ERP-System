@@ -36,9 +36,19 @@ class PermissionSeeder extends Seeder
         // EmployeeResource to decide whether `salary` / `national_id` appear in
         // the payload (C11). They are real permissions all the same — seeded,
         // assignable, and shown in the admin UI like any other.
+        //
+        // hr.assignments has NO update or delete, and that is a design
+        // statement rather than an omission: سجل التعيين is append-only. A
+        // posting recorded wrongly is corrected by recording the correction,
+        // the way a ledger is. Letting someone edit last year's posting would
+        // let them change what a payslip was computed against, after the fact
+        // and without a trace of the original.
         'hr'   => [
             'hr.employees.view', 'hr.employees.create', 'hr.employees.update', 'hr.employees.delete',
             'hr.employees.viewSalary', 'hr.employees.viewIdentity',
+            'hr.job_titles.view', 'hr.job_titles.create', 'hr.job_titles.update', 'hr.job_titles.delete',
+            'hr.assignments.view', 'hr.assignments.create',
+            'hr.warnings.view', 'hr.warnings.create', 'hr.warnings.update', 'hr.warnings.delete',
         ],
         // Auth module
         'auth' => [
@@ -64,6 +74,16 @@ class PermissionSeeder extends Seeder
         'hr.employees.delete'       => 'حذف موظف',
         'hr.employees.viewSalary'   => 'عرض رواتب الموظفين',
         'hr.employees.viewIdentity' => 'عرض أرقام هوية الموظفين',
+        'hr.job_titles.view'        => 'عرض المسميات الوظيفية',
+        'hr.job_titles.create'      => 'إنشاء مسمى وظيفي',
+        'hr.job_titles.update'      => 'تعديل مسمى وظيفي',
+        'hr.job_titles.delete'      => 'حذف مسمى وظيفي',
+        'hr.assignments.view'       => 'عرض سجل التعيين',
+        'hr.assignments.create'     => 'تسجيل تعيين أو نقل',
+        'hr.warnings.view'          => 'عرض الإنذارات',
+        'hr.warnings.create'        => 'إصدار إنذار',
+        'hr.warnings.update'        => 'تعديل إنذار',
+        'hr.warnings.delete'        => 'حذف إنذار',
         'auth.users.view'           => 'عرض المستخدمين',
         'auth.users.create'         => 'إنشاء مستخدم',
         'auth.users.update'         => 'تعديل مستخدم',

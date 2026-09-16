@@ -7,6 +7,7 @@ namespace Tests\Feature\Shared;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Models\JobTitle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -36,7 +37,7 @@ class PaginationContractTest extends TestCase
     private function seedEmployees(int $count): void
     {
         for ($i = 0; $i < $count; $i++) {
-            Employee::create(['name' => "employee {$i}"]);
+            Employee::factory()->named("employee {$i}")->create();
         }
     }
 
@@ -45,9 +46,19 @@ class PaginationContractTest extends TestCase
         $this->actingAsAdmin();
         $this->seedEmployees(3);
 
-        // All five, including the two that used to return a bare collection.
+        // Batch 2 added four more list endpoints, so they are enumerated here
+        // in the same breath as the original five. A list that ships without
+        // appearing in this array is a list nothing holds to the contract —
+        // which is precisely how the three original defects survived.
+        $employee = Employee::factory()->named('صاحب سجل')->create();
+        JobTitle::create(['name' => 'محاسب']);
+        $employee->warnings()->create(['type' => 'مخالفة', 'issued_on' => '2026-04-01']);
+
         $endpoints = [
             '/api/hr/employees',
+            '/api/hr/job-titles',
+            "/api/hr/employees/{$employee->id}/assignments",
+            "/api/hr/employees/{$employee->id}/warnings",
             '/api/departments',
             '/api/auth/notifications',
             '/api/auth/users',

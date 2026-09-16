@@ -228,7 +228,7 @@ class AuthTest extends TestCase
     public function test_me_returns_the_authenticated_user(): void
     {
         // The account's display name is the linked employee's name.
-        $employee = Employee::create(['name' => 'Jane Doe']);
+        $employee = Employee::factory()->named('Jane Doe')->create();
         $this->createUser(['employee_id' => $employee->id]);
         $tokens = $this->loginAs();
 
