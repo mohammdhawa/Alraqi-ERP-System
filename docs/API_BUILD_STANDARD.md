@@ -321,8 +321,19 @@ app/Shared/
   Middleware/       cross-cutting, module-agnostic
   Services/         AuditLogService — the single audit writer
   Traits/           ApiRespond (envelope) · HasAuditLog (model audit)
-  Support/          RequestContext — identity + correlation, built in middleware
+  Support/          RequestContext · AuditEventCatalogue — framework-light helpers
+  Exceptions/       ApiExceptionRenderer · the DomainException interface
+  Models/           AuditLog — the read lens over a table Shared owns
 ```
+
+⚙️ `Models/` is the newest of these and the one that needs a reason. A model
+belongs to a module unless the TABLE does: `audit_logs` has its migration in
+`database/migrations/Shared/`, its writer in `Shared/Services/`, and every module
+writes to it through `HasAuditLog`. The READ SURFACE over it is an Auth-module
+feature — `auth.audit.view`, mounted beside users and roles — which is the same
+split as Auth and Departments importing `HR\Resources\EmployeeStub`: the owner of
+a thing and the owner of a view onto it may differ. The dependency must not
+invert; nothing in `Shared/` imports the Auth read surface back.
 
 ### Where a thing goes — decision table
 
@@ -1013,14 +1024,15 @@ nothing tested it.
 
 | # | Gap | Breaks | Evidence | Fix |
 |---|---|---|---|---|
-| **GAP-3** | **No row-level authorization anywhere.** Permissions are verb-level only: `hr.employees.view` reads *every* employee; `departments.update` edits *any* unit. No `Policy` class exists; every `FormRequest::authorize()` returns bare `true` | C10, stage 4b | `grep -r Policy app/` → nothing | Add a thin policy layer for subtree scoping. **Blocked on a product decision: what is a manager's scope?** Partially mitigated — the salary and national-id exposure that made this urgent is now gated field-level (C11) |
-| **GAP-12** | **Sensitive fields are gated on READ but not on WRITE.** `hr.employees.viewSalary` decides who may *see* pay; who may *set* it is still plain `hr.employees.update`. So a caller can write values they cannot read back. ⚙️ **Widened by Batch 2** — the read gate now covers `agreed_salary`, `sham_cash_account` and all nine classification axes, while the write side is unchanged, so the asymmetry is larger than when this was filed | C11 | `EmployeeRequest` vs `EmployeeResource` | Decide the intended rule before the real import. Narrowing write access is a policy decision, not a bug fix, so it was deliberately not taken unilaterally |
+| **GAP-3** | **No row-level authorization anywhere.** Permissions are verb-level only: `hr.employees.view` reads *every* employee; `departments.update` edits *any* unit. No `Policy` class exists; every `FormRequest::authorize()` returns bare `true` | C10, stage 4b | `grep -r Policy app/` → nothing | ✅ ⚙️ **UNBLOCKED 2026-09-23 — the scope is the whole subtree** (START_HERE §9, decision 14): a division head sees every section and office beneath them and all their staff. Still open because the code does not exist: add a thin policy layer for subtree scoping. Partially mitigated — the salary and national-id exposure that made this urgent is now gated field-level (C11) |
+| **GAP-13** | **The audit trail still carries the classification axes in cleartext.** `AuditLogService::sanitize()` redacts credentials plus `national_id`, `salary`, `agreed_salary` and `sham_cash_account` — but NOT the nine axes (`activity_type`, `organizational_grade`, `experience_level`, `engineering_rank`, `industrial_experience_years`, the three pay flags, `distinction_grade`) that `hr.employees.viewSalary` gates everywhere else precisely because pay is computed from them. So an employee update writes them verbatim to an append-only table. Shipping `auth.audit.viewValues` narrows this to callers holding that grant; it does not close it — a caller with `hr.employees.view` + `viewValues` and without `viewSalary` can still read the axes out of an employee's history. ⚙️ **Corrected 2026-09-20** — as first written this entry UNDERSTATED the exposure by a wide margin, and that part is now fixed. `HasAuditLog` fills `new_values` from `getAttributes()`, so `auth.audit.view` + `viewValues` and nothing else read every audited table — employees, departments, job_titles, users, roles — without `hr.employees.view` or `auth.users.view` ever being granted. Neither fix proposed here touched it, because both were written about the nine axes rather than about every column there is. `AuditLogDetailResource::TYPE_VIEW_PERMISSIONS` now also requires the view permission of the module the row is about, per morph alias, failing closed for an alias it has no entry for (`AuditTargetStubTest` makes a missing one a build error). What is described above is what remains | C11, C14 | `AuditLogService::sanitize()` vs `EmployeeResource::payBlock()` | Decide between the two remaining options, both of which cost something real: add the axes to the redaction list (and lose "who changed this person's grade, and to what" **forever**, on a table that can be neither scrubbed nor un-scrubbed after the fact), or treat `auth.audit.viewValues` as implying `viewSalary` and refuse to grant them apart. ✅ ⚙️ **DECIDED 2026-09-23 (START_HERE §9, decision 16): `auth.audit.viewValues` implies `hr.employees.viewSalary`, and the two are never granted apart.** The reversible option was taken deliberately — redaction is irreversible in one direction only, and it would have destroyed "who changed this person’s grade, and to what" permanently on a table that can be neither scrubbed nor un-scrubbed after the fact. Still open because nothing in the code enforces the implication yet |
+| **GAP-12** | **Sensitive fields are gated on READ but not on WRITE.** `hr.employees.viewSalary` decides who may *see* pay; who may *set* it is still plain `hr.employees.update`. So a caller can write values they cannot read back. ⚙️ **Widened by Batch 2** — the read gate now covers `agreed_salary`, `sham_cash_account` and all nine classification axes, while the write side is unchanged, so the asymmetry is larger than when this was filed | C11 | `EmployeeRequest` vs `EmployeeResource` | ✅ ⚙️ **DECIDED 2026-09-23 — من لا يرى لا يكتُب** (START_HERE §9, decision 13): writing `agreed_salary`, `sham_cash_account` or any of the nine axes requires `hr.employees.viewSalary`, and writing `national_id` requires `hr.employees.viewIdentity`. No new permission. Still open because `EmployeeRequest` does not enforce it yet |
 
 ### Closed
 
 | # | Gap | Closed by |
 |---|---|---|
-| **GAP-1** | 25 of 27 endpoints unthrottled | `$middleware->throttleApi()` in `bootstrap/app.php` + an `api` limiter (60/min, keyed on user then IP). The login limiter is now keyed on **ip + lower-cased email**, so one attacker behind a NAT can no longer lock out everyone sharing the address. `AuthThrottleTest` asserts all three |
+| **GAP-1** | 25 of 27 endpoints unthrottled | `$middleware->throttleApi()` in `bootstrap/app.php` + an `api` limiter (60/min, keyed on user then IP). The login limiter is keyed on **ip + lower-cased identifier**, so one attacker behind a NAT can no longer lock out everyone sharing the address (the field it reads became `login` with the 2026-09-23 account model — a limiter still reading `email` would have keyed every attempt on the empty string and locked out the company). `AuthThrottleTest` asserts all three |
 | **GAP-2** | Every framework error escaped the envelope | `ApiExceptionRenderer`, wired once in `bootstrap/app.php`, typed on `Throwable`. Covers validation, domain, auth, authorization, model-not-found, route-not-found, method-not-allowed, throttle, any `HttpException`, and the generic case. `ApiEnvelopeTest` asserts the shape of each and that no body contains a class name, path or trace |
 | **GAP-4** | Four exceptions rendered their own HTTP | The `App\Shared\Exceptions\DomainException` interface. Exceptions carry `statusCode()` as data and no longer import HTTP. The renderer matches the **interface**, so modules stay zero-config — which was the real reason they self-rendered, and it is preserved |
 | **GAP-5** | No request context, no request id | `RequestContext` (Shared/Support, bound **scoped** so a queue worker rebuilds it per job) + `SetRequestContext` as **global** middleware, so unmatched routes and 405s are covered too. `X-Request-Id` is echoed on every response, honoured if the client sends a plausible one, and stored on `audit_logs.request_id` |
@@ -1111,9 +1123,11 @@ inspects what it changed will keep missing what it did not.
   `PruneExpiredRefreshTokens`). Every file touched by the compliance pass is
   clean. The rest is a separate, mechanical commit.
 
-**Remaining order:** GAP-12 needs an answer, not a fix. GAP-3 is the most
-security-significant thing left and is still blocked on the same product
-decision it always was.
+**Remaining order:** GAP-12 and GAP-13 need an answer, not a fix — and they are
+the same question asked twice, from the write side and the read side: *who is
+allowed near the numbers pay is computed from?* Answer it once and both close.
+GAP-3 is the most security-significant thing left and is still blocked on the
+same product decision it always was.
 
 ---
 

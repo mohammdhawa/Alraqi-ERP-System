@@ -17,9 +17,16 @@ use Illuminate\Foundation\Http\FormRequest;
  * - Reusable across controllers if needed.
  * - Testable in isolation.
  *
+ * ⚙️ THE FIELD IS `login`, NOT `email` (account model, 2026-09-22).
+ * It carries either an employee number or an email, and AuthService decides
+ * which by looking, so there is deliberately NO `email` rule here: requiring an
+ * email shape would reject `EMP-00042`, which is how almost everyone signs in.
+ * The pair (employee number for staff, email for accounts with no employee)
+ * is resolved in one grouped query — see AuthService::resolveByLogin().
+ *
  * SECURITY NOTE:
- * - We validate format only (email shape, password length).
- * - We do NOT reveal whether an email exists via validation messages.
+ * - We validate format only (length, presence).
+ * - We do NOT reveal whether an identifier exists via validation messages.
  * - The actual credential check happens in AuthService.
  */
 class LoginRequest extends FormRequest
@@ -32,7 +39,7 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email'    => ['required', 'string', 'email', 'max:255'],
+            'login'    => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'min:8', 'max:128'],
         ];
     }
@@ -40,8 +47,7 @@ class LoginRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required'    => 'البريد الإلكتروني مطلوب.',
-            'email.email'       => 'يُرجى إدخال بريد إلكتروني صحيح.',
+            'login.required'    => 'رقم الموظف أو البريد الإلكتروني مطلوب.',
             'password.required' => 'كلمة المرور مطلوبة.',
             'password.min'      => 'يجب ألا تقل كلمة المرور عن 8 أحرف.',
         ];

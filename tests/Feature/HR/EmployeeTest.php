@@ -278,10 +278,10 @@ class EmployeeTest extends TestCase
      * Searching the PARTS is what makes a father's name findable — the middle
      * name is spoken as part of the name here, so people are looked up by it.
      */
-    public function test_index_searches_every_name_part_and_both_numbers(): void
+    public function test_index_searches_every_name_part_and_the_staff_number(): void
     {
         $this->actingAsAdmin();
-        Employee::factory()->named('سامر خالد الحلبي')->create(['legacy_number' => 'M024333']);
+        Employee::factory()->named('سامر خالد الحلبي')->create(['employee_number' => 'M024333']);
         Employee::factory()->named('نور علي الشامي')->create();
 
         $this->getJson('/api/hr/employees?search=خالد')
@@ -290,6 +290,33 @@ class EmployeeTest extends TestCase
 
         $this->getJson('/api/hr/employees?search=M024333')
             ->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    /**
+     * A wildcard in the term is a character the user typed, not an instruction.
+     *
+     * The OR-ed multi-column form is the one this asserts, because escaping has
+     * to survive being applied four times inside a group — and because HR is
+     * where the term is likeliest to be pasted from paper. The numbers below are
+     * hand-supplied ones, which the `creating` hook leaves alone: continuing the
+     * company's own `M024333` series by hand is ratified behaviour, so an
+     * underscore in a staff number is a real value and not a contrived fixture.
+     */
+    public function test_search_treats_wildcards_as_literal_characters(): void
+    {
+        $this->actingAsAdmin();
+        Employee::factory()->named('سامر الحلبي')->create(['employee_number' => 'M_024333']);
+        Employee::factory()->named('نور الشامي')->create(['employee_number' => 'MX024333']);
+
+        // Unescaped, `_` is LIKE's single-character wildcard and this matches
+        // both rows.
+        $this->getJson('/api/hr/employees?search='.urlencode('M_024333'))
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.full_name', 'سامر الحلبي');
+
+        // Unescaped, `%` matches everyone.
+        $this->getJson('/api/hr/employees?search='.urlencode('%'))
+            ->assertOk()->assertJsonCount(0, 'data');
     }
 
     /**

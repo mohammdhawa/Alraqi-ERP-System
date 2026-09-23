@@ -92,11 +92,6 @@ return new class extends Migration
             $table->string('last_name')->nullable()->after('middle_name');    // الكنية
             $table->string('mother_name')->nullable()->after('last_name');    // اسم الأم
 
-            // الرقم الوظيفي — the M024333 values the company already uses.
-            // Kept so paper records and the Access DB stay findable after the
-            // import; `employee_number` remains the ERP's own identifier.
-            $table->string('legacy_number')->nullable()->unique()->after('employee_number');
-
             $table->unsignedTinyInteger('gender')->nullable()->after('mother_name');
             $table->date('birth_date')->nullable();
             $table->string('birth_place')->nullable();
@@ -208,7 +203,7 @@ return new class extends Migration
         Schema::table('employees', function (Blueprint $table) {
             $table->dropIndex(['status']);
             $table->dropColumn([
-                'first_name', 'middle_name', 'last_name', 'mother_name', 'legacy_number',
+                'first_name', 'middle_name', 'last_name', 'mother_name',
                 'gender', 'birth_date', 'birth_place', 'origin_governorate',
                 'residence_governorate', 'nationality', 'second_nationality',
                 'marital_status', 'wives_count', 'sons_count', 'daughters_count',

@@ -3,6 +3,7 @@
 use App\Shared\Exceptions\ApiExceptionRenderer;
 use App\Shared\Middleware\AuditLogMiddleware;
 use App\Shared\Middleware\CheckPermission;
+use App\Shared\Middleware\EnsurePasswordIsChanged;
 use App\Shared\Middleware\SetRequestContext;
 use Illuminate\Auth\Middleware\Authorize;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
@@ -43,6 +44,18 @@ return Application::configure(basePath: dirname(__DIR__))
         // Only auth/login and auth/refresh were throttled, by their own named
         // limiters. The `api` limiter is registered in AppServiceProvider.
         $middleware->throttleApi();
+
+        // The forced first-login password change (account model, 2026-09-22).
+        //
+        // ON THE GROUP, NOT ON ROUTES: a temporary password issued by HR must
+        // be unable to do anything except replace itself, and that has to hold
+        // for every endpoint this API will ever have — including the ones
+        // nobody has written yet. Per-route registration would make it hold for
+        // the ones whose author remembered.
+        //
+        // It resolves the sanctum guard by name rather than trusting its
+        // position in the sorted stack; see the middleware's docblock.
+        $middleware->api(append: [EnsurePasswordIsChanged::class]);
 
         // RATE LIMITING MUST PRECEDE AUTHENTICATION.
         //

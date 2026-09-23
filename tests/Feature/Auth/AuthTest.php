@@ -65,7 +65,7 @@ class AuthTest extends TestCase
     private function loginAs(string $email = 'user@example.com', string $password = 'password123'): array
     {
         return $this->postJson('/api/auth/login', [
-            'email'    => $email,
+            'login'    => $email,
             'password' => $password,
         ])->json('data');
     }
@@ -75,7 +75,7 @@ class AuthTest extends TestCase
         $this->createUser();
 
         $response = $this->postJson('/api/auth/login', [
-            'email'    => 'user@example.com',
+            'login'    => 'user@example.com',
             'password' => 'password123',
         ]);
 
@@ -95,7 +95,7 @@ class AuthTest extends TestCase
         $this->createUser();
 
         $response = $this->postJson('/api/auth/login', [
-            'email'    => 'user@example.com',
+            'login'    => 'user@example.com',
             'password' => 'wrong-password',
         ]);
 
@@ -112,7 +112,7 @@ class AuthTest extends TestCase
         $this->createUser(['is_active' => false]);
 
         $response = $this->postJson('/api/auth/login', [
-            'email'    => 'user@example.com',
+            'login'    => 'user@example.com',
             'password' => 'password123',
         ]);
 

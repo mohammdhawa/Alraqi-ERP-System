@@ -1,5 +1,12 @@
 # Frontend Batch 2 — the prompt
 
+> ⚙️ **Amended 2026-09-23 — `legacy_number` is withdrawn from this order.** The
+> column was dropped from `employees`; the company keeps one staff number.
+> Wherever this prompt asks for an old-number column, a header field or a search
+> case, **skip it** — the three places are marked inline below. Everything else
+> stands. Re-copy `API_DOCUMENTATION.md` before sending the prompt; its banner
+> says the same thing.
+
 **Give the agent one file:** the current `API_DOCUMENTATION.md` from this repo
 (`docs/API_DOCUMENTATION.md`, 1236 lines, revision 2026-09-13). It must replace
 `erp-dashboard/API_DOCUMENTATION.md`, which is a **stale 779-line copy** that
@@ -75,7 +82,7 @@ Mark the two field-level ones as field-level in the matrix data — they gate fi
 Also create ONE module, src/data/hrEnums.js, exporting {value, label} option lists FOR FORM INPUTS ONLY: gender, marital_status, status, employment_type, salary_mode, activity_type, education_level, engineering_rank, governorate, and assignment reason. Comment at the top of the file that display always uses the server's {field}_label.
 
 **2. Employees list.**
-Fix the columns: `full_name`; the embedded `job_title.name` (fall back to —, never to the id); `department.name`; delete the salary column; status from `status_label` with colours keyed on the int (1 success, 2 warning, 3 danger). Add `legacy_number` — HR will hold paper carrying M024333 for years after the import.
+Fix the columns: `full_name`; the embedded `job_title.name` (fall back to —, never to the id); `department.name`; delete the salary column; status from `status_label` with colours keyed on the int (1 success, 2 warning, 3 danger). ⚙️ ~~Add `legacy_number`~~ — WITHDRAWN 2026-09-23, the column no longer exists; a hand-typed `employee_number` carries the M024333 series instead.
 Add a server-side filter toolbar sending only: status, department_id, job_title_id, activity_type, search, sort. Do not filter the loaded page in the browser and call it a filter. Gate the activity_type control behind hr.employees.viewSalary to match the field gate on that axis. Sort keys are exactly employee_number, first_name, last_name, hire_date, created_at, each with an optional leading `-`; `full_name` is NOT sortable because it is a computed accessor, and an unknown sort is a 422 so never send one. Changing a filter resets to page 1. Read meta.per_page back rather than assuming your request was honoured. Rows open the profile route from item 4.
 
 **3. Employee form.**
@@ -87,7 +94,7 @@ Mirror these cross-field rules client-side in Arabic, and still map the server's
 job_title_id uses a selector over GET /hr/job-titles (hr.job_titles.view), preferring is_active titles; on selection, pre-fill organizational_grade and activity_type from the title's default_* values when those inputs are empty, and make clear they are suggestions the user may override. department_id keeps the existing departments.view selector. direct_manager_id is a selector over /hr/employees (hr.employees.view); a person may not be their own manager. Where a selector's permission is missing, fall back truthfully — never invent a lookup endpoint.
 
 **4. Employee profile page.**
-Route hr/employees/:id backed by GET /hr/employees/{id}, gated on hr.employees.view. Header: full_name, employee_number, legacy_number, department.name, job_title.name, status badge. Three tabs, each gating independently — a user without a tab's permission sees the profile without that tab, not an error.
+Route hr/employees/:id backed by GET /hr/employees/{id}, gated on hr.employees.view. Header: full_name, employee_number (no legacy_number — withdrawn 2026-09-23), department.name, job_title.name, status badge. Three tabs, each gating independently — a user without a tab's permission sees the profile without that tab, not an error.
 نظرة عامة: the full record read-only, honouring both field gates exactly as the form does.
 سجل التعيين (hr.assignments.view): paginated, newest first — department, job title, grade, from_date, to_date, reason_label, notes. Mark the `is_current: true` row clearly. Render legacy_workplace and legacy_manager_name when present; they exist so an unresolvable imported value stays visible to a human. Recording a posting (hr.assignments.create) requires from_date (may be back-dated, may NOT be in the future) and reason (int, no default — the user must choose). department_id, job_title_id and organizational_grade are optional, and this is the subtle part: OMITTING a field carries the current value forward, while an explicit null CLEARS it. Build the form so a promotion can state only the new grade and a title change only the new title, and so "no unit" is a deliberate separate action; explain the distinction in the UI copy. There is NO update and NO delete for a posting and no permission that could authorize one — render no edit or delete affordance, including a stray action column inherited from DataTableServer. A posting dated on or before the current one's start amends it in place rather than stacking a new row; say so in the UI. Also tell the user, where they edit department/job title/grade on the employee form, that saving there records a transfer automatically with reason نقل داخلي dated today, and that this tab is how to record the real reason or a back-dated one.
 الإنذارات (hr.warnings.view): paginated, newest first. Create is nested under the employee; update and delete are NOT nested — they address /hr/warnings/{warning}. `sequence` is computed by the server: display it, never send it. `issued_by` is an EMPLOYEE id, not a user id — a line manager may have no login — so use an employee selector. Fields: type (required on create), issued_on (required, not in the future), number (رقم كتاب الإنذار), issued_by, notes. Delete is soft: word the confirmation as withdrawal, not erasure.
@@ -112,7 +119,7 @@ Fix the employee picker label in src/sections/accounts/UserFormModal.jsx to use 
 
 Do the six items in order. After each one, run `npm run build` and give me a two-or-three-line checkpoint — what you changed and whether it built — then continue without waiting for me. If an item is genuinely blocked, finish every other item and say exactly what you left out and why.
 
-Verify before you finish: the list against a payload from a caller holding NEITHER field permission; each filter alone and combined; search by name part and by legacy_number; ascending and descending sort; create with only the four required fields; create with the full record; an update touching one field; every cross-field rule rejected client-side then accepted from the server; a caller WITHOUT viewSalary editing an employee who HAS a salary (the stored value must survive); a transfer that carries department forward while changing grade; an explicit null that clears a department; a future from_date rejected; a 409 job-title delete; each profile tab with and without its permission.
+Verify before you finish: the list against a payload from a caller holding NEITHER field permission; each filter alone and combined; search by name part and by employee_number (legacy_number is gone); ascending and descending sort; create with only the four required fields; create with the full record; an update touching one field; every cross-field rule rejected client-side then accepted from the server; a caller WITHOUT viewSalary editing an employee who HAS a salary (the stored value must survive); a transfer that carries department forward while changing grade; an explicit null that clears a department; a future from_date rejected; a 409 job-title delete; each profile tab with and without its permission.
 
 Finish with a concise report: changed files, behaviour completed, checks run, real blockers. No file contents, no full diff. Under 300 words.
 ```

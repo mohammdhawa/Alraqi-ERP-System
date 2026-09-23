@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\HR\Services;
 
 use App\Modules\HR\Models\JobTitle;
+use App\Shared\Support\SearchTerm;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -51,8 +52,10 @@ class JobTitleService
         }
 
         if (($filters['search'] ?? null) !== null && $filters['search'] !== '') {
-            $like = '%'.str_replace(['%', '_'], ['\%', '\_'], (string) $filters['search']).'%';
-            $query->where('name', 'like', $like);
+            // Wildcard escaping lives in SearchTerm — see that class for why a
+            // local `str_replace(['%','_'], …)` escaped nothing on SQLite and
+            // the wrong thing on MySQL.
+            SearchTerm::where($query, 'name', (string) $filters['search']);
         }
 
         return $this->applySort($query, $sort)->paginate($perPage);

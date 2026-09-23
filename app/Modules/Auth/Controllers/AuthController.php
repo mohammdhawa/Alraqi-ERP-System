@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Controllers;
 
+use App\Modules\Auth\Requests\ChangePasswordRequest;
 use App\Modules\Auth\Requests\LoginRequest;
 use App\Modules\Auth\Requests\RefreshTokenRequest;
 use App\Modules\Auth\Resources\AuthResource;
@@ -29,6 +30,7 @@ use Illuminate\Routing\Controller;
  *   POST   /api/auth/login    → Authenticate and get tokens
  *   POST   /api/auth/refresh  → Rotate tokens
  *   POST   /api/auth/logout   → Revoke all tokens
+ *   POST   /api/auth/password → Replace own password (self-scoped)
  *   GET    /api/auth/me       → Get authenticated user profile
  */
 class AuthController extends Controller
@@ -42,7 +44,8 @@ class AuthController extends Controller
     /**
      * POST /api/auth/login
      *
-     * Authenticates the user with email/password.
+     * Authenticates the user with `login` + password, where `login` is an
+     * employee number or an email — see LoginRequest for why it is one field.
      * Returns access token + refresh token pair.
      *
      * The client should:
@@ -57,7 +60,7 @@ class AuthController extends Controller
         // exceptions that are rendered centrally in bootstrap/app.php. This
         // keeps the controller thin and prevents internal error disclosure.
         $result = $this->authService->login(
-            email: $request->validated('email'),
+            login: $request->validated('login'),
             password: $request->validated('password'),
         );
 
@@ -126,6 +129,39 @@ class AuthController extends Controller
         $this->authService->logout($request->user());
 
         return $this->success(message: 'تم تسجيل الخروج بنجاح.');
+    }
+
+    /**
+     * POST /api/auth/password
+     *
+     * Replaces the caller's own password and returns a fresh token pair.
+     *
+     * WHY IT RETURNS TOKENS: the service revokes every session on a successful
+     * change, including this one — a temporary password issued by HR may be
+     * held by more than one person, and a change that left their sessions alive
+     * would lock nobody out. Handing the caller a new pair here is what keeps
+     * the person who legitimately changed it signed in.
+     *
+     * This is one of three routes reachable while `must_change_password` is
+     * set. It is the only one that clears it.
+     */
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        $result = $this->authService->changePassword(
+            user: $request->user(),
+            currentPassword: $request->validated('current_password'),
+            newPassword: $request->validated('password'),
+        );
+
+        return $this->success(
+            data: [
+                'access_token'  => $result['access_token'],
+                'refresh_token' => $result['refresh_token'],
+                'token_type'    => 'Bearer',
+                'expires_in'    => $result['expires_in'],
+            ],
+            message: 'تم تغيير كلمة المرور بنجاح. تم إنهاء الجلسات الأخرى.',
+        );
     }
 
     /**

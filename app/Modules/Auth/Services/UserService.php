@@ -71,14 +71,21 @@ class UserService
         return DB::transaction(function () use ($data): User {
             $user = User::create([
                 'employee_id' => $data['employee_id'],
-                'email'       => $data['email'],
+                'email'       => $data['email'] ?? null,
                 'password'    => $data['password'],
                 'is_active'   => $data['is_active'] ?? true,
+                // ⚙️ ALWAYS TRUE ON CREATION (account model, 2026-09-22). An
+                // account created here is created BY SOMEBODY ELSE, so its
+                // password is a secret two people hold. That is true of the 242
+                // accounts the importer will make and equally true of the one an
+                // admin makes next month — so the rule lives here, not in the
+                // importer, or it would apply to the first batch only.
+                'must_change_password' => true,
             ]);
 
             $this->auditLogService->logAction(
                 event: 'user_created',
-                description: "User '{$user->email}' created.",
+                description: "User '{$user->loginIdentity()}' created.",
             );
 
             return $user->load(['roles', 'employee']);
@@ -104,6 +111,12 @@ class UserService
             }
             if (array_key_exists('password', $data) && ! empty($data['password'])) {
                 $user->password = $data['password'];
+                // An admin reset is somebody else choosing your credential, so
+                // it carries the same obligation as the first one. Without this
+                // line the forced change would apply to new accounts and not to
+                // resets — and a reset is the more common case, because it is
+                // what happens every time an employee forgets.
+                $user->must_change_password = true;
             }
             if (array_key_exists('is_active', $data)) {
                 $user->is_active = $data['is_active'];
@@ -112,7 +125,7 @@ class UserService
 
             $this->auditLogService->logAction(
                 event: 'user_updated',
-                description: "User '{$user->email}' updated.",
+                description: "User '{$user->loginIdentity()}' updated.",
             );
 
             return $user->load(['roles', 'employee']);

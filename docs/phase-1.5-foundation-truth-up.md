@@ -393,7 +393,7 @@ and the day that job fails every payslip is wrong (P1).
 | Column | Type | Source | Notes |
 |---|---|---|---|
 | `employee_number` | string, unique | *(exists)* | Keeps the `EMP-00001` generator |
-| `legacy_number` | string, nullable unique | DB-sheet `الرقم الوظيفي` | The `M024333` values. Preserved so paper records and the Access DB stay findable after import — see §9 Q1 |
+| ~~`legacy_number`~~ | ~~string, nullable unique~~ | ~~DB-sheet `الرقم الوظيفي`~~ | ⚙️ **Dropped 2026-09-23.** Was the `M024333` values, kept so paper records stayed findable. The project owner ruled a second staff number unnecessary; a hand-typed `employee_number` carries the series instead |
 | `hire_date` | date, nullable | *(exists)* | |
 | `termination_date` | date, nullable | DB-sheet `تاريخ انهاء العمل` | |
 | `status` | enum(active, inactive, terminated) | *(exists)* | `متعاقد` → `active`, `إنهاء عمل` → `terminated` |
@@ -708,17 +708,30 @@ list as a reviewable artefact, not write it directly.
 ### 7.4 Employee import
 
 242 rows from `قاعدة البيانات`, plus 223 from `إنهاء عمل` imported with
-`status = terminated`. Per row: create the `employees` record, create the
-opening `employee_assignments` row from the `بداية التعيين` columns, attach
-`legacy_number`.
+`status = terminated`. Per row: create the `employees` record and create the
+opening `employee_assignments` row from the `بداية التعيين` columns.
+
+⚙️ **Amended 2026-09-23:** this step used to end *"attach `legacy_number`"*. That
+column is dropped — the company keeps one staff number — so the `الرقم الوظيفي`
+values either go into `employee_number` or go nowhere. That is not a free choice;
+see the note below.
 
 Known data-quality issues visible in the source, which the importer must report
 rather than silently absorb: `#N/A` values in the criteria columns of the
 `إنهاء عمل` sheet; employees with a blank `أسماء الإدارات`; and
 `رقم الشام كاش` values that are not 16 digits.
 
-**The importer is idempotent and re-runnable, keyed on `legacy_number`.** It
-will be run several times against review feedback before the real cut.
+**The importer is idempotent and re-runnable.** It will be run several times
+against review feedback before the real cut — which is exactly why it needs a key
+that survives between runs.
+
+✅ ⚙️ **That key was `legacy_number`; the column was dropped and the replacement
+was chosen the same day (2026-09-23).** The importer owns **a staging table
+mapping source row → employee id**. No domain column carries it, everyone gets a
+newly generated `EMP-00001`, and the `M024333` series is not imported. The
+reasoning — total coverage, no legacy identifier back in `employees`, and a
+mapping HR can actually be shown — is in
+[`START_HERE.md` §10](START_HERE.md).
 
 ---
 
@@ -750,11 +763,13 @@ Named so they are not quietly assumed, and so the phase does not grow:
 Small enough not to block the start of implementation, but each needs an answer
 before the module it touches is finished.
 
-1. **`employee_number` format.** New hires currently get `EMP-00001`; the
-   company uses `M024333`. This spec keeps both — the generator for the ERP
-   identifier, `legacy_number` for the imported one. Confirm HR is content to
-   see a new number, or say the word and the generator adopts the `M` format
-   for new hires too.
+1. ✅ **`employee_number` format — answered 2026-09-23.** New hires get
+   `EMP-00001`; the company used `M024333`. This spec used to keep both — the
+   generator for the ERP identifier and `legacy_number` for the imported one —
+   and that second column is now dropped. **The decision: generated numbers for
+   everyone, and the `M024333` series is not imported.** One column, one format.
+   The importer keys its re-runs on a staging table instead (§7.4). HR learns new
+   numbers; that cost was accepted knowingly.
 2. **`مجلس الإدارة` membership.** ✅ **Answered 2026-08-05: yes.** Board members
    are `employees` rows, which is why the unit must exist in the tree at all —
    an employee needs a `department_id`. The project owner also characterised the

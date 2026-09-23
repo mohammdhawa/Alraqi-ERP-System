@@ -41,7 +41,14 @@ class CreateUserRequest extends FormRequest
                 Rule::exists('employees', 'id')->whereNull('deleted_at'),
                 Rule::unique('users', 'employee_id'),
             ],
-            'email'     => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
+            // ⚙️ OPTIONAL SINCE THE ACCOUNT MODEL (2026-09-22). It was required,
+            // which made an account impossible for the majority of staff — most
+            // site workers have no email address. The login identifier is the
+            // employee number, and `employee_id` above is required, so every
+            // account created here can sign in whether or not this is supplied.
+            // Still unique when present: two accounts sharing a contact address
+            // is a data error whatever the address is for.
+            'email'     => ['sometimes', 'nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
             'password'  => ['required', 'string', 'min:8'],
             'is_active' => ['sometimes', 'boolean'],
         ];

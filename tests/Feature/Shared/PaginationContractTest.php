@@ -63,6 +63,10 @@ class PaginationContractTest extends TestCase
             '/api/auth/notifications',
             '/api/auth/users',
             '/api/auth/roles',
+            // The audit trail pages like everything else, and it is the list
+            // that most needs to: it is the one table in the system that grows
+            // without bound.
+            '/api/auth/audit-logs',
         ];
 
         foreach ($endpoints as $endpoint) {

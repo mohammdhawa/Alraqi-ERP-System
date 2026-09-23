@@ -50,10 +50,25 @@ class PermissionSeeder extends Seeder
             'hr.assignments.view', 'hr.assignments.create',
             'hr.warnings.view', 'hr.warnings.create', 'hr.warnings.update', 'hr.warnings.delete',
         ],
-        // Auth module
+        // Auth module.
+        //
+        // auth.audit has NO create, update or delete, and — like hr.assignments
+        // above — that is a design statement rather than an omission, only more
+        // absolutely: audit_logs is append-only, and a permission to edit or
+        // erase an audit row is the one power an audit trail exists to deny.
+        // There is nothing to grant, so there is nothing seeded.
+        //
+        // auth.audit.viewValues is FIELD-LEVEL, like hr.employees.viewSalary:
+        // no route carries it. AuditLogDetailResource checks it to decide
+        // whether `old_values` / `new_values` appear in the payload (C11). It is
+        // separate from .view because the trail records the classification axes
+        // verbatim — AuditLogService::sanitize() redacts the salary itself but
+        // not its inputs — so one permission would make the audit log a way
+        // around hr.employees.viewSalary.
         'auth' => [
             'auth.users.view', 'auth.users.create', 'auth.users.update', 'auth.users.delete',
             'auth.roles.view', 'auth.roles.create', 'auth.roles.update', 'auth.roles.delete',
+            'auth.audit.view', 'auth.audit.viewValues',
         ],
     ];
 
@@ -92,6 +107,8 @@ class PermissionSeeder extends Seeder
         'auth.roles.create'         => 'إنشاء دور',
         'auth.roles.update'         => 'تعديل دور',
         'auth.roles.delete'         => 'حذف دور',
+        'auth.audit.view'           => 'عرض سجل التدقيق',
+        'auth.audit.viewValues'     => 'عرض تفاصيل التغييرات',
     ];
 
     public function run(): void
@@ -108,6 +125,13 @@ class PermissionSeeder extends Seeder
                 );
             }
         }
+
+        // NO flush() HERE, AND THAT IS NOT AN OMISSION. Seeding leaves every
+        // cached permission set stale, and it is Permission::booted() that
+        // flushes — on the model, so the same invariant holds for the admin UI,
+        // a data migration and tinker, none of which would have thought to call
+        // this seeder's copy of it. PermissionSeederTest still asserts the
+        // version moves when this runs.
     }
 
     /**

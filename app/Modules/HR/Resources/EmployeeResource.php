@@ -79,7 +79,6 @@ class EmployeeResource extends JsonResource
         return [
             'id'              => $this->id,
             'employee_number' => $this->employee_number,
-            'legacy_number'   => $this->legacy_number,
 
             // ---- Name ----
             'first_name'  => $this->first_name,

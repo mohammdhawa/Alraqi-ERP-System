@@ -139,7 +139,6 @@ class Employee extends Model
     protected $fillable = [
         // Identity
         'employee_number',
-        'legacy_number',
         'first_name',
         'middle_name',
         'last_name',

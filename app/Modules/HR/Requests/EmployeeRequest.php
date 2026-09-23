@@ -80,8 +80,6 @@ class EmployeeRequest extends FormRequest
             // direction — the rule must match the index, not a convention.
             'employee_number' => ['sometimes', $creating ? 'nullable' : 'filled', 'string', 'max:50',
                 Rule::unique('employees', 'employee_number')->ignore($id)],
-            'legacy_number'   => ['sometimes', 'nullable', 'string', 'max:50',
-                Rule::unique('employees', 'legacy_number')->ignore($id)],
             'national_id'     => ['sometimes', 'nullable', 'string', 'max:50',
                 Rule::unique('employees', 'national_id')->ignore($id)],
 
@@ -184,7 +182,6 @@ class EmployeeRequest extends FormRequest
 
             'employee_number.unique'   => 'الرقم الوظيفي مستخدم بالفعل.',
             'employee_number.filled'   => 'الرقم الوظيفي لا يمكن أن يكون فارغاً.',
-            'legacy_number.unique'     => 'الرقم الوظيفي القديم مستخدم بالفعل.',
             'national_id.unique'       => 'الرقم الوطني مستخدم بالفعل.',
 
             'marital_status.enum'      => 'الحالة الاجتماعية المحددة غير معرّفة.',

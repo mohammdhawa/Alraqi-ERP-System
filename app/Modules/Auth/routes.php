@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Auth\Controllers\AuditLogController;
 use App\Modules\Auth\Controllers\AuthController;
 use App\Modules\Auth\Controllers\NotificationController;
 use App\Modules\Auth\Controllers\RoleController;
@@ -64,6 +65,19 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::get('/me', [AuthController::class, 'me'])
         ->name('auth.me');
 
+    // Replacing your OWN password — self-scoped for the same reason as the two
+    // above, and for one more: this is the route that clears
+    // `must_change_password`, so a permission gating it would be a permission
+    // every employee must hold before they can use the system at all. A grant
+    // that everyone must have is not an authorization decision.
+    //
+    // Audited (it is in the group): a credential change is exactly the kind of
+    // state change C13 exists for, and AuditLogService::sanitize() already
+    // redacts `password`, so the trail records that it happened without the
+    // value.
+    Route::post('/password', [AuthController::class, 'changePassword'])
+        ->name('auth.password.change');
+
     // --- RBAC administration ---
     // Full role CRUD plus assigning a role to a user.
     Route::get('/roles', [RoleController::class, 'index'])
@@ -110,6 +124,34 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::delete('/users/{user}', [UserController::class, 'destroy'])
         ->middleware('permission:auth.users.delete')
         ->name('auth.users.destroy');
+
+    // --- Audit trail (سجل التدقيق) ---
+    // READ-ONLY, AND PERMANENTLY SO. There is no store/update/destroy here and
+    // there must never be one: audit_logs is append-only by design, and no
+    // permission exists that could authorize a mutation.
+    //
+    // Both routes carry `auth.audit.view`, so the detail endpoint cannot be
+    // reached by a caller who may not see the list it came from. The BEFORE/
+    // AFTER VALUES are gated separately by `auth.audit.viewValues`, which is
+    // field-level and appears on no route — AuditLogDetailResource checks it
+    // (C11), for the reason its docblock gives: the classification axes are not
+    // redacted at write time, so the trail would otherwise be a way around
+    // hr.employees.viewSalary.
+    //
+    // These stay inside the `audit` group deliberately. Reading the trail is a
+    // security-relevant action and belongs in it; the notifications carve-out
+    // below covers polled reads, and this endpoint must not be polled.
+    //
+    // The literal path is declared before the wildcard, and whereNumber keeps a
+    // non-numeric segment a routing 404 rather than a cast inside the binding.
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])
+        ->middleware('permission:auth.audit.view')
+        ->name('auth.audit-logs.index');
+
+    Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])
+        ->middleware('permission:auth.audit.view')
+        ->whereNumber('auditLog')
+        ->name('auth.audit-logs.show');
 });
 
 // --- Notifications ---

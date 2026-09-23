@@ -59,6 +59,11 @@ class AuthResource extends JsonResource
             'name'              => $this->employee?->full_name,
             'email'             => $this->email,
             'is_active'         => $this->is_active,
+            // The client reads this to decide whether to open the
+            // change-password screen or the dashboard. It is not the
+            // enforcement — EnsurePasswordIsChanged is — it is how a
+            // well-behaved client avoids walking into a wall of 403s.
+            'must_change_password' => $this->must_change_password,
             'roles'             => $this->whenLoaded(
                 'roles',
                 fn () => $this->roles->pluck('name')->values(),

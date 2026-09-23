@@ -157,6 +157,13 @@ document-specific.
 The approval module's surface, at minimum: a polymorphic subject, sequential
 and parallel step modes, per-step approver resolution (a named employee, a
 department's manager, or a role), rejection with a note, and a completion hook.
+
+⚙️ **Approver resolution has ratified rules since 2026-09-23** — climb to the
+nearest ancestor unit with a manager when the post is vacant *or* when the
+requester is that manager, terminate at المدير العام, keep manual reassignment.
+Build the walk once in `app/Shared`: the employee app needs the same traversal to
+print المدير المباشر on its home screen, and two copies of an org-chart walk will
+drift. See [`START_HERE.md` §9](START_HERE.md), decision 15.
 Leave, purchase requests, payroll approval, and expense approval are all
 already-known consumers — design the interface against those four, not against
 documents alone.
@@ -249,7 +256,7 @@ before the merge.
 | Attendance cutover loses a day's records | Grace period accepting legacy-format offline submissions; parallel run; reconcile before decommissioning |
 | Ported code drags legacy assumptions into the ERP | Each port is re-pointed at ERP employees/departments/RBAC and its tests rewritten — a port is not a copy |
 | Approval engine under-generalised at Stage 2 | Design its interface against all four known consumers, not against documents alone |
-| Import is wrong and nobody notices | Idempotent, re-runnable importer keyed on `legacy_number`; HR review pass is an explicit exit criterion of Stage 1 |
+| Import is wrong and nobody notices | Idempotent, re-runnable importer; HR review pass is an explicit exit criterion of Stage 1. ⚙️ **The key changed on 2026-09-23**: `legacy_number` was dropped, and re-runs are now keyed on a staging table the importer owns, mapping source row → employee. See [`START_HERE.md` §10](START_HERE.md) |
 | Payroll goes live with a calculation error | Reconcile a full month against the workbook before anyone is paid from the ERP |
 | One developer, live company, long freeze | Stages are independently shippable; the legacy system stays up throughout; nothing is deleted until its replacement has run a full cycle |
 

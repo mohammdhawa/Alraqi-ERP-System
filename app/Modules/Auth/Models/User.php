@@ -83,6 +83,7 @@ class User extends Authenticatable
         'password',
         'is_active',
         'employee_id',
+        'must_change_password',
     ];
 
     protected $hidden = [
@@ -96,11 +97,34 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'last_login_at'     => 'datetime',
-            'password'          => 'hashed',
-            'is_active'         => 'boolean',
+            'email_verified_at'    => 'datetime',
+            'last_login_at'        => 'datetime',
+            'password_changed_at'  => 'datetime',
+            'password'             => 'hashed',
+            'is_active'            => 'boolean',
+            'must_change_password' => 'boolean',
         ];
+    }
+
+    /**
+     * How this account identifies itself in a log line.
+     *
+     * WHY THIS EXISTS: `email` became nullable with the 2026-09-22 account
+     * model, and three audit descriptions interpolated it directly — so a site
+     * worker signing in would have written "User  logged in." with a hole where
+     * the identity belongs. The employee number is the login identifier, so it
+     * is the honest first choice; the email is the fallback for accounts with no
+     * employee (the technical department, `super_admin`); the id is the
+     * last resort and can never itself be null.
+     *
+     * Eager-load `employee` where this is called in a loop — it is a
+     * `belongsTo`, so an unloaded relation is one query per call.
+     */
+    public function loginIdentity(): string
+    {
+        return $this->employee?->employee_number
+            ?? $this->email
+            ?? "#{$this->id}";
     }
 
     /**

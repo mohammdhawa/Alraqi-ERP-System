@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Modules\Auth\Models\Permission;
+use App\Modules\Auth\Support\PermissionCache;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
@@ -26,12 +27,18 @@ class PermissionSeederTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 26 route-level permissions + 2 field-level (C11).
+     * 27 route-level permissions + 3 field-level (C11).
      *
      * Batch 2 added ten: the job-title catalogue (4), posting history (2 — view
      * and create ONLY, because سجل التعيين is append-only), and warnings (4).
+     *
+     * سجل التدقيق added two: `auth.audit.view` guards both audit routes, and
+     * `auth.audit.viewValues` is field-level — it gates the before/after blobs
+     * inside the detail payload and no route carries it. There is deliberately
+     * no create/update/delete: the table is append-only, so there is no such
+     * power to grant.
      */
-    private const TOTAL = 28;
+    private const TOTAL = 30;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -40,6 +47,7 @@ class PermissionSeederTest extends TestCase
         $this->assertSame(self::TOTAL, Permission::count());
 
         $expected = [
+            'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update', 'departments.view',
@@ -59,6 +67,49 @@ class PermissionSeederTest extends TestCase
         $this->seed(PermissionSeeder::class);
 
         $this->assertSame(self::TOTAL, Permission::count());
+    }
+
+    /**
+     * Seeding the catalogue must invalidate every cached permission set.
+     *
+     * A super admin's cached entry IS the catalogue — the Gate bypass expands to
+     * whatever is seeded — so without the flush, adding a permission leaves
+     * already-signed-in super admins without it, and without the UI it gates,
+     * for up to the full hour of TTL. Nothing else would announce that.
+     */
+    public function test_seeding_invalidates_cached_permission_sets(): void
+    {
+        $before = PermissionCache::version();
+
+        $this->seed(PermissionSeeder::class);
+
+        $this->assertGreaterThan($before, PermissionCache::version());
+    }
+
+    /**
+     * AND SO DOES EVERY OTHER DOOR, because the flush is on the MODEL.
+     *
+     * It used to live in the seeder, which meant the invariant held for exactly
+     * one caller: a permission created or renamed from the admin UI these Arabic
+     * labels are seeded for, from a data migration, or from tinker still left
+     * every signed-in super admin's cached entry — which IS the whole catalogue
+     * — stale for up to the full hour of TTL. Same failure, different door.
+     */
+    public function test_any_write_to_a_permission_invalidates_cached_sets(): void
+    {
+        $this->seed(PermissionSeeder::class);
+
+        $created = PermissionCache::version();
+        $extra   = Permission::create(['name' => 'hr.trials.view', 'module' => 'hr']);
+        $this->assertGreaterThan($created, PermissionCache::version(), 'creating a permission must flush');
+
+        $renamed = PermissionCache::version();
+        $extra->update(['name' => 'hr.trials.read']);
+        $this->assertGreaterThan($renamed, PermissionCache::version(), 'renaming a permission must flush');
+
+        $deleted = PermissionCache::version();
+        $extra->delete();
+        $this->assertGreaterThan($deleted, PermissionCache::version(), 'deleting a permission must flush');
     }
 
     public function test_every_permission_the_routes_reference_is_seeded(): void

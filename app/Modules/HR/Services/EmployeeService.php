@@ -6,6 +6,7 @@ namespace App\Modules\HR\Services;
 
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\EmployeeAssignment;
+use App\Shared\Support\SearchTerm;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -188,7 +189,7 @@ class EmployeeService
     }
 
     /**
-     * Free-text search across the name parts and both staff numbers.
+     * Free-text search across the name parts and the staff number.
      *
      * WHY THE NAME PARTS AND NOT `full_name`: full_name is an accessor computed
      * in PHP, so there is no column to match against. Searching each part is
@@ -196,20 +197,25 @@ class EmployeeService
      * people are actually looked up here, since the middle name is the father's
      * and is spoken as part of the name.
      *
-     * Both numbers are searched because HR will hold paper carrying the old
-     * M024333 for years after the import, and being unable to find someone by
-     * the number printed on their file would make `legacy_number` pointless.
+     * ⚙️ A SECOND NUMBER WAS SEARCHED HERE UNTIL 2026-09-23. `legacy_number`
+     * held the company's old `M024333` series and was dropped on the project
+     * owner's decision — one staff number, not two. Searching by a number off a
+     * paper file still lands, because a supplied `employee_number` is always
+     * respected — the `creating` hook in `Employee::booted()` generates one only
+     * when the writer omits it — so HR can type the old series straight into the
+     * one column that remains.
      *
      * The whole clause is grouped, so it cannot escape an active filter and
      * turn `status=active&search=X` into "active employees OR anyone called X".
+     *
+     * Wildcard escaping is SearchTerm's — one definition, because this rule was
+     * copied into three services and all three copies were wrong the same way.
      */
     private function applySearch(Builder $query, string $term): void
     {
-        $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $term).'%';
-
-        $query->where(function (Builder $inner) use ($like): void {
-            foreach (['first_name', 'middle_name', 'last_name', 'employee_number', 'legacy_number'] as $column) {
-                $inner->orWhere($column, 'like', $like);
+        $query->where(function (Builder $inner) use ($term): void {
+            foreach (['first_name', 'middle_name', 'last_name', 'employee_number'] as $column) {
+                SearchTerm::orWhere($inner, $column, $term);
             }
         });
     }

@@ -2,6 +2,21 @@
 
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
+>
+> ⚠️ **BREAKING, 2026-09-23 — login takes `login`, not `email`.** Every client
+> must change its login call. The identifier is now the employee number, an
+> account may have no email at all, and a new **`POST /api/auth/password`**
+> exists. While `must_change_password` is `true` the API answers **403** on
+> everything except that route, `/auth/logout` and `/auth/me`. Read §3.1 and
+> §3.5 before touching the auth code.
+>
+> ⚙️ **Changed 2026-09-23 — `legacy_number` is gone.** The employee payload no
+> longer carries it, `search` no longer matches it, and it is rejected on create
+> and update. The company keeps **one** staff number — `employee_number` — and a
+> hand-typed `M024333` is stored exactly as given, so searching by a number off a
+> paper file still works. **If a list column or a profile header shows a separate
+> old-number field, remove it**; `FRONTEND_BATCH2_WORK_ORDER.md` asked for one
+> and that instruction is withdrawn.
 
 ---
 
@@ -135,6 +150,42 @@ Almost every endpoint returns the **same envelope**, so you can write a single p
 
 Most validation/business messages are returned in **Arabic**. Display `message` directly; use `errors` for per‑field highlighting.
 
+### Timestamps ⚠️ (applies to every endpoint, not just one)
+
+**Every timestamp this API returns is ISO‑8601 carrying the `+03:00` offset.**
+
+```json
+"created_at": "2026-06-21T10:00:00+03:00"
+```
+
+The app timezone is **Asia/Damascus**, and every resource serialises datetimes
+with Carbon's `toIso8601String()`, which preserves the instance's zone. So
+`created_at`, `updated_at`, `last_login_at`, `email_verified_at` and every other
+`_at` field carry `+03:00` — on Auth, Users, Roles, Notifications, Departments,
+HR and the audit log alike. There is no endpoint that returns UTC.
+
+**Parse the offset the server sent. Do not re‑zone it, and do not strip it.** A
+client that treats these as UTC renders the entire system three hours early —
+and it is a *plausible* three hours, which is what makes it dangerous: the dates
+stay right, nothing looks broken, and an evening event reads as afternoon.
+
+**The one exception, and it is not a serialised field.** Inside the audit log's
+`old_values` / `new_values` (§9.2), a timestamp appears as the raw stored
+column — `"updated_at": "2026-09-20 11:24:23"` — in DB format, Damascus local,
+with **no offset and no `T`**. Those blobs are a verbatim copy of the audited
+row, not a rendered resource, and putting an offset on them at read time would
+mean rewriting history on an append-only table. **Read a bare timestamp as
+Damascus local**; that is what the server means by one, and it is the only place
+you will meet it.
+
+> ⚠️ **Corrected 2026‑09‑20.** Every JSON example in this document below §1 used
+> to show `+00:00`. That was wrong for all of them — seventeen examples across
+> six sections — and nothing in the API ever behaved that way. The rule was
+> stated only in §9.6, where it read as a quirk of the audit log rather than as
+> what it is: a property of every response. `TimestampContractTest` now sweeps
+> every `_at` key of every shipped endpoint, at any depth, so an example and the
+> wire cannot drift apart again without failing the build.
+
 ### Embedded objects (an FK and the thing it points at)
 
 Where a resource carries a foreign key you would otherwise resolve yourself, it
@@ -245,7 +296,7 @@ Roles and permissions both carry an Arabic **`label`** for display; `name` is th
 
 Permission string format: `{module}.{resource}.{action}`.
 
-**Permission catalogue — 28 rows** (26 route-level + 2 field-level)
+**Permission catalogue — 30 rows** (27 route-level + 3 field-level)
 
 | Module            | Permissions                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------------- |
@@ -257,20 +308,27 @@ Permission string format: `{module}.{resource}.{action}`.
 | HR – Warnings     | `hr.warnings.view`, `hr.warnings.create`, `hr.warnings.update`, `hr.warnings.delete`         |
 | Auth – Users      | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`             |
 | Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`             |
+| Auth – Audit      | `auth.audit.view` — **no create/update/delete**, see [§9](#9-audit-log--سجل-التدقيق); `auth.audit.viewValues` — **field-level**, see below |
 
 > `hr.assignments` has no `update` or `delete` **by design**, not by omission:
 > سجل التعيين is append-only, because editing a historical posting changes what
 > a payslip was computed against with no trace of the original.
+>
+> `auth.audit` has no write action at all, for the same reason taken further:
+> `audit_logs` is append-only by design and in production the DB user should
+> hold INSERT and SELECT only. There is no permission to grant, because there is
+> no such power to hold.
 
 ### Field-level permissions (new, 2026-09-08)
 
-The last two guard **fields inside a payload**, not routes. No endpoint requires
-them; they decide whether two keys appear in an employee response:
+These three guard **fields inside a payload**, not routes. No endpoint requires
+them; they decide whether certain keys appear in a response:
 
 | Permission | Unlocks |
 | --- | --- |
 | `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, and **every classification axis** — `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
 | `hr.employees.viewIdentity` | `national_id` |
+| `auth.audit.viewValues` | `old_values` and `new_values` on `GET /api/auth/audit-logs/{id}` — see [§9](#9-audit-log--سجل-التدقيق) |
 
 **Without the permission the key is ABSENT, not `null`.** Do not read
 `employee.salary === null` as "this employee has no salary" — check whether the
@@ -307,17 +365,25 @@ HTTP `403`.
 ```
 POST /api/auth/login
 ```
-**Public.** Rate limited to **5 requests/minute per IP**.
+**Public.** Rate limited to **5 requests/minute per IP + identifier**.
+
+> ⚠️ **BREAKING, 2026-09-23 — the field is `login`, not `email`.** Sending
+> `email` is now a 422. The identifier is the **employee number**
+> (`EMP-00042`), because most site staff have no email address and every
+> employee needs an account: attendance is recorded through the app. An account
+> with no employee — the technical department, `super_admin` — still signs in
+> with its email, through the same field. **One field, either value; the server
+> works out which.**
 
 **Request body**
 
-| Field      | Type   | Rules                            |
-| ---------- | ------ | -------------------------------- |
-| `email`    | string | required, email, max 255         |
-| `password` | string | required, 8–128 chars            |
+| Field      | Type   | Rules                                                     |
+| ---------- | ------ | --------------------------------------------------------- |
+| `login`    | string | required, max 255 — an employee number **or** an email      |
+| `password` | string | required, 8–128 chars                                       |
 
 ```json
-{ "email": "admin@example.com", "password": "secret123" }
+{ "login": "EMP-00042", "password": "secret123" }
 ```
 
 **200 Response**
@@ -332,6 +398,7 @@ POST /api/auth/login
       "name": "Test User",
       "email": "admin@example.com",
       "is_active": true,
+      "must_change_password": false,
       "roles": ["super_admin"],
       "permissions": [
         "auth.users.view", "auth.users.create", "auth.users.update", "auth.users.delete",
@@ -339,9 +406,9 @@ POST /api/auth/login
         "departments.view", "departments.create", "departments.update", "departments.delete",
         "hr.employees.view", "hr.employees.create", "hr.employees.update", "hr.employees.delete"
       ],
-      "last_login_at": "2026-06-21T09:59:00+00:00",
+      "last_login_at": "2026-06-21T09:59:00+03:00",
       "email_verified_at": null,
-      "created_at": "2026-06-21T10:00:00+00:00"
+      "created_at": "2026-06-21T10:00:00+03:00"
     },
     "access_token": "1|xxxxxxxxxxxxxxxxxxxxxxxx",
     "refresh_token": "64-character-random-string",
@@ -436,18 +503,66 @@ GET /api/auth/me
     "name": "Test User",
     "email": "admin@example.com",
     "is_active": true,
+    "must_change_password": false,
     "roles": ["super_admin"],
     "permissions": ["auth.users.view", "auth.roles.view", "hr.employees.view", "..."],
-    "last_login_at": "2026-06-21T09:59:00+00:00",
+    "last_login_at": "2026-06-21T09:59:00+03:00",
     "email_verified_at": null,
-    "created_at": "2026-06-21T10:00:00+00:00"
+    "created_at": "2026-06-21T10:00:00+03:00"
   }
 }
 ```
 
 - `name` is the **linked employee's** name (`null` when the account has no employee link).
+- `email` **may be `null`** since 2026-09-23. It is a contact field, not the identity — see §3.1.
 - `permissions` is the **union** of every permission across the user's roles, de‑duplicated. A user with no roles gets `[]`. A **super admin** gets the **entire catalogue**.
 - `roles` is an array of role names.
+- ⚠️ `must_change_password` — when `true`, **open the change-password screen, not the dashboard.** Every other endpoint answers 403 until it is cleared. See §3.5.
+
+---
+
+### 3.5 Change your own password
+
+```
+POST /api/auth/password
+```
+**Protected. Self-scoped — no permission required**, because it acts only on the caller's own credential.
+
+> **Why this exists.** The first password of every account is issued by HR, so it is a secret more than one person knows. The account carries `must_change_password` until it is replaced, and while that flag is set **the API refuses every route except this one, `/auth/logout` and `/auth/me`** with a **403**.
+>
+> **403, not 401 — do not refresh the token and do not bounce to login.** The session is valid; the *action* is refused. Treating it as an auth failure produces an infinite loop, because re-authenticating changes nothing.
+
+**Request body**
+
+| Field                   | Type   | Rules                                                        |
+| ----------------------- | ------ | ------------------------------------------------------------ |
+| `current_password`      | string | required                                                      |
+| `password`              | string | required, 8–128, **confirmed**, must differ from the current   |
+| `password_confirmation` | string | required, must match `password`                               |
+
+**200 Response** — a **fresh token pair**, because a successful change revokes every session including the caller's:
+
+```json
+{
+  "success": true,
+  "message": "تم تغيير كلمة المرور بنجاح. تم إنهاء الجلسات الأخرى.",
+  "data": {
+    "access_token": "3|xxxxxxxxxxxxxxxxxxxxxxxx",
+    "refresh_token": "64-character-random-string",
+    "token_type": "Bearer",
+    "expires_in": 900
+  }
+}
+```
+
+⚠️ **Replace your stored tokens with these.** Every previously issued token for this account — including the one that made this request — is dead by the time the response arrives. That is deliberate: if somebody else had signed in with the temporary password, a change that spared their session would have locked nobody out.
+
+**Failures**
+
+| Status | When |
+| ------ | ---- |
+| **401** | `current_password` is wrong (`كلمة المرور الحالية غير صحيحة.`) |
+| **422** | The new password is too short, unconfirmed, or identical to the current one |
 
 ---
 
@@ -468,9 +583,9 @@ All routes are **protected** and guarded by `auth.users.*` permissions. Base pat
   "employee_id": 3,
   "employee": { "id": 3, "full_name": "Jane Doe", "employee_number": "E-0003" },
   "roles": ["manager"],
-  "last_login_at": "2026-06-21T09:59:00+00:00",
+  "last_login_at": "2026-06-21T09:59:00+03:00",
   "email_verified_at": null,
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
@@ -496,7 +611,7 @@ POST /api/auth/users         (permission: auth.users.create)
 | Field         | Type    | Rules                                                                       |
 | ------------- | ------- | --------------------------------------------------------------------------- |
 | `employee_id` | integer | **required**; must be an existing, non‑deleted employee; must not already have an account |
-| `email`       | string  | required, email, max 255, **unique**                                        |
+| `email`       | string  | **optional, nullable** since 2026-09-23, email, max 255, unique when present |
 | `password`    | string  | required, min 8                                                             |
 | `is_active`   | boolean | optional (defaults to `true`)                                               |
 
@@ -513,7 +628,7 @@ Partial update — all fields optional.
 | Field         | Type    | Rules                                                                        |
 | ------------- | ------- | ---------------------------------------------------------------------------- |
 | `employee_id` | integer | optional; re‑links the account to another existing, non‑deleted employee not already linked elsewhere |
-| `email`       | string  | optional, email, max 255, unique (ignores this user)                         |
+| `email`       | string  | optional, **nullable**, email, max 255, unique (ignores this user)           |
 | `password`    | string  | optional, nullable, min 8 (re‑hashed when sent)                              |
 | `is_active`   | boolean | optional                                                                     |
 
@@ -545,7 +660,7 @@ All routes **protected**, base path `/api/auth/roles`, guarded by `auth.roles.*`
   "description": "Department managers",
   "is_system": false,
   "permissions": ["hr.employees.view", "hr.employees.update"],
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
@@ -651,7 +766,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
   "type": "employee_created",
   "reference": { "type": "employee", "id": 5 },
   "is_read": false,
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
@@ -771,8 +886,8 @@ The API therefore returns a **resolved** value: a section reads back
   "sector_label": "المكاتب الإدارية",
   "manager_id": 4,
   "manager": { "id": 4, "full_name": "سامر خليل", "employee_number": "E-0012" },
-  "created_at": "2026-06-21T10:00:00+00:00",
-  "updated_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00",
+  "updated_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
@@ -851,7 +966,6 @@ which that was a migration rather than a data migration.
 {
   "id": 1,
   "employee_number": "EMP-00001",
-  "legacy_number": "M024333",
 
   "first_name": "سامر",
   "middle_name": "خالد",
@@ -923,8 +1037,8 @@ which that was a migration rather than a data migration.
   "agreed_salary": null,
   "sham_cash_account": "1234567890123456",
 
-  "created_at": "2026-09-13T10:00:00+00:00",
-  "updated_at": "2026-09-13T10:00:00+00:00"
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
 }
 ```
 
@@ -969,7 +1083,7 @@ Both gates behave identically on the list and single endpoints.
 | `department_id` | int | must exist and not be deleted |
 | `job_title_id` | int | must exist and not be deleted |
 | `activity_type` | int | 1–5 |
-| `search` | string | matches any name part, `employee_number` **or** `legacy_number` |
+| `search` | string | matches any name part or `employee_number` |
 | `sort` | string | `employee_number`, `first_name`, `last_name`, `hire_date`, `created_at`; prefix `-` for descending |
 
 ⚠️ An unknown `sort` or an invalid filter is a **422**, not a silent fallback —
@@ -984,7 +1098,6 @@ required; required applies on create only.
 | `first_name` / `middle_name` / `last_name` | string | **required on create**, max 255 |
 | `gender` | int | **required on create**, `1` ذكر · `2` أنثى |
 | `employee_number` | string | optional, max 50, unique — **auto-generated when omitted**, and a supplied value is kept as-is |
-| `legacy_number` | string | optional, nullable, max 50, unique — the `M024333` values |
 | `national_id` | string | optional, nullable, max 50, unique |
 | `mother_name` | string | optional, nullable, max 255 |
 | `birth_date` | date | optional, nullable, must be before today |
@@ -1054,8 +1167,8 @@ answered by filtering employees on `job_title_id`.
   "is_described": false,
   "description": null,
   "is_active": true,
-  "created_at": "2026-09-13T10:00:00+00:00",
-  "updated_at": "2026-09-13T10:00:00+00:00"
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
 }
 ```
 
@@ -1110,7 +1223,7 @@ one; the earliest row is their initial posting.
   "legacy_workplace": null,
   "legacy_manager_name": null,
   "notes": "قرار رقم 41",
-  "created_at": "2026-09-13T10:00:00+00:00"
+  "created_at": "2026-09-13T10:00:00+03:00"
 }
 ```
 
@@ -1169,8 +1282,8 @@ updates it in place rather than stacking a zero-length row in front of it.
   "issued_by": 9,
   "issuer": { "id": 9, "full_name": "سامر خالد الحلبي", "employee_number": "E-0009" },
   "notes": "إنذار ثانٍ.",
-  "created_at": "2026-09-13T10:00:00+00:00",
-  "updated_at": "2026-09-13T10:00:00+00:00"
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
 }
 ```
 
@@ -1227,7 +1340,207 @@ identical pay value. Never compute pay from a case number.
 
 ---
 
-## 9. Endpoint quick reference
+## 9. Audit log — سجل التدقيق
+
+Read-only access to `audit_logs`: who changed what, when, and from where.
+
+```
+GET /api/auth/audit-logs        → paginated list   (auth.audit.view)
+GET /api/auth/audit-logs/{id}   → one row in full  (auth.audit.view)
+```
+
+**There is no write endpoint and there will not be one.** The table is
+append-only by design — no create, no update, no delete, no restore, no purge,
+and no permission that could authorize one. Render zero mutation affordances: a
+destructive-looking control on an audit trail advertises a power that does not
+exist.
+
+> ⚠️ **Reading it writes to it.** `AuditLogMiddleware` records every
+> authenticated request, so each page of this screen appends one `api_request`
+> row to the table it is showing. That is deliberate — "who read the audit
+> trail" is itself worth recording. **Do not poll this endpoint**, do not
+> auto-refresh it, and do not refetch it on window focus. One explicit refresh
+> control, and nothing else.
+
+### 9.1 List
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `page`, `per_page` | int | Standard: default 15, clamped 1–100 (§1) |
+| `user_id` | int | The actor |
+| `actor_type` | `user` \| `system` | `system` selects rows with no authenticated actor — a seeder, console command or queued job. Composes with `user_id` rather than replacing it |
+| `event` | CSV of event keys | `created,updated,deleted`. An unknown key is a **422**, and so is an empty list |
+| `event_group` | CSV of `model` \| `auth` \| `request` | `request` is the `api_request` firehose. Same empty-list rule as `event` |
+| `auditable_type` | short key | `employee` · `employee_assignment` · `employee_document` · `employee_warning` · `job_title` · `department` · `user` · `role` · `permission`. **Never a PHP class name** |
+| `auditable_id` | int | Requires `auditable_type` — **422** without it |
+| `request_id` | string (≤64) | The correlation drill-down; the column is indexed, so this is cheap |
+| `ip_address` | string (≤45) | |
+| `date_from` / `date_to` | `YYYY-MM-DD` | Inclusive **to the end of** `date_to`'s day, Asia/Damascus |
+| `search` | string | Matches `description` only |
+| `sort` | `created_at` \| `-created_at` | Default `-created_at`. **Nothing else is sortable** — anything else is a **422**, because only `created_at` is indexed and this is the one table that grows without bound |
+
+`event` and `event_group` **intersect**: `?event=created&event_group=auth` asks
+for a created event in the auth group, of which there are none, and correctly
+returns an empty page.
+
+> **Omit a filter you are not using; do not send it empty.** `?event=` and
+> `?event=,,,` are **422**s, not "no filter". A discarded filter would return a
+> correct-looking page answering a different question, and on `event_group` —
+> the parameter that hides the `api_request` firehose — the page you would get
+> back is the firehose. Build query strings by omitting empty values.
+
+**List item**
+
+```json
+{
+  "id": 88412,
+  "event": "updated",
+  "event_label": "تعديل",
+  "event_group": "model",
+  "description": null,
+  "actor_type": "user",
+  "user_id": 7,
+  "user": { "id": 7, "name": "سامر خليل", "email": "samer@example.com" },
+  "auditable_type": "employee",
+  "auditable_label": "موظف",
+  "auditable_id": 42,
+  "auditable": { "id": 42, "label": "أحمد خالد الحمصي (EMP-00042)" },
+  "changed_fields": ["department_id", "organizational_grade"],
+  "ip_address": "10.0.0.14",
+  "request_id": "8f3c…",
+  "created_at": "2026-09-16T14:03:11+03:00"
+}
+```
+
+The list deliberately **does not** carry `old_values` / `new_values` — a
+`deleted` employee row holds around fifty keys, and a hundred of those per page
+is a response nobody asked for. They are on the detail endpoint only.
+
+### 9.2 Detail
+
+`GET /api/auth/audit-logs/{id}` returns everything above plus `user_agent` and,
+**for a caller permitted to read them**, `old_values` and `new_values`.
+
+Two permissions are needed for the values, not one:
+
+1. `auth.audit.viewValues` — the field-level grant, on every row.
+2. **The view permission of the module the row is about**: `hr.employees.view`
+   for an `employee` row, `auth.users.view` for a `user` row, `departments.view`
+   for a `department` row, and so on. An audit row is a copy of someone else's
+   record, and permission to read audit rows is not permission to read that
+   record — without this, `viewValues` alone reconstructed every audited table
+   in the system from `new_values`. Rows with **no target** (`login`,
+   `api_request`) need only the first: their blobs hold request and auth
+   metadata, which is nobody else's data.
+
+**So the same caller can get the values on one row and not the next.** Decide
+per row from what the payload actually contains; never from a remembered
+"may I see values" flag.
+
+```json
+{
+  "old_values": { "workplace": "دمشق" },
+  "new_values": { "workplace": "حلب" },
+  "user_agent": "Mozilla/5.0 …"
+}
+```
+
+**Three states, three meanings — do not collapse them:**
+
+| What you see | What it means |
+| --- | --- |
+| key **absent** | You may not read this. You lack `auth.audit.viewValues`, or the view permission for this row's target |
+| key **`null`** | There is nothing to read. `created` has no old values; `deleted` has no new ones |
+| value `"***REDACTED***"` | The field was redacted **before storage**. The real value was never written to this table and cannot be recovered |
+
+Reading an absent key as "nothing changed" will report an edit as an empty diff.
+This is the §1 embedded-objects rule applied to a payload: absent ≠ null.
+
+### 9.3 The three kinds of actor
+
+| `actor_type` | `user` | Means |
+| --- | --- | --- |
+| `system` | `null` | A seeder, console command or queued job — nobody was authenticated |
+| `user` | object | That account |
+| `user` | `null` | **The account has been deleted.** `user_id` still names them |
+
+The third is the case an audit is most often opened to answer, so say it
+explicitly — "مستخدم محذوف #7", not "غير معروف".
+
+`?actor_type=system` is how you ask for the first row of that table. `user_id`
+matches an id and no value of it expresses "no actor", so before this filter
+existed the only way to that question was paging the whole table.
+
+### 9.4 The target
+
+`auditable` is `null` for action-level events (login, `role_assigned`,
+`api_request`) and for a target that has been soft-deleted. In both cases
+`auditable_label` and `auditable_id` are still there, so render
+`{auditable_label} #{auditable_id}` unlinked rather than nothing.
+
+`auditable_type` is a **stable alias, never a class name** — the same alias
+notifications publish as `reference.type`. An unrecognised alias serialises with
+`auditable_label: null`; render the raw key and do not guess a route for it.
+
+`auditable_type` itself is **`null`** on one further case: a row written before
+the morph map was enforced (2026-09-08) whose class has since been renamed or
+removed. There is no honest public name left for it and a class name must never
+reach you (C12), so the row arrives with the type `null` and `auditable_id`
+intact. Render it as an unresolvable target; do not treat `auditable_type: null`
+with a non-null `auditable_id` as "no target".
+
+> ⚠️ **Amended from the frontend work order.** That document proposed
+> `assignment` and `warning` as the short keys. The real values are
+> **`employee_assignment`** and **`employee_warning`**, because those are the
+> aliases the enforced morph map stores in the column and already publishes on
+> notifications. One type cannot have two public names depending on which
+> endpoint you ask.
+
+`changed_fields` names **which** fields moved and is **not** gated — it ships to
+anyone holding `auth.audit.view`. What they moved from and to needs
+`auth.audit.viewValues`. Non-model events (`api_request`, the auth vocabulary)
+have `changed_fields: []`: the metadata in their `new_values` is not a record
+edit and is not presented as one.
+
+### 9.5 Event vocabulary
+
+`event_label` is the Arabic name to display. An event key the server does not
+recognise returns `event_label: null` **and** `event_group: null` — render the
+raw key rather than inventing a label, so a new backend event looks unfamiliar
+instead of looking like something else.
+
+| Group | Events |
+| --- | --- |
+| `model` | `created`, `updated`, `deleted` |
+| `auth` | `user_logged_in`, `user_logged_out`, `tokens_refreshed`, `all_tokens_revoked`, `refresh_token_replay_detected`, `user_created`, `user_updated`, `user_deleted`, `role_created`, `role_updated`, `role_deleted`, `role_assigned`, `role_unassigned` |
+| `request` | `api_request` |
+
+`refresh_token_replay_detected` is a **security signal**, not routine traffic: a
+rotated refresh token was presented twice, which is either a bug or a stolen
+token. Treat it louder than an ordinary destructive event.
+
+**`api_request` is roughly 99% of this table** — every authenticated request
+writes one. Defaulting the list to `event_group=model,auth` is the sane
+behaviour, but say so on screen: a filter that hides data invisibly is not
+acceptable on an audit tool.
+
+### 9.6 Timestamps
+
+`created_at` is ISO-8601 **carrying the `+03:00` offset**, like every other
+timestamp in this API — see §1 Timestamps, which is where the rule lives. It is
+repeated here only because on this screen the consequence is sharpest: an audit
+row read three hours early puts an event in the wrong part of someone's working
+day, which is the question the screen exists to answer.
+
+Note that timestamps *inside* `old_values` / `new_values` are the raw stored
+columns and carry no offset at all (§1). Read those as Damascus local.
+
+`date_from` / `date_to` are inclusive of the whole end day, so
+`date_from=date_to=2026-09-16` returns that day including its last hour.
+
+---
+
+## 10. Endpoint quick reference
 
 | # | Method      | Path                                         | Auth     | Permission             |
 | - | ----------- | -------------------------------------------- | -------- | ---------------------- |
@@ -1235,43 +1548,47 @@ identical pay value. Never compute pay from a case number.
 | 2 | POST        | `/api/auth/refresh`                          | public   | — (10/min)             |
 | 3 | POST        | `/api/auth/logout`                           | bearer   | —                      |
 | 4 | GET         | `/api/auth/me`                               | bearer   | —                      |
-| 5 | GET         | `/api/auth/users`                            | bearer   | `auth.users.view`      |
-| 6 | POST        | `/api/auth/users`                            | bearer   | `auth.users.create`    |
-| 7 | PUT/PATCH   | `/api/auth/users/{user}`                     | bearer   | `auth.users.update`    |
-| 8 | DELETE      | `/api/auth/users/{user}`                     | bearer   | `auth.users.delete`    |
-| 9 | GET         | `/api/auth/roles`                            | bearer   | `auth.roles.view`      |
-| 10| POST        | `/api/auth/roles`                            | bearer   | `auth.roles.create`    |
-| 11| PUT/PATCH   | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.update`    |
-| 12| DELETE      | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.delete`    |
-| 13| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.update`    |
-| 14| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.update`    |
-| 15| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
-| 16| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
-| 17| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
-| 18| GET         | `/api/departments`                           | bearer   | `departments.view`     |
-| 19| POST        | `/api/departments`                           | bearer   | `departments.create`   |
-| 20| GET         | `/api/departments/{department}`              | bearer   | `departments.view`     |
-| 21| PUT/PATCH   | `/api/departments/{department}`              | bearer   | `departments.update`   |
-| 22| DELETE      | `/api/departments/{department}`              | bearer   | `departments.delete`   |
-| 23| GET         | `/api/hr/employees`                          | bearer   | `hr.employees.view`    |
-| 24| POST        | `/api/hr/employees`                          | bearer   | `hr.employees.create`  |
-| 25| GET         | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.view`    |
-| 26| PUT/PATCH   | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.update`  |
-| 27| DELETE      | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.delete`  |
-| 28| GET         | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.view`   |
-| 29| POST        | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.create` |
-| 30| GET         | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.view`   |
-| 31| PUT/PATCH   | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.update` |
-| 32| DELETE      | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.delete` |
-| 33| GET         | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.view`  |
-| 34| POST        | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.create`|
-| 35| GET         | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.view`     |
-| 36| POST        | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.create`   |
-| 37| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
-| 38| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
+| 5 | POST        | `/api/auth/password`                         | bearer   | — (self-scoped)        |
+| 6 | GET         | `/api/auth/users`                            | bearer   | `auth.users.view`      |
+| 7 | POST        | `/api/auth/users`                            | bearer   | `auth.users.create`    |
+| 8 | PUT/PATCH   | `/api/auth/users/{user}`                     | bearer   | `auth.users.update`    |
+| 9 | DELETE      | `/api/auth/users/{user}`                     | bearer   | `auth.users.delete`    |
+| 10| GET         | `/api/auth/roles`                            | bearer   | `auth.roles.view`      |
+| 11| POST        | `/api/auth/roles`                            | bearer   | `auth.roles.create`    |
+| 12| PUT/PATCH   | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.update`    |
+| 13| DELETE      | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.delete`    |
+| 14| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.update`    |
+| 15| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.update`    |
+| 16| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
+| 17| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
+| 18| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
+| 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
+| 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
+| 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
+| 22| POST        | `/api/departments`                           | bearer   | `departments.create`   |
+| 23| GET         | `/api/departments/{department}`              | bearer   | `departments.view`     |
+| 24| PUT/PATCH   | `/api/departments/{department}`              | bearer   | `departments.update`   |
+| 25| DELETE      | `/api/departments/{department}`              | bearer   | `departments.delete`   |
+| 26| GET         | `/api/hr/employees`                          | bearer   | `hr.employees.view`    |
+| 27| POST        | `/api/hr/employees`                          | bearer   | `hr.employees.create`  |
+| 28| GET         | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.view`    |
+| 29| PUT/PATCH   | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.update`  |
+| 30| DELETE      | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.delete`  |
+| 31| GET         | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.view`   |
+| 32| POST        | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.create` |
+| 33| GET         | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.view`   |
+| 34| PUT/PATCH   | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.update` |
+| 35| DELETE      | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.delete` |
+| 36| GET         | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.view`  |
+| 37| POST        | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.create`|
+| 38| GET         | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.view`     |
+| 39| POST        | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.create`   |
+| 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
+| 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-**38 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
-history (2, read and append only), and warnings (4).
+**40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
+history (2, read and append only), and warnings (4). سجل التدقيق added the two
+above, both reads: there is no third, because the table is append-only.
 
 > There are **no employee-document endpoints yet**, on purpose. The
 > `employee_documents` table exists so the data import can attach the intake
@@ -1282,7 +1599,7 @@ history (2, read and append only), and warnings (4).
 
 ---
 
-## 10. Frontend integration checklist
+## 11. Frontend integration checklist
 
 1. **HTTP client:** set base URL `{APP_URL}/api`, default headers `Accept: application/json` + `Content-Type: application/json`.
 2. **Auth interceptor:** attach `Authorization: Bearer {access_token}` on every request.
@@ -1291,6 +1608,6 @@ history (2, read and append only), and warnings (4).
 5. **Session bootstrap:** on app start, if a token exists, call `/api/auth/me` to validate it and (re)load the user **and their `permissions`**.
 6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
-8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval.
-9. **Lists:** **all five** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval. It is one of exactly **two** endpoints meant to be polled — the other is the notification list itself, and both are excluded from the audit trail for that reason. **Never poll anything else**, and least of all `/api/auth/audit-logs`, which records every read of itself (§9).
+9. **Lists:** **all nine** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
 10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.

@@ -24,7 +24,7 @@ class AuthThrottleTest extends TestCase
     {
         User::factory()->create(['email' => 'user@example.com']);
 
-        $payload = ['email' => 'user@example.com', 'password' => 'wrong-password'];
+        $payload = ['login' => 'user@example.com', 'password' => 'wrong-password'];
 
         // The first five attempts reach the controller (401 invalid credentials).
         for ($i = 0; $i < 5; $i++) {
@@ -134,17 +134,17 @@ class AuthThrottleTest extends TestCase
 
         for ($i = 0; $i < 5; $i++) {
             $this->postJson('/api/auth/login', [
-                'email' => 'victim@example.com', 'password' => 'wrong-password',
+                'login' => 'victim@example.com', 'password' => 'wrong-password',
             ])->assertUnauthorized();
         }
 
         $this->postJson('/api/auth/login', [
-            'email' => 'victim@example.com', 'password' => 'wrong-password',
+            'login' => 'victim@example.com', 'password' => 'wrong-password',
         ])->assertStatus(429);
 
         // Same IP, different account: unaffected.
         $this->postJson('/api/auth/login', [
-            'email' => 'bystander@example.com', 'password' => 'wrong-password',
+            'login' => 'bystander@example.com', 'password' => 'wrong-password',
         ])->assertUnauthorized();
     }
 
@@ -152,18 +152,18 @@ class AuthThrottleTest extends TestCase
      * Casing must not buy extra attempts — otherwise VICTIM@example.com is five
      * more tries, and so is Victim@example.com, and so on.
      */
-    public function test_email_casing_does_not_reset_the_budget(): void
+    public function test_login_casing_does_not_reset_the_budget(): void
     {
         User::factory()->create(['email' => 'victim@example.com']);
 
         foreach (['victim@example.com', 'VICTIM@example.com', 'Victim@Example.com'] as $variant) {
             for ($i = 0; $i < 2; $i++) {
-                $this->postJson('/api/auth/login', ['email' => $variant, 'password' => 'wrong-password']);
+                $this->postJson('/api/auth/login', ['login' => $variant, 'password' => 'wrong-password']);
             }
         }
 
         $this->postJson('/api/auth/login', [
-            'email' => 'victim@example.com', 'password' => 'wrong-password',
+            'login' => 'victim@example.com', 'password' => 'wrong-password',
         ])->assertStatus(429);
     }
 }

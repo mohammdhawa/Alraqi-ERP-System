@@ -106,10 +106,16 @@ class AuthService
         private readonly AuditLogService $auditLogService,
     ) {}
 
-    // Authenticate user and issue token pair.
-    public function login(string $email, string $password): array
+    /**
+     * Authenticate a user and issue a token pair.
+     *
+     * ⚙️ `$login` IS AN EMPLOYEE NUMBER OR AN EMAIL (account model, 2026-09-22).
+     * It used to be an email and nothing else, which could not work once every
+     * employee needed an account: most site staff have no email address.
+     */
+    public function login(string $login, string $password): array
     {
-        $user = User::where('email', $email)->first();
+        $user = $this->resolveByLogin($login);
 
         if (! $user || ! Hash::check($password, $user->password)) {
             // SECURITY: Generic message prevents user enumeration.
@@ -133,7 +139,7 @@ class AuthService
 
             $this->auditLogService->logAction(
                 event: 'user_logged_in',
-                description: "User {$user->email} logged in.",
+                description: "User {$user->loginIdentity()} logged in.",
             );
 
             return [
@@ -214,7 +220,7 @@ class AuthService
 
                 $this->auditLogService->logAction(
                     event: 'tokens_refreshed',
-                    description: "Tokens rotated for user {$user->email}.",
+                    description: "Tokens rotated for user {$user->loginIdentity()}.",
                 );
 
                 return [
@@ -258,8 +264,69 @@ class AuthService
 
             $this->auditLogService->logAction(
                 event: 'user_logged_out',
-                description: "User {$user->email} logged out. All tokens revoked.",
+                description: "User {$user->loginIdentity()} logged out. All tokens revoked.",
             );
+        });
+    }
+
+    /**
+     * Replace the caller's own password.
+     *
+     * SELF-SCOPED (C7): the $user is always the authenticated caller, resolved
+     * by the controller from the request. Nothing here takes an id, so there is
+     * no shape in which this service method can change somebody else's
+     * credential — an admin reset goes through UserService, which is a
+     * different action with a different permission.
+     *
+     * ⚠️ EVERY OTHER SESSION IS REVOKED. The case this exists for is the
+     * forced first change, where the current password was issued by HR and is
+     * therefore a secret more than one person holds. If someone else signed in
+     * with it first, leaving their tokens alive would mean the change locked
+     * nobody out — which is the entire point of the change. The caller's own
+     * new pair is minted after the revocation, so they stay signed in and
+     * everyone else does not.
+     *
+     * @return array{access_token: string, refresh_token: string, expires_in: int|null}
+     *
+     * @throws AuthenticationException when the current password does not match
+     */
+    public function changePassword(User $user, string $currentPassword, string $newPassword): array
+    {
+        if (! Hash::check($currentPassword, $user->password)) {
+            // Deliberately NOT the generic credentials message: the caller is
+            // already authenticated, so there is no enumeration to protect
+            // against here, and "wrong current password" is the one thing they
+            // need to know to fix it.
+            throw new AuthenticationException('كلمة المرور الحالية غير صحيحة.');
+        }
+
+        return DB::transaction(function () use ($user, $newPassword): array {
+            $user->tokens()->delete();
+            $user->refreshTokens()
+                ->where('revoked', false)
+                ->update(['revoked' => true]);
+
+            // Saved through the model, not quietly: HasAuditLog records the
+            // change, and AuditLogService::sanitize() already redacts
+            // `password`, so the trail gets "this account changed its password"
+            // without the value. `password_changed_at` answers "when was this
+            // credential last rotated" — `updated_at` cannot, because it moves
+            // for any change at all.
+            $user->password             = $newPassword;
+            $user->must_change_password = false;
+            $user->password_changed_at  = now();
+            $user->save();
+
+            $this->auditLogService->logAction(
+                event: 'password_changed',
+                description: "User {$user->loginIdentity()} changed their password. Other sessions revoked.",
+            );
+
+            return [
+                'access_token'  => $this->createAccessToken($user),
+                'refresh_token' => $this->createRefreshToken($user),
+                'expires_in'    => $this->accessTokenLifetimeSeconds(),
+            ];
         });
     }
 
@@ -290,6 +357,41 @@ class AuthService
      * Sanctum stores the hashed token in personal_access_tokens.
      * Returns the plaintext token (only available at creation time).
      */
+    /**
+     * Find the account a login identifier belongs to.
+     *
+     * TWO IDENTIFIERS, ONE FIELD. The employee number is how staff sign in; the
+     * email is how an account with no employee does — the technical department
+     * and `super_admin`, which have no `employees` row and therefore no number.
+     * The order matters only for cost, not for correctness: the two spaces
+     * cannot collide, because an employee number is generated or hand-typed and
+     * an email contains an `@`.
+     *
+     * ⚠️ THE CLAUSE IS GROUPED. An ungrouped `orWhere` at the top level of a
+     * query escapes any condition added beside it later — the same defect this
+     * codebase already fixed once in employee search. Here it would be worse
+     * than a wrong list: a future `->where('is_active', true)` would bind to
+     * the first branch only, and a disabled account would authenticate through
+     * the second.
+     *
+     * The employee is matched through the relation rather than a join on a
+     * copied column, which is why no `employee_number` lives on `users`.
+     * `whereHas` excludes soft-deleted employees, so a deleted person's account
+     * stops resolving by number — deliberate, and the reason the email branch
+     * is not the same query.
+     */
+    private function resolveByLogin(string $login): ?User
+    {
+        return User::query()
+            ->where(function ($query) use ($login): void {
+                $query
+                    ->whereHas('employee', fn ($employee) => $employee->where('employee_number', $login))
+                    ->orWhere('email', $login);
+            })
+            ->with('employee')
+            ->first();
+    }
+
     private function createAccessToken(User $user): string
     {
         // Delete existing access tokens to prevent accumulation.

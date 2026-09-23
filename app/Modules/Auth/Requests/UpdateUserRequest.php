@@ -40,7 +40,7 @@ class UpdateUserRequest extends FormRequest
                 Rule::exists('employees', 'id')->whereNull('deleted_at'),
                 Rule::unique('users', 'employee_id')->ignore($this->route('user')),
             ],
-            'email'     => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($this->route('user'))],
+            'email'     => ['sometimes', 'nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($this->route('user'))],
             'password'  => ['sometimes', 'nullable', 'string', 'min:8'],
             'is_active' => ['sometimes', 'boolean'],
         ];

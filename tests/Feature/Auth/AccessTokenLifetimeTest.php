@@ -38,7 +38,7 @@ class AccessTokenLifetimeTest extends TestCase
         ]);
 
         return $this->postJson('/api/auth/login', [
-            'email'    => 'lifetime@example.com',
+            'login'    => 'lifetime@example.com',
             'password' => 'secret-password',
         ])->assertOk()->json('data');
     }

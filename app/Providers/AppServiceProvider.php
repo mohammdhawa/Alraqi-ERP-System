@@ -121,9 +121,17 @@ class AppServiceProvider extends ServiceProvider
         // worth rationing. The email is lower-cased so casing variants do not
         // buy an attacker five more attempts each.
         RateLimiter::for('auth-login', function (Request $request) {
-            $email = Str::lower(trim((string) $request->input('email')));
+            // ⚙️ KEYED ON `login`, NOT `email` (account model, 2026-09-22). The
+            // field was renamed when the employee number became the identifier,
+            // and a limiter still reading `email` would have keyed every attempt
+            // on the same empty string — collapsing all logins into one bucket
+            // and locking the whole company out after five failures anywhere.
+            // The protection would have looked present and behaved as an
+            // outage, which is the same failure this key was widened to avoid
+            // when it was IP-only.
+            $identifier = Str::lower(trim((string) $request->input('login')));
 
-            return Limit::perMinute(5)->by($request->ip().'|'.$email);
+            return Limit::perMinute(5)->by($request->ip().'|'.$identifier);
         });
 
         RateLimiter::for('auth-refresh', function (Request $request) {
