@@ -14,6 +14,7 @@ use App\Modules\HR\Enums\Governorate;
 use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Resources\EmployeeResource;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -34,12 +35,13 @@ use Illuminate\Validation\Rule;
  * The guard owns the rules; this class translates its violations into
  * field-level Arabic 422s (C4/C5).
  *
- * ⚠️ FIELD RULES ARE NOT ACCESS CONTROL, AND THIS IS THE KNOWN GAP. Anyone
- * holding `hr.employees.update` can WRITE `agreed_salary`,
- * `sham_cash_account` and every classification axis, including a caller who
- * cannot READ them back because they lack `hr.employees.viewSalary`. That
- * asymmetry is tracked as GAP-12 in API_BUILD_STANDARD.md §12 and is a policy
- * decision awaiting an answer, not an oversight here.
+ * ✅ FIELD-LEVEL WRITE ACCESS IS GOVERNED HERE (GAP-12, closed 2026-09-23).
+ * A caller without `hr.employees.viewSalary` may not send `agreed_salary`,
+ * `sham_cash_account` or any classification axis; without
+ * `hr.employees.viewIdentity` they may not send `national_id`. The rule is
+ * من لا يرى لا يكتُب, and `gateSensitiveWrites()` below is where it lives.
+ * Until that existed, a caller could set values the API then refused to show
+ * them.
  *
  * NULLABILITY DIFFERS FROM THE SCHEMA ON PURPOSE. Almost every column is
  * nullable so the Batch 4 importer can land a flawed row and REPORT it (§7.4)
@@ -57,9 +59,109 @@ class EmployeeRequest extends FormRequest
     }
 
     /**
+     * Columns a caller may not WRITE without `hr.employees.viewSalary`.
+     *
+     * ⚠️ THIS LIST MIRRORS `EmployeeResource::payBlock()` AND MUST NOT DRIFT
+     * FROM IT. A column that is gated on read and open on write is GAP-12 all
+     * over again, one field at a time. `EmployeeWriteGateTest` renders the
+     * Resource with and without the permission and asserts the two sets match,
+     * so adding a pay column to one side and forgetting the other is a failing
+     * test rather than a silent hole.
+     *
+     * The `_label` keys the Resource also hides are absent here on purpose:
+     * they are derived output, not input, and nothing can write them.
+     *
+     * @var array<int, string>
+     */
+    public const SALARY_GATED_FIELDS = [
+        'activity_type',
+        'organizational_grade',
+        'experience_level',
+        'engineering_rank',
+        'industrial_experience_years',
+        'has_hazard_pay',
+        'has_scarcity_pay',
+        'has_dual_role_pay',
+        'distinction_grade',
+        'salary_mode',
+        'agreed_salary',
+        'sham_cash_account',
+    ];
+
+    /**
+     * Columns a caller may not WRITE without `hr.employees.viewIdentity`.
+     *
+     * @var array<int, string>
+     */
+    public const IDENTITY_GATED_FIELDS = [
+        'national_id',
+    ];
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     public function rules(): array
+    {
+        return $this->gateSensitiveWrites($this->fieldRules());
+    }
+
+    /**
+     * ✅ GAP-12, closed 2026-09-23: من لا يرى لا يكتُب.
+     *
+     * A caller who cannot READ a field may not WRITE it either. Until this
+     * existed, `hr.employees.update` alone could set a salary, a Sham Cash
+     * account and every classification axis — values the same caller was then
+     * refused on the way back out. Writing a number you are not allowed to see
+     * is not a lesser act than reading it: it is how a payslip gets changed by
+     * someone who cannot be shown the payslip.
+     *
+     * WHY `missing` AND NOT `prohibited`. `prohibited` passes when the field is
+     * present but empty — so `agreed_salary: null` would sail through and CLEAR
+     * a salary the caller cannot read. `missing` requires the key to be absent
+     * from the payload altogether, which is the actual rule.
+     *
+     * WHY 422 AND NOT 403. The refusal names the field. A blanket 403 on the
+     * request would say only "no", leaving a client to guess which of forty
+     * keys caused it — and the frontend contract is already "don't render,
+     * don't send", so a payload that reaches here carrying a gated field is a
+     * client bug that deserves to be pointed at.
+     *
+     * FAILS CLOSED: no authenticated user means no permission, exactly as
+     * `EmployeeResource::requesterHolds()` decides it. A super admin passes
+     * through `hasPermission()`'s own bypass.
+     *
+     * @param  array<string, array<int, mixed>>  $rules
+     * @return array<string, array<int, mixed>>
+     */
+    private function gateSensitiveWrites(array $rules): array
+    {
+        $user = $this->user();
+
+        $gates = [
+            EmployeeResource::VIEW_SALARY   => self::SALARY_GATED_FIELDS,
+            EmployeeResource::VIEW_IDENTITY => self::IDENTITY_GATED_FIELDS,
+        ];
+
+        foreach ($gates as $permission => $fields) {
+            if ($user !== null && $user->hasPermission($permission)) {
+                continue;
+            }
+
+            foreach ($fields as $field) {
+                // Replaces the field's rules rather than appending to them: the
+                // only acceptable state is absent, so every other rule on it is
+                // unreachable and keeping them would just be noise in the 422.
+                $rules[$field] = ['missing'];
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function fieldRules(): array
     {
         $creating = $this->isMethod('POST');
         $required = $creating ? 'required' : 'sometimes';
@@ -168,11 +270,38 @@ class EmployeeRequest extends FormRequest
     }
 
     /**
+     * The refusal message for a gated field a caller may not write.
+     *
+     * Generated from the same two constants the gate reads, so a field added to
+     * either list cannot end up refused with Laravel's English default —
+     * which is what a hand-maintained list of thirteen `.missing` keys would
+     * eventually produce.
+     *
+     * @return array<string, string>
+     */
+    private function gatedFieldMessages(): array
+    {
+        $messages = [];
+
+        foreach (self::SALARY_GATED_FIELDS as $field) {
+            $messages["{$field}.missing"] = 'لا تملك صلاحية تعديل حقول الرواتب ومعاييرها.';
+        }
+
+        foreach (self::IDENTITY_GATED_FIELDS as $field) {
+            $messages["{$field}.missing"] = 'لا تملك صلاحية تعديل الرقم الوطني.';
+        }
+
+        return $messages;
+    }
+
+    /**
      * @return array<string, string>
      */
     public function messages(): array
     {
         return [
+            ...$this->gatedFieldMessages(),
+
             'first_name.required'  => 'الاسم الأول مطلوب.',
             'middle_name.required' => 'اسم الأب مطلوب.',
             'last_name.required'   => 'الكنية مطلوبة.',

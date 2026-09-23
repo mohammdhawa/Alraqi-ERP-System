@@ -299,7 +299,44 @@ class AuditLogTest extends TestCase
         $this->assertSame('employee', $data['auditable_type']);
     }
 
-    public function test_the_two_permissions_together_open_the_values(): void
+    public function test_the_permissions_together_open_the_values(): void
+    {
+        $employee = Employee::factory()->create();
+
+        $this->actingAsUserWithPermissions([
+            'auth.audit.view', 'auth.audit.viewValues',
+            'hr.employees.view', 'hr.employees.viewSalary',
+        ]);
+
+        $id = $this->insertLog([
+            'auditable_type' => 'employee',
+            'auditable_id'   => $employee->id,
+            'new_values'     => json_encode(['organizational_grade' => 5]),
+        ]);
+
+        $this->getJson("/api/auth/audit-logs/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.new_values.organizational_grade', 5);
+    }
+
+    /**
+     * ✅ GAP-13, closed 2026-09-23.
+     *
+     * `sanitize()` redacts credentials, `national_id`, `salary`,
+     * `agreed_salary` and `sham_cash_account` — and NOT the nine classification
+     * axes, because they are ordinary integers on the row. But the axes are what
+     * the pay is COMPUTED FROM, which is why `hr.employees.viewSalary` gates them
+     * on the employee resource. So `hr.employees.view` + `viewValues` used to
+     * read a grade straight out of history that the same caller was refused on
+     * the employee itself: the gate closed at the front door and open at the
+     * back.
+     *
+     * ⚠️ The fix requires the permission rather than redacting the axes, and
+     * that choice is the reversible one. Redaction would have destroyed "who
+     * changed this person's grade, and to what" permanently, on a table that can
+     * be neither scrubbed nor un-scrubbed after the fact.
+     */
+    public function test_employee_values_also_require_the_salary_permission(): void
     {
         $employee = Employee::factory()->create();
 
@@ -313,9 +350,36 @@ class AuditLogTest extends TestCase
             'new_values'     => json_encode(['organizational_grade' => 5]),
         ]);
 
+        $data = $this->getJson("/api/auth/audit-logs/{$id}")->assertOk()->json('data');
+
+        $this->assertArrayNotHasKey('new_values', $data);
+        $this->assertArrayNotHasKey('old_values', $data);
+
+        // And the trail itself still answers the question it is for: someone
+        // changed this employee's grade, and here is when and who.
+        $this->assertSame(['organizational_grade'], $data['changed_fields']);
+    }
+
+    /**
+     * The extra requirement is scoped to `employee` — the only audited type
+     * whose columns include the pay criteria. Requiring a salary permission to
+     * read a department's history would be a gate on the wrong door.
+     */
+    public function test_the_salary_requirement_does_not_spread_to_other_types(): void
+    {
+        $this->actingAsUserWithPermissions([
+            'auth.audit.view', 'auth.audit.viewValues', 'departments.view',
+        ]);
+
+        $id = $this->insertLog([
+            'auditable_type' => 'department',
+            'auditable_id'   => 1,
+            'new_values'     => json_encode(['name' => 'إدارة الإمداد والتوريد']),
+        ]);
+
         $this->getJson("/api/auth/audit-logs/{$id}")
             ->assertOk()
-            ->assertJsonPath('data.new_values.organizational_grade', 5);
+            ->assertJsonPath('data.new_values.name', 'إدارة الإمداد والتوريد');
     }
 
     /**

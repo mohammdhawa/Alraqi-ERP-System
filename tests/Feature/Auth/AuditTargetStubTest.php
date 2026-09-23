@@ -86,12 +86,14 @@ class AuditTargetStubTest extends TestCase
 
         $seeded = Permission::query()->pluck('name')->all();
 
-        foreach (AuditLogDetailResource::TYPE_VIEW_PERMISSIONS as $alias => $permission) {
-            $this->assertContains(
-                $permission,
-                $seeded,
-                "AuditLogDetailResource gates '{$alias}' on '{$permission}', which is not a seeded permission.",
-            );
+        foreach (AuditLogDetailResource::TYPE_VIEW_PERMISSIONS as $alias => $permissions) {
+            foreach ($permissions as $permission) {
+                $this->assertContains(
+                    $permission,
+                    $seeded,
+                    "AuditLogDetailResource gates '{$alias}' on '{$permission}', which is not a seeded permission.",
+                );
+            }
         }
     }
 
@@ -102,12 +104,22 @@ class AuditTargetStubTest extends TestCase
      */
     public function test_the_gate_uses_read_permissions_only(): void
     {
-        foreach (AuditLogDetailResource::TYPE_VIEW_PERMISSIONS as $alias => $permission) {
-            $this->assertStringEndsWith(
-                '.view',
-                $permission,
-                "'{$alias}' is gated on '{$permission}', which is not a read permission.",
-            );
+        foreach (AuditLogDetailResource::TYPE_VIEW_PERMISSIONS as $alias => $permissions) {
+            foreach ($permissions as $permission) {
+                // ⚙️ The assertion was `endsWith('.view')` until GAP-13 closed on
+                // 2026-09-23 and added `hr.employees.viewSalary`, which is a read
+                // permission whose action is not spelled `view`. Matching the
+                // ACTION PREFIX keeps the rule the test was written for — no
+                // `.create`, `.update` or `.delete` may appear here — while
+                // admitting the field-level reads the catalogue actually has.
+                $action = (string) strrchr($permission, '.');
+
+                $this->assertStringStartsWith(
+                    '.view',
+                    $action,
+                    "'{$alias}' is gated on '{$permission}', which is not a read permission.",
+                );
+            }
         }
     }
 }

@@ -3,6 +3,12 @@
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
 >
+> ⚠️ **ALSO 2026-09-23 — `viewSalary` / `viewIdentity` now gate WRITES.**
+> Sending a pay field or `national_id` without the matching permission is a
+> **422** naming the field, and `null` is refused like a value. Employee rows in
+> the audit trail need `hr.employees.viewSalary` for their `old_values` /
+> `new_values`. See §2 (field-level permissions) and §9.
+>
 > ⚠️ **BREAKING, 2026-09-23 — login takes `login`, not `email`.** Every client
 > must change its login call. The identifier is now the employee number, an
 > account may have no email at all, and a new **`POST /api/auth/password`**
@@ -344,6 +350,21 @@ Batch 2 extends `viewSalary` to `agreed_salary`, `sham_cash_account` and the
 classification axes (`activity_type`, `organizational_grade`, …) — the axes are
 the inputs the salary is computed from, so hiding the result while exposing them
 would be theatre.
+
+> ⚠️ **NEW 2026-09-23 — these permissions now gate WRITES too: من لا يرى لا
+> يكتُب.** Sending any field in the table above on `POST /api/hr/employees` or
+> `PUT/PATCH /api/hr/employees/{id}` **without the matching permission is a
+> 422**, with the error on that field:
+>
+> ```json
+> { "errors": { "agreed_salary": ["لا تملك صلاحية تعديل حقول الرواتب ومعاييرها."] } }
+> ```
+>
+> **The field must be ABSENT, not `null`.** Sending `"agreed_salary": null` is
+> refused exactly like sending a value — otherwise a caller who cannot read a
+> salary could clear one. This is the server half of the rule your UI already
+> follows: *don't render, don't send*. A payload that reaches the API carrying a
+> gated field is a client bug, and the 422 names which field it was.
 
 A missing permission yields:
 
@@ -1432,6 +1453,17 @@ Two permissions are needed for the values, not one:
    in the system from `new_values`. Rows with **no target** (`login`,
    `api_request`) need only the first: their blobs hold request and auth
    metadata, which is nobody else's data.
+
+⚠️ **An `employee` row needs a THIRD permission since 2026-09-23:
+`hr.employees.viewSalary`.** The classification axes are stored in the trail in
+cleartext — they are ordinary integers, so the redaction list never covered them
+— and they are the inputs pay is computed from. Without this, a caller holding
+`hr.employees.view` + `viewValues` read a grade out of history that the same
+caller is refused on the employee itself. The axes are **not** redacted instead,
+on purpose: redaction on an append-only table is permanent, and it would erase
+*who changed this person's grade, and to what*. `changed_fields` still arrives
+either way, so "someone changed this employee's grade at 14:03" stays answerable
+without reading the grade.
 
 **So the same caller can get the values on one row and not the next.** Decide
 per row from what the payload actually contains; never from a remembered

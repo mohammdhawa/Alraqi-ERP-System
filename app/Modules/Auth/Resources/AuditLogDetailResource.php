@@ -97,15 +97,34 @@ class AuditLogDetailResource extends AuditLogResource
      * @var array<string, string>
      */
     public const TYPE_VIEW_PERMISSIONS = [
-        'employee'            => 'hr.employees.view',
-        'employee_assignment' => 'hr.assignments.view',
-        'employee_document'   => 'hr.employees.view',
-        'employee_warning'    => 'hr.warnings.view',
-        'job_title'           => 'hr.job_titles.view',
-        'department'          => 'departments.view',
-        'user'                => 'auth.users.view',
-        'role'                => 'auth.roles.view',
-        'permission'          => 'auth.roles.view',
+        // ✅ GAP-13, closed 2026-09-23. An employee row carries the nine
+        // classification axes — activity type, organizational grade, experience
+        // level, engineering rank, industrial years, the three pay flags and
+        // the distinction grade — in cleartext, because `sanitize()` redacts
+        // credentials, `national_id`, `salary`, `agreed_salary` and
+        // `sham_cash_account` but never the axes. Those axes are what the pay
+        // is COMPUTED FROM, which is why `hr.employees.viewSalary` gates them
+        // everywhere else. So a caller holding `hr.employees.view` +
+        // `auth.audit.viewValues` and nothing more could read them straight out
+        // of an employee's history — the gate closed at the front door and open
+        // at the back.
+        //
+        // ⚠️ THE RATIFIED ANSWER WAS THE REVERSIBLE ONE. The alternative was to
+        // add the axes to the redaction list, which would have destroyed "who
+        // changed this person's grade, and to what" FOREVER, on an append-only
+        // table that can be neither scrubbed nor un-scrubbed after the fact.
+        // Requiring the permission instead loses nothing: a grant that turns
+        // out to be wrong can be revoked tomorrow, and the history is still
+        // there when it is.
+        'employee'            => ['hr.employees.view', 'hr.employees.viewSalary'],
+        'employee_assignment' => ['hr.assignments.view'],
+        'employee_document'   => ['hr.employees.view'],
+        'employee_warning'    => ['hr.warnings.view'],
+        'job_title'           => ['hr.job_titles.view'],
+        'department'          => ['departments.view'],
+        'user'                => ['auth.users.view'],
+        'role'                => ['auth.roles.view'],
+        'permission'          => ['auth.roles.view'],
     ];
 
     /**
@@ -175,9 +194,23 @@ class AuditLogDetailResource extends AuditLogResource
             return true;
         }
 
-        $type       = $this->auditable_type;
-        $permission = $type === null ? null : (self::TYPE_VIEW_PERMISSIONS[$type] ?? null);
+        $type        = $this->auditable_type;
+        $permissions = $type === null ? null : (self::TYPE_VIEW_PERMISSIONS[$type] ?? null);
 
-        return $permission !== null && $user->hasPermission($permission);
+        if ($permissions === null) {
+            return false;
+        }
+
+        // EVERY permission listed, not any of them. The map is a conjunction:
+        // `employee` needs the module's view grant AND the salary grant,
+        // because one row holds both kinds of fact. `array_all` would read
+        // better and does not exist on PHP 8.2, which this project still pins.
+        foreach ($permissions as $permission) {
+            if (! $user->hasPermission($permission)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

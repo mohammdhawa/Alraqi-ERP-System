@@ -67,7 +67,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **344 passing**, 1777 assertions, ~10s |
+| **Test suite** | **355 passing**, 1811 assertions, ~10s |
 | **Working tree** | modified — Batch 2 (the employees rebuild), سجل التدقيق, and the account model are all uncommitted |
 | **Production data** | none — the database has never held a real employee |
 
@@ -356,6 +356,13 @@ Without that, `viewValues` was a read-around for *every* module's permissions,
 not only `viewSalary`: `HasAuditLog` copies the whole record into `new_values`,
 so the trail republished every audited table to anyone who could read the trail.
 `AuditLogDetailResource::TYPE_VIEW_PERMISSIONS` is the map, and it fails closed.
+
+✅ ⚙️ **And since 2026-09-23 the map holds a LIST per type, all required** —
+`employee` carries `hr.employees.view` **and** `hr.employees.viewSalary`. That
+closes the last of GAP-13: the axes are not redacted in the trail (deliberately
+— redaction there is permanent and would erase "who changed this grade, and to
+what"), so reading them has to cost the same permission as reading them on the
+employee.
 
 ⚙️ Batch 2 widened `viewSalary`. It no longer gates one amount but the whole pay
 block *and every classification axis* — `activity_type`,
@@ -846,7 +853,7 @@ belongs in Stage 3's exit criteria beside the parallel run.
 is the one route that clears the flag. `EnsurePasswordIsChanged` runs on the
 whole `api` group, so a temporary password can reach only that route, `logout`
 and `me`. Changing the password revokes every other session. 16 tests in
-`tests/Feature/Auth/AccountModelTest.php`; suite at **344 passing**.
+`tests/Feature/Auth/AccountModelTest.php`.
 
 ⚠️ **This is a breaking change for every client** — the login field was `email`.
 `API_DOCUMENTATION.md` carries the notice at the top and in §3.1/§3.5.
@@ -890,9 +897,9 @@ cheaper to answer as a set than one at a time.
 | 17 | **Does an employee see their own classification axes?** | **Yes — in full**, including السوية التنظيمية، نوع النشاط، الخبرة and التمييز | `/api/me`. ⚠️ This raises the bar on the import: every axis must be correct and defensible **per person** before the app ships, because each employee will read their own |
 
 ⚠️ **A decision is not a fix.** Six of these need code that does not exist yet.
-GAP-3, GAP-12 and GAP-13 stay **open** in
-[`API_BUILD_STANDARD.md` §12](API_BUILD_STANDARD.md) until the code lands — what
-changed is that none of them is blocked on an unanswered question any more.
+⚙️ **Updated 2026-09-23, later the same day:** decisions 13 and 16 were **built**
+— GAP-12 and GAP-13 are now in the **Closed** register. GAP-3 is the only gap
+still open, and it is open for want of code, not of an answer.
 
 ---
 
@@ -1176,17 +1183,14 @@ Stated honestly, so none of these is mistaken for a bug.
   the home screen prints المدير المباشر.
 - **The المدير العام has no one above them.** By construction the chain
   terminates there. Intended, not a gap.
-- ⚙️ **Pay-field WRITE access is still ungoverned.** Read access is gated by
-  `hr.employees.viewSalary` (and `national_id` by `hr.employees.viewIdentity`),
-  and all of it is redacted in the audit trail — but *setting* `agreed_salary`,
-  `sham_cash_account` or any classification axis still requires only
-  `hr.employees.update`, so a caller can write values they cannot read back.
-  Batch 2 **widened what is gated on read without narrowing the write side**, so
-  the asymmetry got larger rather than smaller. ✅ ⚙️ **The policy was ratified
-  2026-09-23** (decision 13 in §9): من لا يرى لا يكتُب — a write to a gated field
-  requires that field's view permission. **Unimplemented**, so the limitation
-  above still describes the running code. Tracked as GAP-12 in
-  `API_BUILD_STANDARD.md` §12.
+- ✅ ~~**Pay-field WRITE access is ungoverned.**~~ **Closed 2026-09-23.** A write
+  to `agreed_salary`, `sham_cash_account` or any classification axis now requires
+  `hr.employees.viewSalary`, and `national_id` requires
+  `hr.employees.viewIdentity` — من لا يرى لا يكتُب, decision 13 in §9. The field
+  must be **absent**, not merely empty, so a `null` cannot clear a salary its
+  sender is not allowed to read. A test derives the read-gated set from
+  `EmployeeResource` and asserts it matches the write-gated list, so the two
+  cannot drift apart again. Was GAP-12.
 - ⚙️ **A direct write to `employees.department_id` rewrites the open posting
   rather than appending to history.** The model hook keeps the pointer and the
   open assignment in step on every path, so they can never disagree — but it can
