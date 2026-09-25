@@ -138,9 +138,12 @@ unmatched path still gets a correlation id), and `throttle:api` sorted AHEAD of
 
 Stage 1 is real: a request id, a 60/min baseline limit, and tighter named
 limiters on login and refresh. Stage 8 is real: one mapper, one envelope.
-**Stage 4b still does not exist (GAP-3)** — authorization is verb-level only,
-and the field-level gates in `EmployeeResource` are a mitigation of its
-consequences, not a substitute for it.
+**Stage 4b exists since 2026-09-24 (GAP-3, closed)** — for employees. A role
+grant carries a scope (company · a named unit · «الوحدات التي أديرها»);
+`AccessScope` resolves it per permission, `RowScope` narrows lists before they
+paginate, and `HR/Policies/` refuses an out-of-scope row with a 403 through
+`can:` route middleware. Departments and job titles are not row-scoped yet — see
+the GAP-3 entry in §12 for what the first slice deliberately left out.
 
 ---
 
@@ -1022,14 +1025,15 @@ nothing tested it.
 
 ### Still open
 
-| # | Gap | Breaks | Evidence | Fix |
-|---|---|---|---|---|
-| **GAP-3** | **No row-level authorization anywhere.** Permissions are verb-level only: `hr.employees.view` reads *every* employee; `departments.update` edits *any* unit. No `Policy` class exists; every `FormRequest::authorize()` returns bare `true` | C10, stage 4b | `grep -r Policy app/` → nothing | ✅ ⚙️ **UNBLOCKED 2026-09-23 — the scope is the whole subtree** (START_HERE §9, decision 14): a division head sees every section and office beneath them and all their staff. Still open because the code does not exist: add a thin policy layer for subtree scoping. Partially mitigated — the salary and national-id exposure that made this urgent is now gated field-level (C11) |
+**None.** ⚙️ As of 2026-09-24 the register has no open entries — GAP-3 was the
+last, and it is in the Closed table below. A new gap goes here the day it is
+found.
 
 ### Closed
 
 | # | Gap | Closed by |
 |---|---|---|
+| **GAP-3** | **No row-level authorization anywhere.** Permissions were verb-level only: `hr.employees.view` read *every* employee. No `Policy` class existed | ✅ **2026-09-24**, built exactly to decisions 14, 18 and 19 (START_HERE §9); plan in `GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`. **The grant:** `user_roles` gained a surrogate `id`, `scope_type` (`ScopeType`: company · unit · managed) and `scope_department_id`; the old `primary(user_id, role_id)` went because it forbade one role over two units. Every existing grant migrated to **company**, so nobody's reach changed on deploy. `GrantScopeGuard` in `UserRole`'s saving hook binds seeders and tests too — `User::roles()` saves through the pivot class. **The subtree:** `Department::subtreeIds()`, one query per tier, bound derived from `DepartmentLevel`. **The resolver:** `Shared/Services/AccessScope` — super admin → all; otherwise the union over the grants **whose role carries the permission being used** (a company-wide *view* grant must not widen a section-scoped *update* grant). Grants are cached in `PermissionCache` under the same version stamp, so a revocation applies on the next request; the tree is read fresh, so moving a manager needs no flush. **Enforcement:** `HR/Policies/EmployeePolicy` + `EmployeeWarningPolicy` via `#[UsePolicy]` and `can:` middleware on every single-row route, denying with `OutOfScope::deny()` (403, Arabic message passed through by the renderer; `Gate::allows()` still answers false); the index is filtered on the builder so `meta.total` agrees; the DESTINATION unit of a create, a transfer or a posting is checked after validation. **Decided on purpose:** an employee with no unit is visible only company-wide; the `manager` embed is not scoped; soft-deleted units stay in their parent's subtree. `EmployeeScopeTest` (18) and `RoleScopeTest` (9) use scoped actors only, and were verified to fail when scoping, the cache flush, the trashed-unit walk or the per-permission filter is removed. **Not in this slice:** departments, job titles and the audit trail are still verb-level only. ⚙️ **A review of this pass found four defects, all fixed the same day:** (1) the pay and identity gates still asked the scope-blind `hasPermission()`, so a company-wide `view` beside a section-scoped `viewSalary` read — and could write — the whole company's pay; both gates are now per row through `RequestRowScopes`, and a write must reach every unit the row is in before and after. The audit trail's per-type gate had the same hole (GAP-13 reopened by the back door) and now needs each module grant **company-wide** via `AccessScope::reachesEverything()`. (2) `Role::users()` inserted raw pivots past the scope guard; it now uses `UserRole` too. (3) `ManagementChain` began its walk from the soft-delete-scoped `department`, so staff of a dissolved unit had no manager; it now climbs through trashed units, treating their posts as vacant. (4) `direct_manager_id` and `legacy_number` had been removed by editing an already-run migration, which fixes fresh installs only; `2026_09_24_110000_drop_retired_columns_from_employees_table` drops them where they survive. `EmployeeScopedFieldsTest` and the new cases were each verified to fail with their fix reverted. ⚙️ **A second review (2026-09-25) found eight more, all fixed** — the assignments endpoint writing `organizational_grade` past the pay gate; a narrowed `super_admin` grant acting as a full bypass; a scoped `auth.roles.update` holder able to grant company-wide; unit grants on a deleted unit unrevocable one by one; an undefined stored `scope_type` 500-ing every request for that user; duplicate names in the session `roles`; `refresh()` throwing after `ManagementChain`; and the tree walked once per caller instead of once per permission. Listed with their fixes in `GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md` |
 | **GAP-1** | 25 of 27 endpoints unthrottled | `$middleware->throttleApi()` in `bootstrap/app.php` + an `api` limiter (60/min, keyed on user then IP). The login limiter is keyed on **ip + lower-cased identifier**, so one attacker behind a NAT can no longer lock out everyone sharing the address (the field it reads became `login` with the 2026-09-23 account model — a limiter still reading `email` would have keyed every attempt on the empty string and locked out the company). `AuthThrottleTest` asserts all three |
 | **GAP-12** | **Sensitive fields were gated on READ but not on WRITE.** `hr.employees.viewSalary` decided who could *see* pay; setting it needed only `hr.employees.update`, so a caller could write values the API then refused to show them. Batch 2 widened the read gate to all nine classification axes without touching the write side, making the asymmetry larger than when it was filed | ✅ **2026-09-23 — من لا يرى لا يكتُب** (START_HERE §9, decision 13). `EmployeeRequest::gateSensitiveWrites()` applies `missing` to `SALARY_GATED_FIELDS` without `viewSalary` and to `IDENTITY_GATED_FIELDS` without `viewIdentity`, so the field must be ABSENT — `prohibited` would have let `agreed_salary: null` through and cleared a salary the caller cannot read. 422 naming the field, in Arabic, because a blanket 403 cannot say which of forty keys was refused. `EmployeeWriteGateTest` asserts the refusals **and derives the read-gated set from the Resource to assert the two lists have not drifted** — a pay column added to one side and forgotten on the other is a failing build, not a quiet reopening |
 | **GAP-13** | **The audit trail carried the classification axes in cleartext.** `sanitize()` redacts credentials, `national_id`, `salary`, `agreed_salary` and `sham_cash_account` — never the nine axes, which are ordinary integers on the row and also the inputs pay is computed from. So `hr.employees.view` + `auth.audit.viewValues` read a grade out of history that the same caller was refused on the employee itself. (The wider half of this entry — that `viewValues` alone reconstructed every audited table — was closed on 2026-09-20 by requiring the target module’s own view permission per morph alias) | ✅ **2026-09-23 — `viewValues` implies `viewSalary`** (START_HERE §9, decision 16). `TYPE_VIEW_PERMISSIONS` now maps each alias to a LIST of permissions, all required; `employee` carries `hr.employees.view` **and** `hr.employees.viewSalary`. ⚠️ The reversible option was taken on purpose: redacting the axes would have destroyed "who changed this person’s grade, and to what" permanently, on an append-only table. `AuditLogTest` asserts the refusal, that `changed_fields` still answers *what* changed, and that the requirement does not spread to other types |
@@ -1128,10 +1132,10 @@ same question asked twice, from the write side and the read side: who is allowed
 near the numbers pay is computed from?"* That reading held: one answer
 (من لا يرى لا يكتُب) closed both, and both are now in the Closed table.
 
-**Remaining order:** GAP-3 is the only open gap and the most
-security-significant thing left. It is **no longer blocked** — the product
-decision it waited on was taken on 2026-09-23 (the scope is the whole subtree) —
-so what it needs now is a policy layer, not a conversation.
+**Remaining order:** none — ⚙️ GAP-3 closed on 2026-09-24 and the register is
+empty. The follow-ons it left are scope extensions, not gaps: row-scoping
+departments and the audit trail, each through the same `AccessScope` and a
+policy of the same shape.
 
 ---
 

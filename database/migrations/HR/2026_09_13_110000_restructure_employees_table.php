@@ -158,13 +158,6 @@ return new class extends Migration
             // The governed title, replacing the free string.
             $table->foreignId('job_title_id')->nullable()->constrained('job_titles')->nullOnDelete();
 
-            // NULL means "resolve from the org tree" — the overwhelmingly common
-            // case. The column exists ONLY to record the exception: someone who
-            // reports outside their unit head. Storing every employee's manager
-            // here would be a second copy of what departments.manager_id and the
-            // tree already say (P1).
-            $table->foreignId('direct_manager_id')->nullable()->constrained('employees')->nullOnDelete();
-
             // ---- Pay reference (§5.6) ----
             // Exactly 16 digits — the intake form constrains it, so this does
             // too (the length check is the guard's; the uniqueness is the
@@ -197,7 +190,6 @@ return new class extends Migration
     {
         Schema::table('employees', function (Blueprint $table) {
             $table->dropForeign(['job_title_id']);
-            $table->dropForeign(['direct_manager_id']);
         });
 
         Schema::table('employees', function (Blueprint $table) {
@@ -213,7 +205,7 @@ return new class extends Migration
                 'experience_level', 'engineering_rank', 'industrial_experience_years',
                 'has_hazard_pay', 'has_scarcity_pay', 'has_dual_role_pay',
                 'distinction_grade', 'employment_type', 'termination_date', 'workplace',
-                'job_title_id', 'direct_manager_id', 'sham_cash_account',
+                'job_title_id', 'sham_cash_account',
                 'salary_mode', 'agreed_salary', 'status',
             ]);
         });

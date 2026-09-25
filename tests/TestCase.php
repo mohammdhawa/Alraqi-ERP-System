@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use App\Modules\Auth\Enums\ScopeType;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
@@ -73,6 +74,39 @@ abstract class TestCase extends BaseTestCase
 
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
+
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /**
+     * Like actingAsUserWithPermissions(), but the one grant carries a SCOPE
+     * (GAP-3) — the actor every row-level test needs. `actingAsAdmin()` is
+     * useless for those: a super admin bypasses scope, so every assertion would
+     * pass for the wrong reason.
+     *
+     * Pass `$employeeId` to link the account to an employee, which is what a
+     * `Managed` grant resolves through.
+     *
+     * @param  array<int, string>  $permissions
+     */
+    protected function actingAsScopedUser(
+        array $permissions,
+        ScopeType $scope,
+        ?int $departmentId = null,
+        ?int $employeeId = null,
+    ): User {
+        $this->seedRbac();
+
+        $role = Role::create(['name' => 'scoped-role-'.uniqid()]);
+        $role->permissions()->sync(Permission::whereIn('name', $permissions)->pluck('id'));
+
+        $user = User::factory()->create(['employee_id' => $employeeId]);
+        $user->roles()->attach($role->id, [
+            'scope_type'          => $scope->value,
+            'scope_department_id' => $departmentId,
+        ]);
 
         Sanctum::actingAs($user);
 

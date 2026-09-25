@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Exceptions;
 
+use App\Shared\Support\OutOfScope;
 use App\Shared\Traits\ApiErrors;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -50,8 +51,8 @@ use Throwable;
  *
  * - C12: no arm exposes a class name, file path, trace, SQL, or model class —
  *   in ANY environment. The messages below are fixed Arabic strings; only a
- *   DomainException (whose message is authored for clients) passes its own
- *   message through. A developer needing detail uses `report()`'s log output or
+ *   DomainException and an OutOfScope denial (whose messages are authored for
+ *   clients) pass their own message through. A developer needing detail uses `report()`'s log output or
  *   `withoutExceptionHandling()` in a test.
  *
  * - §6 "403 vs 404 for row-scoping": an unknown route and a missing row return
@@ -86,6 +87,10 @@ class ApiExceptionRenderer
             // C9: 401 is "we do not know who you are", 403 is "we know, and no".
             $e instanceof AuthenticationException => $this->unauthorized(),
 
+            // A row-scope denial carries a message authored for the client
+            // (OutOfScope); every other one gets the fixed text.
+            ($denial = $this->outOfScopeDenial($e)) !== null => $this->forbidden($denial->getMessage()),
+
             $e instanceof AuthorizationException,
             $e instanceof AccessDeniedHttpException => $this->forbidden(),
 
@@ -115,5 +120,21 @@ class ApiExceptionRenderer
 
             default => $this->serverError(),
         };
+    }
+
+    /**
+     * The OutOfScope denial behind this exception, if that is what it is.
+     *
+     * Laravel's prepareException() runs BEFORE render callbacks for this type
+     * and wraps an AuthorizationException in an AccessDeniedHttpException, so
+     * the denial usually arrives as the previous exception, not as `$e`.
+     */
+    private function outOfScopeDenial(Throwable $e): ?AuthorizationException
+    {
+        $candidate = $e instanceof AccessDeniedHttpException ? $e->getPrevious() : $e;
+
+        return $candidate instanceof AuthorizationException && $candidate->getCode() === OutOfScope::CODE
+            ? $candidate
+            : null;
     }
 }

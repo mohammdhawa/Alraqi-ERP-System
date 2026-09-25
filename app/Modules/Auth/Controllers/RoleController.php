@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Controllers;
 
+use App\Modules\Auth\Enums\ScopeType;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Requests\AssignRoleRequest;
 use App\Modules\Auth\Requests\CreateRoleRequest;
+use App\Modules\Auth\Requests\UnassignRoleRequest;
 use App\Modules\Auth\Requests\UpdateRoleRequest;
 use App\Modules\Auth\Resources\RoleResource;
 use App\Modules\Auth\Resources\UserResource;
@@ -87,12 +89,18 @@ class RoleController extends Controller
      *
      * The response now carries the user's resulting role set, so a client does
      * not need a follow-up request to refresh what it just changed.
+     *
+     * The caller is passed as the grantor: the service refuses a grant that
+     * reaches further than the caller's own `auth.roles.update` (GAP-3).
      */
     public function assign(AssignRoleRequest $request): JsonResponse
     {
         $user = $this->roleService->assign(
             (int) $request->validated('user_id'),
             (int) $request->validated('role_id'),
+            $request->scopeType() ?? ScopeType::Company,
+            $request->scopeDepartmentId(),
+            $request->user(),
         );
 
         return $this->success(
@@ -101,11 +109,14 @@ class RoleController extends Controller
         );
     }
 
-    public function unassign(AssignRoleRequest $request): JsonResponse
+    public function unassign(UnassignRoleRequest $request): JsonResponse
     {
         $user = $this->roleService->unassign(
             (int) $request->validated('user_id'),
             (int) $request->validated('role_id'),
+            $request->scopeType(),
+            $request->scopeDepartmentId(),
+            $request->user(),
         );
 
         return $this->success(

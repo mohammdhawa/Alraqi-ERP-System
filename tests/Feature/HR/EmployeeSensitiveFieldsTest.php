@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\HR;
 
+use App\Modules\Departments\Enums\DepartmentLevel;
+use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Enums\ActivityType;
 use App\Modules\HR\Enums\EngineeringRank;
 use App\Modules\HR\Enums\Gender;
@@ -86,25 +88,33 @@ class EmployeeSensitiveFieldsTest extends TestCase
      * An embedded person is NOT behind either gate (C31).
      *
      * A name and a staff number are not sensitive fields — they are how a
-     * client renders "who manages this person" at all. Gating them would make
-     * `direct_manager_id`, which the same viewer can already read, a dead end.
+     * client renders "who manages this person" at all. Gating them would leave a
+     * viewer able to read the employee and unable to read who runs their unit,
+     * which is on the org chart.
      *
-     * This asserts the gates do not creep outward: `direct_manager` is built
-     * outside `payBlock()` and outside the identity check, and must stay there.
+     * This asserts the gates do not creep outward: `manager` is built outside
+     * `payBlock()` and outside the identity check, and must stay there.
      */
     public function test_an_embedded_person_is_visible_to_a_plain_viewer(): void
     {
-        $manager  = Employee::factory()->named('سامر خليل')->create();
-        $employee = Employee::factory()->named('جين دو')->create(['direct_manager_id' => $manager->id]);
+        $unit = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        $manager = Employee::factory()->named('سامر خليل')->create(['department_id' => $unit->id]);
+        $unit->update(['manager_id' => $manager->id]);
+
+        $employee = Employee::factory()->named('جين دو')->create(['department_id' => $unit->id]);
 
         $this->actingAsUserWithPermissions(['hr.employees.view']);
 
         $this->getJson("/api/hr/employees/{$employee->id}")
             ->assertOk()
             ->assertJsonMissingPath('data.national_id')
-            ->assertJsonPath('data.direct_manager.id', $manager->id)
-            ->assertJsonPath('data.direct_manager.full_name', 'سامر خليل')
-            ->assertJsonPath('data.direct_manager.employee_number', $manager->employee_number);
+            ->assertJsonPath('data.manager.id', $manager->id)
+            ->assertJsonPath('data.manager.full_name', 'سامر خليل')
+            ->assertJsonPath('data.manager.employee_number', $manager->employee_number);
     }
 
     public function test_the_two_permissions_are_independent(): void

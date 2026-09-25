@@ -385,119 +385,154 @@ class EmployeeTest extends TestCase
     }
 
     /**
-     * NULL on direct_manager_id means "resolve from the org tree", so an
-     * employee may not be their own exception to it.
-     */
-    public function test_an_employee_cannot_be_their_own_direct_manager(): void
-    {
-        $this->actingAsAdmin();
-        $employee = Employee::factory()->named('Jane Doe')->create();
-
-        $this->putJson("/api/hr/employees/{$employee->id}", [
-            'direct_manager_id' => $employee->id,
-        ])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('direct_manager_id');
-    }
-
-    /**
-     * `direct_manager_id` keeps its meaning and its place — it is what a client
-     * WRITES — and `direct_manager` is the same person as an object so nothing
-     * has to resolve the id with a second request (C31).
+     * ⚙️ FOUR TESTS STOOD HERE UNTIL 2026-09-24 and were deleted with the column
+     * they covered — `direct_manager_id`, the exception to the org tree. The
+     * project owner ratified that the company has no such exception, so there is
+     * nothing left to write, nothing to reject as a self-reference, and no
+     * embedded object that mirrors a stored id.
      *
-     * The stub carries `employee_number` because الاسم الثلاثي is not unique at
-     * this headcount; the staff number is what distinguishes two managers who
-     * share a name.
-     */
-    public function test_show_embeds_the_direct_manager(): void
-    {
-        $this->actingAsAdmin();
-        $manager  = Employee::factory()->named('سامر خليل')->create();
-        $employee = Employee::factory()->named('جين دو')->create(['direct_manager_id' => $manager->id]);
-
-        $this->getJson("/api/hr/employees/{$employee->id}")
-            ->assertOk()
-            ->assertJsonPath('data.direct_manager_id', $manager->id)
-            ->assertJsonPath('data.direct_manager.id', $manager->id)
-            ->assertJsonPath('data.direct_manager.full_name', 'سامر خليل')
-            ->assertJsonPath('data.direct_manager.employee_number', $manager->employee_number);
-    }
-
-    /**
-     * The usual case: nobody manages this person BY EXCEPTION, so the id is
-     * null and so is the object.
+     * The contract they protected has one surviving half: an embedded person is
+     * **null, never absent**. It is asserted below for `manager`, and the
+     * resolution rules themselves are covered in `EmployeeManagerTest`.
      *
-     * ⚠️ NULL, NOT ABSENT. A missing key in this API means "you may not see
-     * this field" (C11 gates `national_id` and the pay block exactly that way),
-     * so an embed that disappeared when there is nobody to embed would be
-     * reporting a permission problem that does not exist.
+     * ⚠️ NULL, NOT ABSENT. A missing key in this API means "you may not see this
+     * field" (C11 gates `national_id` and the pay block exactly that way), so an
+     * embed that disappeared when there is nobody to embed would be reporting a
+     * permission problem that does not exist.
      */
-    public function test_direct_manager_is_null_rather_than_absent_when_there_is_none(): void
+    public function test_manager_is_null_rather_than_absent_when_there_is_none(): void
     {
         $this->actingAsAdmin();
-        $employee = Employee::factory()->named('جين دو')->create();
+        $employee = Employee::factory()->named('جين دو')->create(['department_id' => null]);
 
         $data = $this->getJson("/api/hr/employees/{$employee->id}")->assertOk()->json('data');
 
-        $this->assertNull($data['direct_manager_id']);
-        $this->assertArrayHasKey('direct_manager', $data, 'the embed must be present even with nobody to embed');
-        $this->assertNull($data['direct_manager']);
+        $this->assertArrayHasKey('manager', $data, 'the embed must be present even with nobody to embed');
+        $this->assertNull($data['manager']);
     }
 
     /**
-     * The update response reflects the manager just assigned, not the one the
-     * bound model was holding — the controller reloads the relation after the
-     * write rather than keeping whatever was already there.
+     * Moving an employee to another unit changes who manages them, because the
+     * unit is now the only thing that decides it.
+     *
+     * This is the stale-relation risk the manager column used to absorb: the
+     * response must name the manager of the department the employee has just
+     * been moved TO, not the one they were in when the request arrived.
      */
-    public function test_updating_the_direct_manager_updates_the_embedded_object(): void
+    public function test_moving_an_employee_re_resolves_their_manager(): void
     {
         $this->actingAsAdmin();
-        $first    = Employee::factory()->named('المدير الأول')->create();
-        $second   = Employee::factory()->named('المدير الثاني')->create();
-        $employee = Employee::factory()->named('جين دو')->create(['direct_manager_id' => $first->id]);
 
-        $this->putJson("/api/hr/employees/{$employee->id}", ['direct_manager_id' => $second->id])
+        // One root with two divisions under it — two roots is what the tree
+        // refuses, and this test has no business testing that.
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        $from = Department::create([
+            'name'      => 'إدارة أولى',
+            'level'     => DepartmentLevel::Division->value,
+            'parent_id' => $root->id,
+        ]);
+
+        $to = Department::create([
+            'name'      => 'إدارة ثانية',
+            'level'     => DepartmentLevel::Division->value,
+            'parent_id' => $root->id,
+        ]);
+
+        $oldHead = Employee::factory()->named('الرئيس السابق')->create(['department_id' => $from->id]);
+        $newHead = Employee::factory()->named('الرئيس الجديد')->create(['department_id' => $to->id]);
+
+        $from->update(['manager_id' => $oldHead->id]);
+        $to->update(['manager_id' => $newHead->id]);
+
+        $employee = Employee::factory()->named('جين دو')->create(['department_id' => $from->id]);
+
+        $this->putJson("/api/hr/employees/{$employee->id}", ['department_id' => $to->id])
             ->assertOk()
-            ->assertJsonPath('data.direct_manager_id', $second->id)
-            ->assertJsonPath('data.direct_manager.id', $second->id)
-            ->assertJsonPath('data.direct_manager.full_name', 'المدير الثاني');
+            ->assertJsonPath('data.manager.id', $newHead->id)
+            ->assertJsonPath('data.manager.full_name', 'الرئيس الجديد');
     }
 
     /**
-     * The list embeds managers too, and resolves them in ONE query for the
-     * whole page.
+     * The list carries the resolved manager too, for a fixed cost.
      *
-     * Without the service's `directManager` eager-load this is a query per row
-     * that has one — the classic N+1 that stays invisible while tests create
-     * two employees and is a page of extra queries against the real staff.
+     * ⚙️ REWRITTEN 2026-09-23, when the index gained the RESOLVED manager and
+     * the fixed cost went from three employee queries to four; the fixture was
+     * rebuilt on 2026-09-24 around units rather than the dropped
+     * `direct_manager_id`.
      *
-     * The count is exact and the arithmetic is: 1 pagination count + 1 page
-     * select + 1 eager-load of the managers = 3 queries against `employees`.
-     * Lazily resolved, the third becomes one per managed row (5 here).
+     * It used to assert an exact number, which made it a test of the current
+     * implementation rather than of the property that matters — and the number
+     * is the part most likely to change for an honest reason. **The property is
+     * that the cost does not grow with the page.** So this measures the same
+     * request against three pairs and then against nine, and asserts the two
+     * counts are identical: an N+1 cannot survive that, and a legitimate extra
+     * query does not fail it.
+     *
+     * The upper bound is kept as a second, looser assertion, because "constant"
+     * is satisfied by a constant that is absurdly large.
      */
-    public function test_the_index_embeds_direct_managers_without_an_n_plus_one(): void
+    public function test_the_index_resolves_managers_without_an_n_plus_one(): void
     {
         $this->actingAsAdmin();
-
-        foreach (range(1, 3) as $i) {
-            $manager = Employee::factory()->named("مدير {$i}")->create();
-            Employee::factory()->named("تابع {$i}")->create(['direct_manager_id' => $manager->id]);
-        }
 
         $queries = [];
+
         \DB::listen(function ($query) use (&$queries): void {
             if (str_contains($query->sql, 'from "employees"')) {
                 $queries[] = $query->sql;
             }
         });
 
-        $this->getJson('/api/hr/employees')->assertOk();
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
 
-        $this->assertCount(
-            3,
-            $queries,
-            'expected count + page + one managers query; got '.count($queries)
-                .' — direct managers are probably being resolved per row again',
+        // Each pair is its own unit with its own head, so every row on the page
+        // resolves a DIFFERENT manager — which is what makes a per-row walk show
+        // up as a growing query count instead of hiding behind a shared answer.
+        $addPairs = function (int $count, int $offset) use ($root): void {
+            foreach (range(1, $count) as $i) {
+                $n = $offset + $i;
+
+                $unit = Department::create([
+                    'name'      => "إدارة {$n}",
+                    'level'     => DepartmentLevel::Division->value,
+                    'parent_id' => $root->id,
+                ]);
+
+                $manager = Employee::factory()->named("مدير {$n}")->create(['department_id' => $unit->id]);
+                $unit->update(['manager_id' => $manager->id]);
+
+                Employee::factory()->named("تابع {$n}")->create(['department_id' => $unit->id]);
+            }
+        };
+
+        $addPairs(3, 0);
+        $queries = [];
+        $this->getJson('/api/hr/employees')->assertOk();
+        $small = count($queries);
+
+        $addPairs(6, 3);
+        $queries = [];
+        $this->getJson('/api/hr/employees')->assertOk();
+        $large = count($queries);
+
+        $this->assertSame(
+            $small,
+            $large,
+            "The employees query count grew from {$small} to {$large} when the page did. "
+                .'Managers are being resolved per row again.',
+        );
+
+        $this->assertLessThanOrEqual(
+            5,
+            $small,
+            "A constant {$small} employee queries per index request is constant but not cheap.",
         );
     }
 

@@ -65,9 +65,17 @@ class Role extends Model
 
     /**
      * Users who hold this role.
+     *
+     * Configured exactly like `User::roles()`, and it must stay that way: the
+     * scope guard lives in `UserRole`'s saving hook, and a plain belongsToMany
+     * here would let `$role->users()->attach(...)` insert raw pivot rows past
+     * it — a unit grant with no unit, from the one direction nobody checked.
+     * A user granted this role over two units appears twice.
      */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'user_roles');
+        return $this->belongsToMany(User::class, 'user_roles')
+            ->using(UserRole::class)
+            ->withPivot(['id', 'scope_type', 'scope_department_id']);
     }
 }

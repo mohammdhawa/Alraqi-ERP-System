@@ -54,9 +54,29 @@ class UserResource extends JsonResource
             // unassign all carry `employee` — the same load `name` above has
             // always depended on.
             'employee'          => EmployeeStub::from($this->employee),
+            // De-duplicated since GAP-3: the same role granted over two units
+            // is two rows in `roles`, and a name list should say it once.
             'roles'             => $this->whenLoaded(
                 'roles',
-                fn () => $this->roles->pluck('name'),
+                fn () => $this->roles->pluck('name')->unique()->values(),
+            ),
+            // Role + scope, one entry per grant (GAP-3, decision 18) — what the
+            // role list above cannot say: how far each role reaches.
+            // `department` is set only for a unit grant.
+            'grants'            => $this->whenLoaded(
+                'grants',
+                fn () => $this->grants->map(fn ($grant): array => [
+                    'id'          => $grant->id,
+                    'role'        => $grant->role?->name,
+                    // Null for a stored type ScopeType does not define — a
+                    // grant that reaches nothing (see UserRole::scopeType()).
+                    'scope_type'  => $grant->scope_type?->value,
+                    'scope_label' => $grant->scope_type?->label(),
+                    'department'  => $grant->department === null ? null : [
+                        'id'   => $grant->department->id,
+                        'name' => $grant->department->name,
+                    ],
+                ])->values(),
             ),
             'last_login_at'     => $this->last_login_at?->toIso8601String(),
             'email_verified_at' => $this->email_verified_at?->toIso8601String(),

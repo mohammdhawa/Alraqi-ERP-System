@@ -398,14 +398,21 @@ and the day that job fails every payslip is wrong (P1).
 | `termination_date` | date, nullable | DB-sheet `تاريخ انهاء العمل` | |
 | `status` | enum(active, inactive, terminated) | *(exists)* | `متعاقد` → `active`, `إنهاء عمل` → `terminated` |
 | `workplace` | string, nullable | XLSForm `w2` | مكان العمل. Free text now; becomes an FK when Projects lands |
-| `direct_manager_id` | FK → employees, nullable | XLSForm `a16` | **NULL means "resolve from the org tree"** |
+| ~~`direct_manager_id`~~ | ~~FK → employees, nullable~~ | ~~XLSForm `a16`~~ | ⚙️ **Dropped 2026-09-24** — see below |
 
-`direct_manager_id` deserves its rationale. The intake form collects a manager's
-*name* as free text; the ERP already knows the org tree and
-`departments.manager_id`. Storing a name would be a second copy of a fact the
-tree already holds (P1). So: the column exists only to record the **exception**
-— someone who reports outside their unit head. NULL, the overwhelmingly common
-case, means "walk the tree."
+`direct_manager_id` deserved its rationale, and the rationale was half right.
+The intake form collects a manager's *name* as free text; the ERP already knows
+the org tree and `departments.manager_id`. Storing a name would be a second copy
+of a fact the tree already holds (P1). All of that still stands.
+
+⚙️ **What was wrong was the premise, not the reasoning.** The column was kept to
+record the **exception** — someone who reports outside their unit head — and the
+project owner ratified on **2026-09-24** that this company has no such exception.
+So the column recorded a case that never arises, which made it the very
+duplication the paragraph above was avoiding. It is gone; the tree is the only
+source, read by `App\Shared\Services\ManagementChain`. The `a16` name still
+lands in `employee_assignments.legacy_manager_name` for a human to read, and the
+importer must **report** any row where it disagrees with the tree.
 
 This is a deliberate down payment on the escalation chain that
 [phase1-completion-report.md:352](phase1-completion-report.md) flags as
@@ -751,8 +758,11 @@ Named so they are not quietly assumed, and so the phase does not grow:
 - **Contracts** — `نموذج العقود` (قصير / طويل / نقل, duration, renewal).
   Deferred.
 - **Training and development** — deferred.
-- **The escalation chain walk** — `direct_manager_id` prepares for it (§5.4);
-  the vacant-post and self-approval rules remain unspecified and uninvented.
+- ✅ ~~**The escalation chain walk**~~ — **built 2026-09-23.** The vacant-post and
+  self-approval rules were ratified that day (decision 15) and
+  `App\Shared\Services\ManagementChain` walks them. It reads the org tree alone;
+  `direct_manager_id`, which this bullet expected to prepare for it, was dropped
+  the next day.
 - **Frontend** — React and Flutter are separate projects and are unaffected by
   Phase 1.5 except for the response-shape changes in §5.1 and §5.7.
 

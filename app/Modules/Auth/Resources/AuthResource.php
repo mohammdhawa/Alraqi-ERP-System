@@ -64,9 +64,11 @@ class AuthResource extends JsonResource
             // enforcement — EnsurePasswordIsChanged is — it is how a
             // well-behaved client avoids walking into a wall of 403s.
             'must_change_password' => $this->must_change_password,
+            // De-duplicated since GAP-3, as in UserResource: the same role
+            // granted over two units is two rows in `roles`.
             'roles'             => $this->whenLoaded(
                 'roles',
-                fn () => $this->roles->pluck('name')->values(),
+                fn () => $this->roles->pluck('name')->unique()->values(),
             ),
             'permissions'       => $this->whenLoaded(
                 'roles',

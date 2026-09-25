@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Auth\Resources;
 
 use App\Modules\Auth\Models\User;
+use App\Shared\Services\AccessScope;
 use Illuminate\Http\Request;
 
 /**
@@ -51,12 +52,23 @@ use Illuminate\Http\Request;
  * target at all (login, `api_request`) need only viewValues — their blobs hold
  * request and auth metadata, which is nobody else's data.
  *
- * WHAT REMAINS is exactly what GAP-13 always described and no more: a caller
- * holding `hr.employees.view` + viewValues but not `hr.employees.viewSalary`
- * can still read the nine axes out of an employee's history. Redacting them at
- * write time would make "who changed this person's grade, and to what"
- * unanswerable forever, on a table that cannot be scrubbed OR un-scrubbed after
- * the fact, so that one stays a policy decision rather than a code change.
+ * THE AXES ARE CLOSED TOO (GAP-13, 2026-09-23): an `employee` row needs
+ * `hr.employees.viewSalary` as well as `hr.employees.view` — see the map below.
+ * They are gated rather than redacted, because redacting at write time would
+ * make "who changed this person's grade, and to what" unanswerable forever, on
+ * a table that cannot be scrubbed OR un-scrubbed after the fact.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * AND EVERY MODULE PERMISSION MUST BE HELD COMPANY-WIDE (GAP-3, 2026-09-24)
+ * ──────────────────────────────────────────────────────────────────────────
+ * Since grants carry scopes, holding a permission no longer means holding it
+ * for every row. The trail is NOT row-scoped — it holds every employee's
+ * history — so a `viewSalary` granted over one section, checked with the
+ * scope-blind `hasPermission()`, read the whole company's pay history here.
+ * `mayReadTarget()` therefore asks `AccessScope::reachesEverything()` for each
+ * permission in the map: a super admin, or a company-wide grant carrying it.
+ * This is stricter for every type, not only employees, and it is meant to be:
+ * fail closed until the trail is scoped itself.
  *
  * ABSENT ≠ NULL, and both occur here (C11, C31):
  *   key missing  → you may not read this
@@ -205,8 +217,18 @@ class AuditLogDetailResource extends AuditLogResource
         // `employee` needs the module's view grant AND the salary grant,
         // because one row holds both kinds of fact. `array_all` would read
         // better and does not exist on PHP 8.2, which this project still pins.
+        //
+        // ⚙️ AND EACH MUST REACH THE WHOLE COMPANY (GAP-3). The trail is not
+        // row-scoped, so it holds every employee's history. `hasPermission()`
+        // is scope-blind: with it, a viewSalary grant over ONE section plus
+        // `viewValues` read the pay history of the entire company here — the
+        // GAP-13 leak reopened by the back door scoped grants created. Until
+        // the trail itself is scoped, reading a module's values through it
+        // needs that module's grant company-wide.
+        $scopes = app(AccessScope::class);
+
         foreach ($permissions as $permission) {
-            if (! $user->hasPermission($permission)) {
+            if (! $scopes->reachesEverything($user, $permission)) {
                 return false;
             }
         }

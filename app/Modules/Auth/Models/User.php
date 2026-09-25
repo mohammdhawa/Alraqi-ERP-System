@@ -176,10 +176,32 @@ class User extends Authenticatable
 
     /**
      * Roles granted to this user (RBAC).
+     *
+     * ⚙️ SINCE GAP-3 A ROLE CAN APPEAR MORE THAN ONCE here — the same role
+     * granted over two units is two rows. Anything listing role NAMES should
+     * de-duplicate; anything asking "how far does this reach" reads `grants()`.
+     *
+     * `using(UserRole::class)` is what makes `attach()` save through the pivot
+     * model, so its scope guard runs for seeders and tests too. An attach that
+     * names no scope is a COMPANY grant — the reach every role had before
+     * scopes existed.
      */
     public function roles(): BelongsToMany
     {
-        return $this->belongsToMany(Role::class, 'user_roles');
+        return $this->belongsToMany(Role::class, 'user_roles')
+            ->using(UserRole::class)
+            ->withPivot(['id', 'scope_type', 'scope_department_id']);
+    }
+
+    /**
+     * Every grant this user holds: role + scope, one row each (GAP-3).
+     *
+     * Grants of a soft-deleted role are excluded, matching `roles()` — a
+     * trashed role grants nothing, and showing its scope would suggest it did.
+     */
+    public function grants(): HasMany
+    {
+        return $this->hasMany(UserRole::class)->whereHas('role');
     }
 
     /**

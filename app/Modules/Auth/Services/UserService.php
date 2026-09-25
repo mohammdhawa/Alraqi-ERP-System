@@ -22,6 +22,17 @@ use Illuminate\Support\Facades\DB;
  */
 class UserService
 {
+    /**
+     * Everything `UserResource` dereferences: `employee` for the display name,
+     * `roles` for the name list, `grants` with their role and unit for the
+     * scopes (GAP-3). One list, shared with RoleService's assign/unassign, so
+     * the next relation the Resource reads is added once rather than at five
+     * call sites.
+     *
+     * @var array<int, string>
+     */
+    public const RENDER_RELATIONS = ['roles', 'employee', 'grants.role', 'grants.department'];
+
     public function __construct(
         private readonly AuditLogService $auditLogService,
     ) {}
@@ -50,7 +61,7 @@ class UserService
     public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return User::query()
-            ->with(['roles', 'employee'])
+            ->with(self::RENDER_RELATIONS)
             ->orderBy('email')
             ->orderBy('id')
             ->paginate($perPage);
@@ -88,7 +99,7 @@ class UserService
                 description: "User '{$user->loginIdentity()}' created.",
             );
 
-            return $user->load(['roles', 'employee']);
+            return $user->load(self::RENDER_RELATIONS);
         });
     }
 
@@ -128,7 +139,7 @@ class UserService
                 description: "User '{$user->loginIdentity()}' updated.",
             );
 
-            return $user->load(['roles', 'employee']);
+            return $user->load(self::RENDER_RELATIONS);
         });
     }
 

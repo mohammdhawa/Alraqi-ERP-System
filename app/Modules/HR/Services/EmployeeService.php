@@ -6,6 +6,8 @@ namespace App\Modules\HR\Services;
 
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\EmployeeAssignment;
+use App\Shared\Services\ManagementChain;
+use App\Shared\Support\RowScope;
 use App\Shared\Support\SearchTerm;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,6 +32,46 @@ use Illuminate\Support\Facades\DB;
  */
 class EmployeeService
 {
+    /**
+     * Everything `EmployeeResource` dereferences, in one list.
+     *
+     * WHY A CONSTANT: this array was written out at four call sites — the
+     * service's own query plus store, show and update in the controller — and
+     * the resolved manager had to be added to all four. Four copies of "what a
+     * Resource needs" is four chances for one to fall behind, and the symptom
+     * is a null relation rendering as a missing person rather than as an error.
+     *
+     * ⚙️ `directManager` was here until 2026-09-24, when `direct_manager_id`
+     * was dropped. The manager is no longer a relation to eager-load; it is
+     * resolved from the tree by `ManagementChain`, which `prepareForResource()`
+     * and `paginate()` both call.
+     *
+     * @var array<int, string>
+     */
+    public const RENDER_RELATIONS = ['department', 'jobTitle'];
+
+    public function __construct(
+        private readonly ManagementChain $chain,
+    ) {}
+
+    /**
+     * Load everything a Resource will read from ONE employee, including the
+     * resolved manager.
+     *
+     * `load()`, not `loadMissing()`: an update may have changed the department
+     * or the title, and loadMissing would render whatever the model was holding
+     * before the write — which for the department also means resolving the
+     * manager from the unit the employee has just left.
+     */
+    public function prepareForResource(Employee $employee): Employee
+    {
+        $employee->load(self::RENDER_RELATIONS);
+
+        $this->chain->attachTo(new Collection([$employee]));
+
+        return $employee;
+    }
+
     /**
      * Columns a client may sort by, mapped from the public sort key to the
      * real column (C30).
@@ -69,15 +111,10 @@ class EmployeeService
     /**
      * Paginated list of employees.
      *
-     * Eager-loads `department`, `jobTitle` and `directManager` because
-     * EmployeeResource renders all three, and a Resource that dereferences an
-     * unloaded relation is an N+1 per row — whoever chooses the Resource owes
-     * it its relations.
-     *
-     * `directManager` costs one extra query for the whole page and fires for
-     * almost nobody: the column is null for everyone whose manager is their
-     * unit head, and is set only for a reporting line that runs outside the
-     * tree.
+     * Eager-loads `department` and `jobTitle` because EmployeeResource renders
+     * both, and a Resource that dereferences an unloaded relation is an N+1 per
+     * row — whoever chooses the Resource owes it its relations. The resolved
+     * `manager` is attached separately, for the whole page at once.
      *
      * ORDERING IS DETERMINISTIC (C29): every branch ends with the primary key.
      * This is not pedantry — rows created in one import share a single
@@ -87,12 +124,26 @@ class EmployeeService
      * requires page 1 and page 2 to agree on which rows fall where: a row can
      * appear twice while another is never returned at all.
      *
+     * ROW SCOPE (GAP-3) IS A REQUIRED ARGUMENT, with no default. A default of
+     * "everything" would make the unscoped list the one a new caller gets by
+     * forgetting; a console command that genuinely wants every row says so
+     * with `RowScope::all()`. The scope is applied to the builder BEFORE
+     * paginating, so the count query is narrowed too and `meta.total` agrees
+     * with the rows the caller can page to.
+     *
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<Employee>
      */
-    public function paginate(int $perPage = 15, array $filters = [], ?string $sort = null): LengthAwarePaginator
+    public function paginate(RowScope $scope, int $perPage = 15, array $filters = [], ?string $sort = null): LengthAwarePaginator
     {
-        return $this->query($filters, $sort)->paginate($perPage);
+        $page = $scope->applyTo($this->query($filters, $sort))->paginate($perPage);
+
+        // Resolved for the whole page at once. Doing it per row would be the
+        // N+1 the eager loads above exist to avoid, multiplied by the depth of
+        // the tree — see ManagementChain::attachTo().
+        $this->chain->attachTo($page->getCollection());
+
+        return $page;
     }
 
     /**
@@ -173,7 +224,7 @@ class EmployeeService
      */
     private function query(array $filters = [], ?string $sort = null): Builder
     {
-        $query = Employee::query()->with(['department', 'jobTitle', 'directManager']);
+        $query = Employee::query()->with(self::RENDER_RELATIONS);
 
         foreach (self::FILTERABLE as $key => $column) {
             if (($filters[$key] ?? null) !== null && $filters[$key] !== '') {

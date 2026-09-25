@@ -3,6 +3,12 @@
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
 >
+> ⚠️ **BREAKING, 2026-09-24 — `direct_manager_id` and `direct_manager` are
+> gone.** Employee payloads carry a single **`manager`**, resolved from the org
+> tree; bind "المدير المباشر" to it. `direct_manager_id` is no longer accepted on
+> create or update, so **remove any manager picker from the employee form** — a
+> manager follows from `department_id` now. See §8.
+>
 > ⚠️ **ALSO 2026-09-23 — `viewSalary` / `viewIdentity` now gate WRITES.**
 > Sending a pay field or `national_id` without the matching permission is a
 > **422** naming the field, and `null` is refused like a value. Employee rows in
@@ -227,7 +233,7 @@ a list never costs you a request per row.
 | --- | --- | --- |
 | Department | `manager_id` | `manager` — the employee who runs the unit |
 | User | `employee_id` | `employee` — the person the account belongs to |
-| Employee | `department_id` · `job_title_id` · `direct_manager_id` | `department` (`{id, name, level}`) · `job_title` (`{id, name}`) · `direct_manager` |
+| Employee | `department_id` · `job_title_id` | `department` (`{id, name, level}`) · `job_title` (`{id, name}`) · `manager` — **resolved from the org tree, not an FK on this row** |
 | Employee warning | `issued_by` | `issuer` — who issued it |
 | Posting (assignment) | `department_id` · `job_title_id` | `department` · `job_title` |
 
@@ -746,20 +752,66 @@ Partial update.
 POST /api/auth/roles/assign        (permission: auth.roles.update)
 ```
 
-| Field     | Type    | Rules                          |
-| --------- | ------- | ------------------------------ |
-| `user_id` | integer | required, must exist in users  |
-| `role_id` | integer | required, must exist in roles  |
+| Field                 | Type    | Rules                                                                 |
+| --------------------- | ------- | --------------------------------------------------------------------- |
+| `user_id`             | integer | required, must exist in users                                         |
+| `role_id`             | integer | required, must exist in roles                                         |
+| `scope_type`          | integer | optional — `1` الشركة كاملة · `2` وحدة محددة · `3` الوحدات التي أديرها. **Omitted = `1`** |
+| `scope_department_id` | integer | **required when `scope_type` is `2`**, and must be **absent** otherwise (even `null` is refused). A live department |
 
-**200 Response** → `{ message: "تم إسناد الدور 'manager' إلى jane@example.com." }`
-**422** — unknown user/role: `المستخدم المحدد غير موجود.` / `الدور المحدد غير موجود.`
+⚙️ **Scoped grants (GAP-3, 2026-09-24).** A grant is now a role **plus how far it
+reaches**. `1` reads every row — what every grant meant before scopes existed,
+and what all existing grants were migrated to. `2` reaches the named unit and
+everything beneath it. `3` reaches the subtree of every unit whose manager is the
+user's linked employee — nothing is stored about *which* units, so moving a
+manager in the org tree moves their reach with them. The same role may be granted
+over several units; each is its own grant. Assigning an identical grant twice is
+a no-op.
+
+**200 Response** → `{ data: <user object>, message: "تم إسناد الدور إلى المستخدم." }` — the
+user object now carries `grants`:
+
+```json
+"roles":  ["supervisor"],
+"grants": [
+  { "id": 7, "role": "supervisor", "scope_type": 2, "scope_label": "وحدة محددة",
+    "department": { "id": 12, "name": "قسم الصيانة" } },
+  { "id": 8, "role": "supervisor", "scope_type": 2, "scope_label": "وحدة محددة",
+    "department": { "id": 14, "name": "قسم التشغيل" } }
+]
+```
+
+`roles` stays a de-duplicated list of names; `grants` is where the scopes are.
+`department` is `null` for scope types `1` and `3`.
+
+**`super_admin` is company-wide only.** Its power is a bypass, and a bypass has no
+scope, so `scope_type` `2` or `3` with the `super_admin` role is a **422** on
+`scope_type`.
+
+**You can only grant what you reach.** The grant may not reach further than the
+caller's own `auth.roles.update` grant. A company-wide caller may grant anything;
+a caller holding `auth.roles.update` over a unit may grant `2` inside that unit,
+or `3` to someone whose managed units are all inside it — and **never** `1`, not
+even to themselves. Anything else is a **403**:
+`لا يمكنك منح أو سحب صلاحية تتجاوز نطاق صلاحياتك.`
+
+**422** — unknown user/role: `المستخدم المحدد غير موجود.` / `الدور المحدد غير موجود.`;
+a malformed scope names the field (`scope_type` or `scope_department_id`).
 
 ### 5.5 Unassign role from user
 
 ```
 POST /api/auth/roles/unassign      (permission: auth.roles.update)
 ```
-Same body as assign. **200 Response** → `{ message: "تم سحب الدور 'manager' من jane@example.com." }`
+Same body as assign. **With** `scope_type` (and `scope_department_id` for a unit)
+only that one grant is revoked; **without** it, **every** grant of the role is
+revoked — the pre-GAP-3 meaning of "take this role away". Takes effect on the
+user's next request. **200 Response** → `{ data: <user object>, message: "تم سحب الدور من المستخدم." }`
+
+Differences from assign: `scope_department_id` **may name a soft-deleted unit**
+(a grant on a unit deleted afterwards keeps working, so it has to stay revocable
+on its own). Every grant being revoked must lie within the caller's reach, as for
+assign; if any one does not, **nothing** is revoked and the answer is **403**.
 
 ### 5.6 Delete role
 
@@ -1032,8 +1084,7 @@ which that was a migration rather than a data migration.
   "department": { "id": 2, "name": "الإدارة الهندسية", "level": 2 },
   "job_title_id": 7,
   "job_title": { "id": 7, "name": "مهندس مدني" },
-  "direct_manager_id": 12,
-  "direct_manager": { "id": 12, "full_name": "سامر خليل", "employee_number": "E-0012" },
+  "manager": { "id": 12, "full_name": "سامر خليل", "employee_number": "E-0012" },
   "employment_type": 1,
   "employment_type_label": "متعاقد",
   "workplace": "مجبل الإسفلت",
@@ -1063,19 +1114,30 @@ which that was a migration rather than a data migration.
 }
 ```
 
-🆕 `direct_manager` is the employee `direct_manager_id` points at —
-`{ id, full_name, employee_number }` — and is **`null`, never absent**, for the
-vast majority who have none. Remember what that null means here: **not** "has no
-manager" but "no manager *by exception* — resolve them from the org tree"
-(the unit's `manager_id`, walking up). `direct_manager_id` is unchanged and is
-still what you write. See
-[Embedded objects](#embedded-objects-an-fk-and-the-thing-it-points-at).
+🆕 **`manager` is the employee's manager, and there is no other.** Same
+`{ id, full_name, employee_number }` shape as the other embeds, and **`null`,
+never absent** — null means the top of the tree (المدير العام reports to nobody)
+or an employee with no unit, not a missing value. Bind "المدير المباشر" to this.
+
+**It is resolved, not stored.** The server walks the org tree on every read: the
+employee's own unit's `manager_id`, then up past any vacant post, stopping at
+المدير العام. So it changes by itself when a unit gets a new head or an employee
+is moved — there is nothing to keep in step and nothing to write.
+
+> ⚠️ **REMOVED 2026-09-24: `direct_manager_id` and `direct_manager`.** They
+> existed to record an employee reporting outside their unit head, and the
+> company has no such case — so the pair is gone from the payload, and
+> `direct_manager_id` is **no longer accepted** on create or update. If your
+> edit form has a manager picker, **delete it**: a manager is not a property of
+> a person here, it is a consequence of which unit they are in. Move someone by
+> changing `department_id`; change who runs a unit through
+> `PUT /api/departments/{id}` and its `manager_id`.
 
 **Field-level gating.** Gated keys are **absent entirely**, never `null` — an
 absent key says "you may not see this", a null would say "this employee has no
-national id". The embedded `department`, `job_title` and `direct_manager`
-objects are the mirror image: always present, `null` when there is nothing to
-name, and never gated — a name and a staff number are not sensitive fields.
+national id". The embedded `department`, `job_title` and `manager` objects are
+the mirror image: always present, `null` when there is nothing to name, and never
+gated — a name and a staff number are not sensitive fields.
 
 | Permission | Gates |
 | --- | --- |
@@ -1095,6 +1157,34 @@ Both gates behave identically on the list and single endpoints.
 | `GET /api/hr/employees/{employee}` | `hr.employees.view` | Single resource |
 | `PUT\|PATCH /api/hr/employees/{employee}` | `hr.employees.update` | Partial update |
 | `DELETE /api/hr/employees/{employee}` | `hr.employees.delete` | 200 (**soft** delete) |
+
+⚙️ **Row scope (GAP-3, 2026-09-24).** Holding the permission is no longer the
+whole answer: each grant carries a scope (§5.4), and the scope of the grant that
+carries **that** permission decides which employees it reaches.
+
+- **The list is filtered, not refused.** A division head sees their subtree, and
+  `meta.total` counts only what they can page through.
+- **A single employee outside the caller's scope answers `403`** —
+  `هذا الموظف خارج نطاق صلاحياتك.` This is deliberately 403 and not 404
+  (START_HERE §9, decision 19). The same applies to update, delete, and the
+  nested `assignments` and `warnings` routes; a warning is in scope when its
+  employee is (`هذا الإنذار يخص موظفًا خارج نطاق صلاحياتك.`).
+- **Where a person is put must be in scope too.** Creating an employee, or
+  changing `department_id` through update or a recorded posting, into a unit
+  outside the caller's scope answers `403` —
+  `لا يمكنك إسناد موظف إلى وحدة تنظيمية خارج نطاق صلاحياتك.`
+- **An employee with no unit is visible only to a company-wide grant.**
+- **Pay and identity are gated per row too.** The pay block and `national_id`
+  appear only on rows the caller's `viewSalary` / `viewIdentity` grant reaches —
+  a company-wide `view` beside a section-scoped `viewSalary` lists everyone and
+  shows pay for that section only. Writing those fields follows the same rule
+  (422 naming the field), and a transfer must stay inside the grant on both
+  ends.
+- **The audit trail's before/after values** for a record type need that type's
+  permissions held **company-wide**, because the trail itself is not scoped.
+- The `manager` embed is **not** scoped: a section head still sees who their
+  own manager is, even though that person sits outside their subtree.
+- `super_admin` is unaffected.
 
 **List query parameters**
 
@@ -1146,7 +1236,6 @@ required; required applies on create only.
 | `distinction_grade` | int | optional, nullable, 0–255 |
 | `department_id` | int | optional, nullable, existing **non-deleted** department |
 | `job_title_id` | int | optional, nullable, existing **non-deleted** title |
-| `direct_manager_id` | int | optional, nullable, existing employee, **not the employee themselves** |
 | `employment_type` | int | optional, nullable, `1` متعاقد · `2` يحتاج تثبيت · `3` جماعة · `4` مثبت |
 | `workplace` | string | optional, nullable, max 255 |
 | `hire_date` / `termination_date` | date | optional, nullable — termination may not precede hire |
@@ -1266,7 +1355,7 @@ what a payslip was computed against, with no trace of the original.
 | `reason` | int | **required, no default** — `1` تعيين · `2` نقل داخلي · `3` ترقية · `4` تعديل مسمى وظيفي · `5` إعادة هيكلة · `6` إنهاء عمل |
 | `department_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |
 | `job_title_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |
-| `organizational_grade` | int | optional, nullable, 1–5 — **omit to carry forward** |
+| `organizational_grade` | int | optional, nullable, 1–5 — **omit to carry forward**. **Must be absent** unless the caller's `hr.employees.viewSalary` reaches the employee's unit, and the new unit too if `department_id` is sent (422 `لا تملك صلاحية تعديل حقول الرواتب ومعاييرها.`) |
 | `notes` | string | optional, nullable, max 2000 |
 
 ⚠️ **An omitted field carries forward; an explicit `null` clears it.** These are
@@ -1465,6 +1554,15 @@ on purpose: redaction on an append-only table is permanent, and it would erase
 either way, so "someone changed this employee's grade at 14:03" stays answerable
 without reading the grade.
 
+⚙️ **Since 2026-09-24 (GAP-3), the module permissions must be held
+COMPANY-WIDE.** A role grant now carries a scope (§5.4), and the trail is not
+scoped — it holds every employee's history. So the permissions in point 2 (and
+`hr.employees.viewSalary` for an `employee` row) count here only when granted
+over **the whole company**; a grant over one unit or «الوحدات التي أديرها» does
+not unlock values, even for rows about people inside that unit. Without this, a
+section-scoped `viewSalary` read the whole company's pay history. This applies
+to every record type. `auth.audit.viewValues` itself has no row scope to check.
+
 **So the same caller can get the values on one row and not the next.** Decide
 per row from what the payload actually contains; never from a remembered
 "may I see values" flag.
@@ -1481,7 +1579,7 @@ per row from what the payload actually contains; never from a remembered
 
 | What you see | What it means |
 | --- | --- |
-| key **absent** | You may not read this. You lack `auth.audit.viewValues`, or the view permission for this row's target |
+| key **absent** | You may not read this. You lack `auth.audit.viewValues`, or a **company-wide** grant of the view permission for this row's target |
 | key **`null`** | There is nothing to read. `created` has no old values; `deleted` has no new ones |
 | value `"***REDACTED***"` | The field was redacted **before storage**. The real value was never written to this table and cannot be recovered |
 

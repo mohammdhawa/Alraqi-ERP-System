@@ -17,9 +17,11 @@ use App\Modules\HR\Enums\Governorate;
 use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Exceptions\EmployeeClassificationException;
+use App\Modules\HR\Policies\EmployeePolicy;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\EmployeeFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -79,7 +81,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * WHY SoftDeletes: a person is FK'd to by `users.employee_id`,
  * `departments.manager_id`, their own postings, warnings and documents, and
  * every future module. Their identity must stay resolvable after they leave.
+ *
+ * ROW-LEVEL AUTHORIZATION (GAP-3) is `EmployeePolicy`, registered by the
+ * attribute below so the module needs no provider edit.
  */
+#[UsePolicy(EmployeePolicy::class)]
 class Employee extends Model
 {
     use HasAuditLog;
@@ -95,6 +101,17 @@ class Employee extends Model
     private const NUMBER_PREFIX = 'EMP-';
 
     private const NUMBER_WIDTH = 5;
+
+    /**
+     * The manager `ManagementChain::attachTo()` resolved from the tree.
+     *
+     * A PLAIN PROPERTY, NOT A RELATION. It used to be set with setRelation(),
+     * but there is no relation method behind it, and `refresh()` reloads every
+     * key in `$relations` by name — so refreshing an employee that had been
+     * through the walk threw RelationNotFoundException. Kept out of the
+     * attribute bag too, so it can never be saved.
+     */
+    private ?Employee $managerFromTree = null;
 
     /**
      * Defaults that mirror the column defaults in the migration.
@@ -182,7 +199,6 @@ class Employee extends Model
         // Employment
         'department_id',
         'job_title_id',
-        'direct_manager_id',
         'employment_type',
         'workplace',
         'hire_date',
@@ -416,6 +432,26 @@ class Employee extends Model
     }
 
     /**
+     * Set by `ManagementChain::attachTo()` only; nothing else knows the rules.
+     */
+    public function setResolvedManager(?Employee $manager): void
+    {
+        $this->managerFromTree = $manager;
+    }
+
+    /**
+     * This employee's manager as the tree gives it, or null — at the top of
+     * the tree, with no unit, or when nobody called `ManagementChain` first.
+     *
+     * A method, not a property: `$employee->resolvedManager` would be read by
+     * Eloquent as a relation and fail.
+     */
+    public function resolvedManager(): ?Employee
+    {
+        return $this->managerFromTree;
+    }
+
+    /**
      * The unit this employee currently belongs to — the denormalised pointer,
      * kept in step with the open assignment by the hook pair.
      */
@@ -430,29 +466,6 @@ class Employee extends Model
     public function jobTitle(): BelongsTo
     {
         return $this->belongsTo(JobTitle::class);
-    }
-
-    /**
-     * The employee this person reports to, WHERE THAT IS AN EXCEPTION.
-     *
-     * Null for almost everyone, and null means "resolve from the org tree" —
-     * not "has no manager". The column exists only to record someone who
-     * reports outside their unit head; storing every employee's manager here
-     * would be a second copy of what the tree and `departments.manager_id`
-     * already say (P1).
-     */
-    public function directManager(): BelongsTo
-    {
-        return $this->belongsTo(self::class, 'direct_manager_id');
-    }
-
-    /**
-     * Staff who report to this person by exception. NOT the full set of people
-     * they manage — that is their department's staff, reached through the tree.
-     */
-    public function directReports(): HasMany
-    {
-        return $this->hasMany(self::class, 'direct_manager_id');
     }
 
     /**

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\HR\Models;
 
+use App\Modules\HR\Policies\EmployeeWarningPolicy;
 use App\Shared\Traits\HasAuditLog;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -25,7 +27,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * warnings issued to them on or before this one (see `sequence()`), which stays
  * correct when a mis-filed warning is deleted or a back-dated one is added. A
  * stored counter is wrong the first time someone deletes warning #2 of 3 (P1).
+ *
+ * ROW-LEVEL AUTHORIZATION (GAP-3): in scope exactly when the employee is — see
+ * `EmployeeWarningPolicy`.
  */
+#[UsePolicy(EmployeeWarningPolicy::class)]
 class EmployeeWarning extends Model
 {
     use HasAuditLog;

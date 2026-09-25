@@ -16,8 +16,10 @@ use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeResource;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
+use App\Shared\Support\RequestRowScopes;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 /**
@@ -126,24 +128,43 @@ class EmployeeRequest extends FormRequest
      * don't send", so a payload that reaches here carrying a gated field is a
      * client bug that deserves to be pointed at.
      *
-     * FAILS CLOSED: no authenticated user means no permission, exactly as
-     * `EmployeeResource::requesterHolds()` decides it. A super admin passes
-     * through `hasPermission()`'s own bypass.
+     * ⚙️ PER ROW SINCE GAP-3, exactly as the read side is. "May write pay" is
+     * "the grant carrying viewSalary reaches this employee" — and on a write
+     * that means EVERY unit the row sits in, before and after: the one they are
+     * in now, and the one a create or a transfer puts them in. Checking only
+     * the destination would let a section-scoped payroll grant rewrite the pay
+     * of someone from another division while moving them in; checking only the
+     * current unit would let it set pay on someone being moved out. A unit
+     * reached by `hr.employees.update` but not by `viewSalary` is refused here
+     * — that is the case this gate exists for.
+     *
+     * The destination is read RAW, because rules() runs before validation. A
+     * malformed `department_id` counts as no unit (reached only company-wide),
+     * and gets its own 422 from its own rule.
+     *
+     * FAILS CLOSED: no authenticated user reaches nothing, exactly as
+     * `EmployeeResource::requesterHolds()` decides it. A super admin reaches
+     * everything.
      *
      * @param  array<string, array<int, mixed>>  $rules
      * @return array<string, array<int, mixed>>
      */
     private function gateSensitiveWrites(array $rules): array
     {
-        $user = $this->user();
-
         $gates = [
             EmployeeResource::VIEW_SALARY   => self::SALARY_GATED_FIELDS,
             EmployeeResource::VIEW_IDENTITY => self::IDENTITY_GATED_FIELDS,
         ];
 
+        $units = $this->unitsTouched();
+
         foreach ($gates as $permission => $fields) {
-            if ($user !== null && $user->hasPermission($permission)) {
+            // The BASE request, not `$this`: a FormRequest has its own
+            // attribute bag, and memoizing there would walk the tree again for
+            // the scopes the policy and the controller's warm-up already hold.
+            $scope = RequestRowScopes::for(request(), $permission);
+
+            if (array_filter($units, static fn (?int $unit): bool => ! $scope->covers($unit)) === []) {
                 continue;
             }
 
@@ -156,6 +177,30 @@ class EmployeeRequest extends FormRequest
         }
 
         return $rules;
+    }
+
+    /**
+     * Every unit this write leaves the employee in or takes them out of: the
+     * current one on an update, plus the requested one when the payload names
+     * a unit. A create has only the requested one — no unit if it names none.
+     *
+     * @return array<int, int|null>
+     */
+    private function unitsTouched(): array
+    {
+        $employee = $this->subject();
+        $units = [];
+
+        if ($employee instanceof Employee) {
+            $units[] = $employee->department_id === null ? null : (int) $employee->department_id;
+        }
+
+        if (! $employee instanceof Employee || $this->has('department_id')) {
+            $raw = $this->input('department_id');
+            $units[] = is_numeric($raw) ? (int) $raw : null;
+        }
+
+        return array_values(array_unique($units, SORT_REGULAR));
     }
 
     /**
@@ -245,12 +290,6 @@ class EmployeeRequest extends FormRequest
                 Rule::exists('departments', 'id')->whereNull('deleted_at')],
             'job_title_id'  => ['sometimes', 'nullable', 'integer',
                 Rule::exists('job_titles', 'id')->whereNull('deleted_at')],
-            'direct_manager_id' => ['sometimes', 'nullable', 'integer',
-                Rule::exists('employees', 'id')->whereNull('deleted_at'),
-                // A person cannot be their own manager. Only reachable on
-                // update, since on create there is no id yet to submit.
-                Rule::notIn(array_filter([$id])),
-            ],
             'employment_type'  => ['sometimes', 'nullable', 'integer', Rule::enum(EmploymentType::class)],
             'workplace'        => ['sometimes', 'nullable', 'string', 'max:255'],
             'hire_date'        => ['sometimes', 'nullable', 'date'],
@@ -328,8 +367,6 @@ class EmployeeRequest extends FormRequest
 
             'department_id.exists'     => 'الوحدة التنظيمية المحددة غير موجودة أو تم حذفها.',
             'job_title_id.exists'      => 'المسمى الوظيفي المحدد غير موجود أو تم حذفه.',
-            'direct_manager_id.exists' => 'المدير المباشر المحدد غير موجود أو تم حذفه.',
-            'direct_manager_id.not_in' => 'لا يمكن أن يكون الموظف مديراً مباشراً لنفسه.',
 
             'sham_cash_account.digits' => 'رقم الشام كاش يجب أن يتكون من 16 رقماً.',
             'sham_cash_account.unique' => 'رقم الشام كاش مستخدم بالفعل.',
@@ -389,6 +426,50 @@ class EmployeeRequest extends FormRequest
         // only() omits keys absent from the payload, so an untouched field
         // keeps its stored value rather than being read as null.
         return array_merge($stored, $this->only(array_keys($this->rules())));
+    }
+
+    /**
+     * ROW SCOPE on the DESTINATION (GAP-3).
+     *
+     * `can:update,employee` on the route has already checked that the person
+     * being edited is in scope. What it cannot see is where they are GOING: a
+     * create files a new hire into a unit, and an update may transfer someone.
+     * Both must land inside the caller's reach, or a manager could push a
+     * person out into another division — or a clerk file new hires anywhere.
+     *
+     * AFTER VALIDATION, deliberately: by now `department_id` is known to be an
+     * integer naming a live unit (or null), so the scope check judges a real
+     * value and a malformed one gets its field-level 422 instead of a 403.
+     *
+     * A create with no unit is a placement into NO unit, which only a
+     * company-wide grant may make. An update that does not mention the unit,
+     * or restates the current one, moves nobody and is not checked again.
+     */
+    protected function passedValidation(): void
+    {
+        $validated = $this->validated();
+        $employee = $this->subject();
+
+        if ($employee instanceof Employee) {
+            if (! array_key_exists('department_id', $validated)) {
+                return;
+            }
+
+            $target = $validated['department_id'] === null ? null : (int) $validated['department_id'];
+            $current = $employee->department_id === null ? null : (int) $employee->department_id;
+
+            if ($target === $current) {
+                return;
+            }
+
+            Gate::forUser($this->user())->authorize('placeIn', [Employee::class, $target, 'hr.employees.update']);
+
+            return;
+        }
+
+        $target = ($validated['department_id'] ?? null) === null ? null : (int) $validated['department_id'];
+
+        Gate::forUser($this->user())->authorize('placeIn', [Employee::class, $target, 'hr.employees.create']);
     }
 
     /**

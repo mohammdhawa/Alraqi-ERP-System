@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\HR\Resources;
 
+use App\Shared\Support\RequestRowScopes;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -33,11 +34,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * different things: null would assert "this employee has no national id", which
  * is a lie about the data rather than a statement about the reader's access.
  *
- * The converse holds for `direct_manager`, and it is why that key is built
- * differently from `department` / `job_title` below: absence is spoken for by
- * the gating rule, so an embedded person object is ALWAYS present and is null
- * when there is nobody (C31). `full_name` and `employee_number` are not gated —
- * see EmployeeStub.
+ * The converse holds for `manager`: absence is spoken for by the gating rule, so
+ * an embedded person object is ALWAYS present and is null when there is nobody
+ * (C31). `full_name` and `employee_number` are not gated — see EmployeeStub.
  *
  *   hr.employees.viewIdentity -> national_id
  *   hr.employees.viewSalary   -> the pay block AND every classification axis
@@ -55,9 +54,17 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * no business with pay. One permission would force whoever assigns roles to
  * over-grant one in order to get the other.
  *
- * SCOPE: this governs READ exposure only. Who may WRITE these fields is still
- * plain `hr.employees.update`, so a caller can set a salary they cannot read
- * back — tracked as GAP-12, a policy decision awaiting an answer.
+ * The WRITE side mirrors this exactly — من لا يرى لا يكتُب (GAP-12, closed):
+ * `EmployeeRequest::gateSensitiveWrites()`.
+ *
+ * ⚙️ THE GATE IS PER ROW SINCE GAP-3. A grant carries a scope, so holding
+ * `hr.employees.viewSalary` no longer means "for everyone": a payroll clerk
+ * granted it over one section, beside a company-wide `hr.employees.view`, may
+ * read every employee but the pay of only that section's staff. The question
+ * asked is therefore "does the grant carrying this permission reach THIS
+ * employee's unit?" — resolved once per request by `RequestRowScopes` and read
+ * here per row. Whoever renders this Resource should `warm()` those scopes
+ * first (see `FIELD_PERMISSIONS`) so the Resource itself runs no query.
  */
 class EmployeeResource extends JsonResource
 {
@@ -70,6 +77,14 @@ class EmployeeResource extends JsonResource
      * Permission gating the national id.
      */
     public const VIEW_IDENTITY = 'hr.employees.viewIdentity';
+
+    /**
+     * Every permission a field here is gated by — the list a caller warms with
+     * `RequestRowScopes::warm()` before rendering.
+     *
+     * @var array<int, string>
+     */
+    public const FIELD_PERMISSIONS = [self::VIEW_SALARY, self::VIEW_IDENTITY];
 
     /**
      * @return array<string, mixed>
@@ -147,17 +162,27 @@ class EmployeeResource extends JsonResource
                 'id'   => $this->jobTitle->id,
                 'name' => $this->jobTitle->name,
             ]),
-            // NULL means "resolve from the org tree", not "has no manager".
-            'direct_manager_id'     => $this->direct_manager_id,
-            // The same person as an object, so a client does not resolve the id
-            // itself. NEVER OMITTED — null is the only empty value (C31), and
-            // it carries the id's meaning: no manager BY EXCEPTION, ask the
-            // tree. Reading the FK first keeps the common case (almost every
-            // employee) free of any relation access at all; the other branch
-            // reads a relation every render path eager-loads.
-            'direct_manager'        => $this->direct_manager_id === null
-                ? null
-                : EmployeeStub::from($this->directManager),
+            // ⚙️ THE MANAGER, AND THE ONLY ONE (2026-09-23). Resolved by
+            // `ManagementChain` from the org tree: the employee's own unit,
+            // then up past any vacant post, stopping at المدير العام.
+            //
+            // THERE IS NO STORED MANAGER COLUMN, and that is the whole design.
+            // `direct_manager_id` existed for eleven days to record an
+            // exception — someone reporting outside their unit head — and the
+            // project owner ratified on 2026-09-24 that the company has no such
+            // exception: a manager is always the one the hierarchy gives. A
+            // column for a case that does not occur is a column that drifts
+            // from the tree, and the tree already says who manages whom (P1).
+            //
+            // Null means the top of the tree — المدير العام reports to nobody —
+            // or an employee with no unit at all. NEVER OMITTED (C31).
+            //
+            // ⚠️ The manager is set by `EmployeeService`, which resolves a
+            // whole page in a fixed number of queries. A render path that
+            // forgets it silently produces null; `EmployeeManagerTest` asserts
+            // the key is populated on both the list and the detail so that
+            // cannot pass unnoticed.
+            'manager'               => EmployeeStub::from($this->resource->resolvedManager()),
             'employment_type'       => $this->employment_type?->value,
             'employment_type_label' => $this->employment_type?->label(),
             'workplace'             => $this->workplace,
@@ -213,16 +238,20 @@ class EmployeeResource extends JsonResource
     }
 
     /**
-     * Whether the caller holds a field-level permission.
+     * Whether the caller's grant for a field-level permission reaches THIS
+     * employee (GAP-3).
+     *
+     * `hasPermission()` was the check until scoped grants existed, and it is
+     * scope-blind: it answers "does any grant carry this", so a viewSalary
+     * grant over one section would have shown pay for the whole company.
      *
      * FAILS CLOSED: no authenticated user — a console render, a queued job —
-     * means no sensitive field. A super admin passes via hasPermission()'s own
-     * bypass.
+     * reaches nothing, and an employee with no unit is reached only by a
+     * company-wide grant. A super admin reaches everything via AccessScope.
      */
     private function requesterHolds(Request $request, string $permission): bool
     {
-        $user = $request->user();
-
-        return $user !== null && $user->hasPermission($permission);
+        return RequestRowScopes::for($request, $permission)
+            ->covers($this->department_id === null ? null : (int) $this->department_id);
     }
 }

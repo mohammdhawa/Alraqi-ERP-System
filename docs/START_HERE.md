@@ -67,7 +67,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **355 passing**, 1811 assertions, ~10s |
+| **Test suite** | **362 passing**, 1819 assertions, ~10s |
 | **Working tree** | modified — Batch 2 (the employees rebuild), سجل التدقيق, and the account model are all uncommitted |
 | **Production data** | none — the database has never held a real employee |
 
@@ -121,7 +121,7 @@ one by looking.
 
 ## 4. Which document to read for what
 
-`docs/` holds sixteen files written at different times. Several describe states the
+`docs/` holds seventeen files written at different times. Several describe states the
 code has since moved past. This table says which one to trust for what.
 
 | Document | Trust it for | Caution |
@@ -131,6 +131,7 @@ code has since moved past. This table says which one to trust for what.
 | `phase-1.5-foundation-truth-up.md` | **The active plan.** §5–§7 are your next work | §4 is done; its status markers record what changed |
 | `legacy-system-merge-plan.md` | **The real phase order** (stages 0–5) | Supersedes the design doc's phases 2 and 3 |
 | **`EMPLOYEE_APP_REQUIREMENTS.md`** | **What the employee mobile app needs from HR**, mapped onto the stages, plus the decisions it forces before the import | Requirements captured 2026-09-21, not scheduled work. It settles GAP-3 and names work no stage owns |
+| **`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`** | **The build plan for row-level authorization** — the four pieces, the traps, and what is out of the first slice | Written 2026-09-24 as a handoff. The decisions it implements are §9 (14, 18, 19); this file is the *how* |
 | `phase1-completion-report.md` | Why Phase 1 is shaped the way it is; the decision index in §5 | Written before Phase 1.5; its "what comes next" (§7) is superseded |
 | `API_DOCUMENTATION.md` | The API contract, for frontend work | Reflects today's employees shape — Batch 2 will change it |
 | `PROJECT_ARCHITECTURE_REPORT.md` | Deep architecture reference; code docblocks cite its §16 | Long; several numbering schemes coexist across docs |
@@ -482,7 +483,7 @@ also records what was dropped and why.
 | Military | `did_military_service`, `military_discharge_date` |
 | Education | `education_level`, `qualification`, `specialization`, `is_graduated`, `graduation_date` |
 | **Classification (pay-determining)** | `activity_type`, `organizational_grade`, `experience_level`, `engineering_rank`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
-| Employment | `department_id`, `job_title_id`, `direct_manager_id`, `employment_type`, `workplace`, `hire_date`, `termination_date`, `status` |
+| Employment | `department_id`, `job_title_id`, `employment_type`, `workplace`, `hire_date`, `termination_date`, `status` |
 | Pay reference | `sham_cash_account` (16 digits, unique), `salary_mode`, `agreed_salary` |
 | | timestamps + `deleted_at` |
 
@@ -892,14 +893,74 @@ cheaper to answer as a set than one at a time.
 | 12 | **`إدارة الإمداد والتوريد`** | **It exists. The seeded tree is correct** — `SUP`, a division, per the org chart | Batch 3. Closes §11 question 1 |
 | 13 | **GAP-12 — writing a field you cannot read** | **من لا يرى لا يكتُب.** Writing `agreed_salary`, `sham_cash_account` or any of the nine classification axes requires `hr.employees.viewSalary`; writing `national_id` requires `hr.employees.viewIdentity` | The asymmetry the real import would have shipped with. No new permission needed |
 | 14 | **GAP-3 — a manager's scope** | **The whole subtree.** A division head sees every section and office beneath them and all their staff — not just the rows whose `department_id` is their own unit | Row-level authorization, and لوحة المدير with it |
-| 15 | **The escalation chain's operational rules** | `direct_manager_id` if set, else the manager of the employee's unit; **if the post is vacant or the requester is that manager, climb to the nearest ancestor that has one**; terminate at المدير العام. Manual reassignment stays available, as the legacy system already provides | The manager resolver — which the app home screen needs and the Stage 2 approvals engine needs. "Structure without a walk" ends here |
+| 15 | **The escalation chain's operational rules** | ~~`direct_manager_id` if set, else~~ (amended 2026-09-24, decision 20) the manager of the employee's unit; **if the post is vacant or the requester is that manager, climb to the nearest ancestor that has one**; terminate at المدير العام. Manual reassignment stays available, as the legacy system already provides | The manager resolver — which the app home screen needs and the Stage 2 approvals engine needs. "Structure without a walk" ends here |
 | 16 | **GAP-13 — the audit trail leaking the axes** | **`auth.audit.viewValues` implies `hr.employees.viewSalary`.** The two are never granted apart | The reversible option was taken on purpose: redaction would have destroyed "who changed this person's grade, and to what" permanently, on an append-only table |
 | 17 | **Does an employee see their own classification axes?** | **Yes — in full**, including السوية التنظيمية، نوع النشاط، الخبرة and التمييز | `/api/me`. ⚠️ This raises the bar on the import: every axis must be correct and defensible **per person** before the app ships, because each employee will read their own |
 
 ⚠️ **A decision is not a fix.** Six of these need code that does not exist yet.
-⚙️ **Updated 2026-09-23, later the same day:** decisions 13 and 16 were **built**
-— GAP-12 and GAP-13 are now in the **Closed** register. GAP-3 is the only gap
-still open, and it is open for want of code, not of an answer.
+⚙️ **Updated 2026-09-23, later the same day:** decisions 13, 15 and 16 were
+**built** — GAP-12 and GAP-13 are in the **Closed** register, and
+`ManagementChain` walks the escalation chain. ⚙️ **2026-09-24:** decisions 14,
+18 and 19 are built too — GAP-3 is closed and the gap register is empty.
+
+### Two more on 2026-09-23 — how GAP-3 is actually built
+
+Decision 14 settled the **extent** of a manager's scope (the whole subtree). It
+did not say how the system knows a given user is limited to a branch, and that
+turned out to be the harder half.
+
+| # | Question | Answer |
+|---|---|---|
+| 18 | **Where does a user's scope come from?** | **A scope on the ROLE ASSIGNMENT**, which is one of: the whole company, a named unit, or **«الوحدات التي أديرها»** — derived from `departments.manager_id` |
+| 19 | **An in-scope caller asks for an out-of-scope row directly** | **403 with a clear message**, not a 404 |
+
+⚠️ **Why "derived from the tree alone" was rejected, and it is worth knowing
+because it is the obvious idea:** it inverts the intent. A user who manages no
+unit would have no scope and therefore see everything, while a division head
+would see only their branch — so an ordinary clerk would end up with wider
+access than the manager above them. Scope has to be something a grant SAYS, and
+the tree is then one of the things it can say.
+
+The «وحداتي» option is what keeps P1 intact: ~100 managers need no hand-assigned
+scope, and `departments.manager_id` stays the single place recording who manages
+what. A per-grant unit is still available for the cases the tree cannot express
+— a departmental assistant who is not the manager.
+
+⚙️ **Decision 19 accepts a known cost, knowingly.** A 403 confirms the row
+exists, so someone walking ids can learn how many employees the company has and
+which ids are real. A 404 would not reveal that. The clearer message for the
+user and for support was judged worth it — this is an internal ERP behind
+authentication, not a public API.
+
+### ⚙️ One on 2026-09-24 — `direct_manager_id` is dropped
+
+| # | Question | Answer |
+|---|---|---|
+| 20 | **Does an employee ever report outside their unit head?** | **No.** A manager is always the one the hierarchy gives. `employees.direct_manager_id` is removed, and the `direct_manager` API key with it |
+
+The column was added in Batch 2 to record exactly that exception, and the API
+carried it for eleven days beside the resolved `manager`. The project owner
+ratified that the exception does not occur here — so it was a column for a case
+that never arises, which is a second copy of what `departments.manager_id`
+already says, waiting to disagree with it (P1).
+
+**Nothing from the source data is lost.** The workbook's «المدير المباشر» is free
+text that predates the employee table, and
+`employee_assignments.legacy_manager_name` already keeps that raw string for a
+human to read — which is where it was always going to land.
+
+⚠️ **One obligation lands on the Batch 3 importer.** Where the source names a
+manager who is NOT the one the tree resolves, the importer must **report** the
+discrepancy rather than drop it silently — the same rule it already follows for
+`#N/A` criteria and malformed Sham Cash numbers. A disagreement between the
+workbook and the org chart is a fact about the company, and the import is the
+last moment anyone will be looking at both.
+
+What it touched: the Batch 2 migration (the column is simply not in it now), the
+model's `directManager` and `directReports` relations, the request rule and its
+two Arabic messages, two Resource keys, the service's eager-load list, rule 1 of
+`ManagementChain`, and six tests — four of them deleted, because the thing they
+covered no longer exists.
 
 ---
 
@@ -910,6 +971,18 @@ still open, and it is open for want of code, not of an answer.
 is the record of what Batch 2 built and why — it is the reference for anyone
 touching `employees` now, and it is written in the imperative because that is how
 it was specified.
+
+> ⚙️ **Two things are in flight ahead of Batch 3 (2026-09-24), and both are
+> written down rather than remembered:**
+>
+> 1. ~~**GAP-3, row-level authorization** — decided, not built.~~ ✅ **Built
+>    2026-09-24** for employees, per
+>    [`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`](GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md)
+>    (its §8 records what was decided while building). The gap register is empty.
+> 2. **Batch 3 itself gained a prerequisite and an obligation** — the `users`
+>    migration must land first (§9, the account model), and the importer now owes
+>    a report wherever the source names a manager the org tree disagrees with
+>    (§9, decision 20).
 
 ### Why it had to happen before the import
 
@@ -962,7 +1035,8 @@ the day that job fails, every payslip is wrong.
 
 **Step 4 — employment and pay reference.** ~~`legacy_number`~~ (⚙️ **dropped
 2026-09-23** — see §9; the column is not in the migration any more),
-`termination_date`, `workplace`, `direct_manager_id`,
+`termination_date`, `workplace`, ~~`direct_manager_id`~~ (⚙️ **dropped
+2026-09-24** — see §9, decision 20),
 `sham_cash_account` (exactly 16 digits), `salary_mode` (scale / agreed),
 `agreed_salary` (required when `agreed`, NULL otherwise).
 
@@ -972,9 +1046,14 @@ Caching a derived value with no invalidation strategy means that changing the
 company scale factor silently makes all 242 rows wrong. The rate table and the
 calculator belong to Stage 4.
 
-`direct_manager_id` is **NULL for almost everyone**, and NULL means "resolve from
-the org tree." The column exists only to record the *exception* — someone who
-reports outside their unit head.
+⚙️ **This is where `direct_manager_id` was specified, and it is now gone
+(2026-09-24).** The paragraph used to read: *"NULL for almost everyone, and NULL
+means resolve from the org tree; the column exists only to record the exception —
+someone who reports outside their unit head."* The exception turned out not to
+exist in this company, so the tree is the only source and
+`App\Shared\Services\ManagementChain` is what reads it. Kept as a record because
+the reasoning for adding the column was sound — it was the premise that was
+wrong, and that is worth telling apart.
 
 **Step 5 — the four new tables.**
 
@@ -1158,11 +1237,11 @@ decisions 7–10 in §9. What is left:
 - **Notification transport** — closes in Stage 3 by adopting the legacy FCM layer.
 - **Must a manager belong to the unit they manage?** Unratified and
   unimplemented; `manager_id` currently accepts any existing employee.
-- ✅ ~~**The escalation chain's operational rules**~~ — **ratified 2026-09-23**
-  (decision 15 in §9): climb to the nearest ancestor with a manager when the post
-  is vacant or the requester is that manager, terminate at المدير العام, keep
-  manual reassignment. Still unimplemented — the rules exist, the resolver does
-  not.
+- ✅ ~~**The escalation chain's operational rules**~~ — **ratified and built
+  2026-09-23** (decision 15 in §9): climb to the nearest ancestor with a manager
+  when the post is vacant or the requester is that manager, terminate at المدير
+  العام, keep manual reassignment. `ManagementChain` implements it; eleven tests
+  in `tests/Feature/HR/EmployeeManagerTest.php`, one per rule.
 - **PHP 8.3 bump** — `composer.json` still pins `^8.2`.
 
 ---
@@ -1175,12 +1254,13 @@ Stated honestly, so none of these is mistaken for a bug.
   enum line. Inserting a tier *above* the root renumbers every existing row. This
   is an accepted property of depth-based `level`, and it is exactly why the board
   compromise in §5.5 was taken rather than going five tiers deep.
-- **The escalation chain is structure without a walk.** The tree, the manager
-  pointers and a guaranteed terminus (المدير العام at the root) all exist, but no
-  code resolves an employee's approver or climbs the chain. ⚙️ **The rules it
-  would walk by were ratified 2026-09-23** (decision 15 in §9) — so this is now a
-  missing implementation rather than a missing answer, and it is app-blocking:
-  the home screen prints المدير المباشر.
+- ✅ ~~**The escalation chain is structure without a walk.**~~ **Closed
+  2026-09-23.** `App\Shared\Services\ManagementChain` walks it by the rules
+  ratified that day (decision 15 in §9), and `EmployeeResource` now carries a
+  resolved `manager` — the only manager there is, since `direct_manager_id` was
+  dropped on 2026-09-24. What remains unbuilt is
+  the *consumer* — the Stage 2 approvals engine that will climb the same chain,
+  and the manual reassignment that sits on top of it.
 - **The المدير العام has no one above them.** By construction the chain
   terminates there. Intended, not a gap.
 - ✅ ~~**Pay-field WRITE access is ungoverned.**~~ **Closed 2026-09-23.** A write

@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Services;
 
+use App\Modules\Auth\Enums\ScopeType;
+use App\Modules\Auth\Exceptions\GrantOutOfReachException;
 use App\Modules\Auth\Exceptions\SystemRoleException;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Models\UserRole;
 use App\Modules\Auth\Support\PermissionCache;
+use App\Modules\Departments\Models\Department;
+use App\Shared\Services\AccessScope;
 use App\Shared\Services\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -28,8 +33,15 @@ use Illuminate\Support\Facades\DB;
  */
 class RoleService
 {
+    /**
+     * The permission whose reach bounds what a role administrator may grant
+     * and revoke — the one the assign/unassign routes require.
+     */
+    public const GRANT_PERMISSION = 'auth.roles.update';
+
     public function __construct(
         private readonly AuditLogService $auditLogService,
+        private readonly AccessScope $scopes,
     ) {}
 
     /**
@@ -176,7 +188,21 @@ class RoleService
     }
 
     /**
-     * Grant a role to a user (idempotent — no duplicate pivot rows).
+     * Grant a role to a user over a scope (idempotent — the same grant twice
+     * is one row).
+     *
+     * ⚙️ SCOPED SINCE GAP-3 (decision 18). A grant is role + scope, so the same
+     * role over two units is two grants and both are kept. Omitting the scope
+     * means COMPANY — the reach every grant had before scopes existed — so a
+     * caller written against the old contract keeps getting what it got.
+     *
+     * The existence check runs under a lock on the user row, because the
+     * unique index cannot see two identical company grants as duplicates
+     * (NULL ≠ NULL). A real guarantee on MySQL; a no-op under SQLite.
+     *
+     * The scope's shape (a unit exactly when the type is Unit) is enforced by
+     * `UserRole`'s saving hook for every writer; AssignRoleRequest reports the
+     * same rules as field-level 422s first.
      *
      * TAKES IDS, NOT MODELS. RoleController used to resolve both rows itself
      * with User::findOrFail() / Role::findOrFail() before calling in, which put
@@ -187,19 +213,42 @@ class RoleService
      * A missing id raises ModelNotFoundException, which the central renderer
      * maps to a generic 404 that names no model class (C12). The FormRequest
      * normally catches this first and returns a friendlier field-level 422.
+     *
+     * `$grantedBy` is the administrator making the grant, and bounds it: see
+     * ensureWithinReach(). Null means the system itself (a seeder, a console
+     * command), which answers to no grant. Every HTTP caller passes one.
+     *
+     * @throws GrantOutOfReachException when the grant reaches further than
+     *                                  `$grantedBy` does.
      */
-    public function assign(int $userId, int $roleId): User
-    {
+    public function assign(
+        int $userId,
+        int $roleId,
+        ScopeType $scopeType = ScopeType::Company,
+        ?int $scopeDepartmentId = null,
+        ?User $grantedBy = null,
+    ): User {
         $user = User::findOrFail($userId);
         $role = Role::findOrFail($roleId);
 
-        $user->roles()->syncWithoutDetaching([$role->id]);
+        $this->ensureWithinReach($grantedBy, $user, $scopeType, $scopeDepartmentId);
+
+        DB::transaction(function () use ($user, $role, $scopeType, $scopeDepartmentId): void {
+            User::whereKey($user->getKey())->lockForUpdate()->first();
+
+            UserRole::query()->firstOrCreate([
+                'user_id'             => $user->getKey(),
+                'role_id'             => $role->getKey(),
+                'scope_type'          => $scopeType->value,
+                'scope_department_id' => $scopeDepartmentId,
+            ]);
+        });
 
         PermissionCache::flush();
 
         $this->auditLogService->logAction(
             event: 'role_assigned',
-            description: "Role '{$role->name}' assigned to user {$user->email}.",
+            description: "Role '{$role->name}' assigned to user {$user->loginIdentity()} ({$this->describeScope($scopeType, $scopeDepartmentId)}).",
         );
 
         // `employee` is loaded alongside `roles` because UserResource resolves
@@ -209,26 +258,69 @@ class RoleService
         // response layer and breaks the Resource contract ("MUST NOT perform
         // queries or trigger lazy loads"). Verified: one extra SELECT against
         // `employees` per assign/unassign response.
-        return $user->load(['roles', 'employee']);
+        return $user->load(UserService::RENDER_RELATIONS);
     }
 
     /**
-     * Revoke a role from a user (idempotent — detaching a role the user does
+     * Revoke a role from a user (idempotent — revoking a grant the user does
      * not hold is a harmless no-op). Revoking access is security-relevant, so
      * it is audited just like assignment.
+     *
+     * ⚙️ WITH A SCOPE, ONLY THAT GRANT GOES; WITHOUT ONE, EVERY GRANT OF THE
+     * ROLE GOES. The second is the pre-GAP-3 contract ("take this role away")
+     * and stays exactly that — a caller revoking a role should not have to know
+     * how many scopes it was granted over to be sure it is gone.
+     *
+     * The cache flush is what makes a revocation immediate rather than
+     * effective within the hour (work order §6).
+     *
+     * `$revokedBy` bounds a revocation exactly as `$grantedBy` bounds a grant:
+     * every grant that would go must lie within their reach, or nothing goes.
+     * A section's administrator must not be able to strip a company-wide
+     * grant, any more than hand one out.
+     *
+     * @throws GrantOutOfReachException
      */
-    public function unassign(int $userId, int $roleId): User
-    {
+    public function unassign(
+        int $userId,
+        int $roleId,
+        ?ScopeType $scopeType = null,
+        ?int $scopeDepartmentId = null,
+        ?User $revokedBy = null,
+    ): User {
         $user = User::findOrFail($userId);
         $role = Role::findOrFail($roleId);
 
-        $user->roles()->detach($role->id);
+        $grants = UserRole::query()
+            ->where('user_id', $user->getKey())
+            ->where('role_id', $role->getKey())
+            ->when($scopeType !== null, fn ($query) => $query
+                ->where('scope_type', $scopeType->value)
+                ->when(
+                    $scopeDepartmentId === null,
+                    fn ($inner) => $inner->whereNull('scope_department_id'),
+                    fn ($inner) => $inner->where('scope_department_id', $scopeDepartmentId),
+                ));
+
+        if ($revokedBy !== null) {
+            foreach ((clone $grants)->get() as $grant) {
+                // A grant whose stored type is undefined reaches nothing, so
+                // anyone who may revoke at all may clear it away.
+                if ($grant->scope_type !== null) {
+                    $this->ensureWithinReach($revokedBy, $user, $grant->scope_type, $grant->scope_department_id === null ? null : (int) $grant->scope_department_id);
+                }
+            }
+        }
+
+        $grants->delete();
 
         PermissionCache::flush();
 
+        $scope = $scopeType === null ? 'every scope' : $this->describeScope($scopeType, $scopeDepartmentId);
+
         $this->auditLogService->logAction(
             event: 'role_unassigned',
-            description: "Role '{$role->name}' revoked from user {$user->email}.",
+            description: "Role '{$role->name}' revoked from user {$user->loginIdentity()} ({$scope}).",
         );
 
         // `employee` is loaded alongside `roles` because UserResource resolves
@@ -238,6 +330,69 @@ class RoleService
         // response layer and breaks the Resource contract ("MUST NOT perform
         // queries or trigger lazy loads"). Verified: one extra SELECT against
         // `employees` per assign/unassign response.
-        return $user->load(['roles', 'employee']);
+        return $user->load(UserService::RENDER_RELATIONS);
+    }
+
+    /**
+     * A role administrator may hand out — or take away — only what their own
+     * `auth.roles.update` grant reaches (GAP-3).
+     *
+     * Without this, the scope on the assigner's grant bounded nothing: a
+     * section's HR administrator could grant anyone, themselves included, a
+     * company-wide role. So:
+     *
+     *   company-wide assigner (or super admin) → any grant;
+     *   company grant  → company-wide assigners only;
+     *   unit grant     → the unit must lie inside the assigner's reach, and
+     *                    so then does everything beneath it;
+     *   managed grant  → every unit the grantee manages TODAY must lie inside
+     *                    it. A managed grant follows its holder around the
+     *                    tree by design (decision 18); moving a manager is a
+     *                    departments decision, made by whoever may make it.
+     *
+     * The check is on REACH, not on the role's permissions: which roles an
+     * `auth.roles.update` holder may hand out is not scoped, today, by
+     * anything.
+     *
+     * @throws GrantOutOfReachException
+     */
+    private function ensureWithinReach(?User $actor, User $grantee, ScopeType $scopeType, ?int $scopeDepartmentId): void
+    {
+        if ($actor === null) {
+            return;
+        }
+
+        $reach =$this->scopes->for($actor, self::GRANT_PERMISSION);
+
+        if ($reach->isUnrestricted()) {
+            return;
+        }
+
+        $units = match ($scopeType) {
+            ScopeType::Company => [null],
+            ScopeType::Unit    => [$scopeDepartmentId],
+            ScopeType::Managed => $this->scopes->managedUnitIds($grantee),
+        };
+
+        foreach ($units as $unit) {
+            if (! $reach->covers($unit)) {
+                throw new GrantOutOfReachException;
+            }
+        }
+    }
+
+    /**
+     * The scope as the audit trail should read it. The unit is named, not just
+     * numbered, because the trail must stay readable after the tree changes.
+     */
+    private function describeScope(ScopeType $scopeType, ?int $scopeDepartmentId): string
+    {
+        if ($scopeDepartmentId === null) {
+            return "scope: {$scopeType->name}";
+        }
+
+        $name = Department::withTrashed()->whereKey($scopeDepartmentId)->value('name');
+
+        return "scope: {$scopeType->name} #{$scopeDepartmentId} {$name}";
     }
 }

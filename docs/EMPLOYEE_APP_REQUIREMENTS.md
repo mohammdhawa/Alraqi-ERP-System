@@ -111,7 +111,7 @@ section is commentary on it.
 | 7 | العقود والمستندات | **Stage 2** | Ported. **"قرأت ووافقت" is new** — the legacy module has no acknowledgement — §5.4 |
 | 8 | الإشعارات | table **exists**, transport in **Stage 3** | `notifications` + endpoints exist; FCM arrives with the port. Six named triggers = an event catalogue — §5.7 |
 | 9 | التقييم | **no stage owns it** | ⚠️ The biggest finding in this document — §5.1 |
-| 10 | لوحة المدير | **GAP-3**, unblocked by this spec | No row-level authorization exists anywhere — §4.1 |
+| 10 | لوحة المدير | ✅ **GAP-3 built 2026-09-24** | A `managed` grant lists exactly the manager's subtree — §4.1 |
 | 11 | لوحة HR | spans Stages 1–4 | The dashboard side of every module above; it is a client, not a module. **إدارة السلف is listed there but is not HR work** — §5.2 |
 
 ---
@@ -146,8 +146,12 @@ one only HR can hold.
 
 ✅ **Ratified 2026-09-23** (decision 14 in [`START_HERE.md` §9](START_HERE.md)):
 **the whole subtree** — every section and office beneath the manager's unit, and
-all their staff. Not the unit row alone, and not direct reports alone. GAP-3 is
-no longer blocked on a product decision; it is blocked on nothing.
+all their staff. Not the unit row alone, and not direct reports alone.
+
+✅ **Built 2026-09-24.** Give a manager's account a role over the scope
+«الوحدات التي أديرها» (`scope_type: 3`) and `GET /api/hr/employees` returns their
+subtree; asking for anyone else answers 403. See `API_DOCUMENTATION.md` §5.4 and
+§8.1.
 
 Two notes for whoever builds it:
 
@@ -406,32 +410,42 @@ is what makes an app release possible during Stage 1.
 
 ### 6.3 The manager resolver is now app-blocking
 
-Area 1 prints **المدير المباشر** on the home screen. `direct_manager_id` is
-**NULL for almost everyone** by design, and NULL means *"resolve from the org
-tree"*. No code resolves it — that is exactly the *"structure without a walk"*
-limitation.
-
-It is also the same walk the approvals engine needs in Stage 2. **Build it once,
-in `app/Shared`, and let both callers use it.**
+Area 1 prints **المدير المباشر** on the home screen, and nothing resolved it —
+that was exactly the *"structure without a walk"* limitation. It is also the same
+walk the approvals engine needs in Stage 2, so it was built once, in
+`app/Shared`, for both callers.
 
 ✅ **The rules were ratified 2026-09-23** (decision 15 in
-[`START_HERE.md` §9](START_HERE.md)), so the resolver can be written now:
+[`START_HERE.md` §9](START_HERE.md)) and amended on 2026-09-24:
 
-1. `direct_manager_id` when it is set — it exists only to record the exception.
-2. Otherwise the manager of the employee's own unit.
-3. **If that post is vacant, or the manager IS the person asking, climb** to the
+1. The manager of the employee's own unit.
+2. **If that post is vacant, or the manager IS the person asking, climb** to the
    nearest ancestor unit that has a manager. Both cases take the same branch,
    which is why they were answered together.
-4. Terminate at المدير العام. The root always has one, so the walk cannot fall
+3. Terminate at المدير العام. The root always has one, so the walk cannot fall
    off the top.
-5. Manual reassignment stays available on top of this — the legacy system
+4. Manual reassignment stays available on top of this — the legacy system
    already ships it (`leave_approval_reassignments`), and an automatic climb is
    not a reason to remove a human override.
 
-⚠️ **Two callers, one walk, but not one answer.** The home screen wants "who is
-my manager"; the approvals engine wants "who approves this request" and applies
-rule 3's self-skip. Same traversal, different entry conditions — write it as one
-service with two entry points, not as two copies that will drift.
+> ✅ ⚙️ **BUILT 2026-09-23** — `App\Shared\Services\ManagementChain`, with the
+> resolved manager on every employee payload as `manager`. Nine tests, one per
+> rule and per API path.
+>
+> ⚙️ **AMENDED 2026-09-24.** A rule 1 stood above the list — `direct_manager_id`
+> when set, recording someone reporting outside their unit head. The project
+> owner ratified that this company has no such case, so the column and the
+> `direct_manager` key were both removed and the rule went with them. **The org
+> tree is the only source of a manager**, which also means the app's home screen
+> can never show a stale one: there is nothing stored to go stale.
+
+⚠️ **This section predicted two entry points and was wrong.** It said the home
+screen wants "who is my manager" while the approvals engine wants "who approves
+this", and that the two differ by the self-skip. Building it showed they are
+the same question: a unit head asking who their manager is wants their own
+superior too, so the self-skip belongs to both. The service has **one** method,
+and the note is kept here rather than deleted so nobody goes looking for a
+distinction that was never there.
 
 ### 6.4 Devices
 

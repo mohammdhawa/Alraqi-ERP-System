@@ -325,4 +325,50 @@ class Department extends Model
     {
         return $this->load(self::ancestorRelationPath());
     }
+
+    /**
+     * Every unit AT OR BENEATH the given units — the downward twin of the
+     * ancestor walk, and the extent of a manager's scope (START_HERE §9,
+     * decision 14: the whole subtree, not the unit row alone).
+     *
+     * ONE QUERY PER TIER, NOT PER UNIT. Each pass fetches the children of the
+     * whole frontier at once (`WHERE parent_id IN (…)`), so the cost is bounded
+     * by the depth of the tree — never by how many units sit in it — and it
+     * needs no recursive CTE, which keeps it identical on MySQL and the SQLite
+     * test driver. The bound is derived from `DepartmentLevel`, the same source
+     * as `ancestorRelationPath()`, so adding a tier cannot leave this walk one
+     * hop short. The visited set means a cycle that reached the data by some
+     * other path ends the walk rather than hanging it.
+     *
+     * ⚙️ SOFT-DELETED UNITS ARE WALKED. Nothing stops an office that still has
+     * staff from being soft-deleted, and those employees keep pointing at it.
+     * Their division head is still the person responsible for them, so they
+     * stay in that head's subtree rather than falling out of everyone's view
+     * except a company-wide one. The trashed unit's `parent_id` still says
+     * where it sat.
+     *
+     * @param  array<int, int>  $rootIds
+     * @return array<int, int> ids, unordered, each once
+     */
+    public static function subtreeIds(array $rootIds): array
+    {
+        $found = array_fill_keys(array_map('intval', $rootIds), true);
+        $frontier = array_keys($found);
+
+        for ($hop = 1; $hop < count(DepartmentLevel::cases()) && $frontier !== []; $hop++) {
+            $children = self::withTrashed()
+                ->whereIn('parent_id', $frontier)
+                ->pluck('id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->all();
+
+            $frontier = array_values(array_filter($children, static fn (int $id): bool => ! isset($found[$id])));
+
+            foreach ($frontier as $id) {
+                $found[$id] = true;
+            }
+        }
+
+        return array_keys($found);
+    }
 }
