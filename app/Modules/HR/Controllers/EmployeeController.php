@@ -65,7 +65,11 @@ class EmployeeController extends Controller
         RequestRowScopes::warm(request(), EmployeeResource::FIELD_PERMISSIONS);
 
         $employees = $this->employeeService->paginate(
-            scope: $this->policy->listScope($request->user()),
+            scope: $this->policy->listScope(
+                $request->user(),
+                $request->validated(),
+                $request->validated('sort'),
+            ),
             perPage: $this->perPage($request),
             filters: $request->validated(),
             sort: $request->validated('sort'),

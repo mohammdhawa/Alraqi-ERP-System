@@ -71,6 +71,24 @@ final class RowScope
     }
 
     /**
+     * The rows BOTH scopes reach — for a question that needs two grants at
+     * once, like filtering the list (one grant) by a pay field (another).
+     * Unrestricted is the identity; two unit sets meet in their common units.
+     */
+    public function intersect(self $other): self
+    {
+        if ($this->unrestricted) {
+            return $other;
+        }
+
+        if ($other->unrestricted) {
+            return $this;
+        }
+
+        return self::units(array_intersect($this->departmentIds, $other->departmentIds));
+    }
+
+    /**
      * Narrow a query to in-scope rows.
      *
      * Applied to the BUILDER, before `paginate()`, so the count query Laravel

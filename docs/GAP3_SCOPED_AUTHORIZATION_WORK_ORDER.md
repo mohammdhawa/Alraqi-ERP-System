@@ -3,8 +3,11 @@
 > ✅ **BUILT 2026-09-24.** Everything in §3 exists and §6 holds; 404 tests pass,
 > 42 more than the 362 this started from: 27 in the first pass, 15 added fixing
 > what review found (§8, "Found by review"). GAP-3 is in the **Closed** register
-> of `API_BUILD_STANDARD.md` §12,
-> which now has no open entries. What was decided while building — including the
+> of `API_BUILD_STANDARD.md` §12. ⚙️ **It left one gap behind, registered
+> 2026-09-26 as GAP-15 (open):** §5 deferred departments and the audit trail,
+> and for `departments.update`, `auth.users.*` and editing role definitions
+> (`auth.roles.*`) that is a way for a scoped grant to widen its own scope. Fix its first half before the
+> rollout narrows any grant. What was decided while building — including the
 > two traps in §4 that asked for a decision — is in **§8** at the bottom. Nothing
 > was committed (§7 still stands).
 

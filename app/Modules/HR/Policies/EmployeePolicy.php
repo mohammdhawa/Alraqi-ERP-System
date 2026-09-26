@@ -6,6 +6,9 @@ namespace App\Modules\HR\Policies;
 
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Requests\EmployeeRequest;
+use App\Modules\HR\Resources\EmployeeResource;
+use App\Modules\HR\Services\EmployeeService;
 use App\Shared\Support\OutOfScope;
 use App\Shared\Support\RequestRowScopes;
 use App\Shared\Support\RowScope;
@@ -47,10 +50,72 @@ class EmployeePolicy
      * The scope a listing is narrowed to. Not a Gate ability — a list is not
      * refused, it is filtered — so the controller asks for it directly and
      * hands it to the service.
+     *
+     * ⚙️ A FILTER OR SORT ON A PAY FIELD NARROWS IT FURTHER (2026-09-26). The
+     * classification axes are gated by `hr.employees.viewSalary` on read and on
+     * write, and a filter is a read: `?activity_type=1` answers "which of these
+     * people are engineers" one value at a time, for every row it returns. So
+     * when the request filters or sorts by a salary-gated field, the rows are
+     * the ones BOTH grants reach — the view grant's and the viewSalary grant's.
+     * A caller who can see pay for one section filters within that section and
+     * learns nothing about anyone else. A caller who holds no viewSalary at all
+     * never gets here: EmployeeIndexRequest refuses the key with a 422.
+     *
+     * @param  array<string, mixed>  $filters  the validated list filters
      */
-    public function listScope(User $user): RowScope
+    public function listScope(User $user, array $filters = [], ?string $sort = null): RowScope
     {
-        return RequestRowScopes::forUser($user, 'hr.employees.view');
+        $scope = RequestRowScopes::forUser($user, 'hr.employees.view');
+
+        if (self::salaryGatedListKeys($filters, $sort) !== []) {
+            $scope = $scope->intersect(RequestRowScopes::forUser($user, EmployeeResource::VIEW_SALARY));
+        }
+
+        return $scope;
+    }
+
+    /**
+     * The salary-gated fields a list request uses, as a filter or as the sort
+     * key. Derived from the two lists that already exist — what the service
+     * can filter and sort by, and what the salary gate covers — so an axis made
+     * filterable or sortable later is gated without anyone remembering to.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<int, string>
+     */
+    public static function salaryGatedListKeys(array $filters, ?string $sort): array
+    {
+        $used = [];
+
+        foreach (self::salaryGatedFilters() as $key) {
+            if (($filters[$key] ?? null) !== null && $filters[$key] !== '') {
+                $used[] = $key;
+            }
+        }
+
+        $sortKey = $sort === null ? '' : ltrim($sort, '-');
+
+        if (in_array($sortKey, self::salaryGatedSorts(), true)) {
+            $used[] = $sortKey;
+        }
+
+        return $used;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function salaryGatedFilters(): array
+    {
+        return array_values(array_intersect(array_keys(EmployeeService::FILTERABLE), EmployeeRequest::SALARY_GATED_FIELDS));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function salaryGatedSorts(): array
+    {
+        return array_values(array_intersect(array_keys(EmployeeService::SORTABLE), EmployeeRequest::SALARY_GATED_FIELDS));
     }
 
     public function view(User $user, Employee $employee): Response

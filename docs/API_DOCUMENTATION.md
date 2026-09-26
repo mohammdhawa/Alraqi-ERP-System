@@ -1193,7 +1193,7 @@ carries **that** permission decides which employees it reaches.
 | `status` | int | `1` نشط · `2` موقوف · `3` منتهي الخدمة |
 | `department_id` | int | must exist and not be deleted |
 | `job_title_id` | int | must exist and not be deleted |
-| `activity_type` | int | 1–5 |
+| `activity_type` | int | 1–5. ⚙️ **Gated by `hr.employees.viewSalary` (2026-09-26)** — it is a pay input, and a filter reads it. Without the permission: **422** on `activity_type` (`لا تملك صلاحية التصفية حسب حقول الرواتب ومعاييرها.`). With it over some units only: the rows are limited to those units, as with every other scoped read (see Row scope below) |
 | `search` | string | matches any name part or `employee_number` |
 | `sort` | string | `employee_number`, `first_name`, `last_name`, `hire_date`, `created_at`; prefix `-` for descending |
 

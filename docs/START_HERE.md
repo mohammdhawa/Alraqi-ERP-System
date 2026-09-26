@@ -901,7 +901,10 @@ cheaper to answer as a set than one at a time.
 ⚙️ **Updated 2026-09-23, later the same day:** decisions 13, 15 and 16 were
 **built** — GAP-12 and GAP-13 are in the **Closed** register, and
 `ManagementChain` walks the escalation chain. ⚙️ **2026-09-24:** decisions 14,
-18 and 19 are built too — GAP-3 is closed and the gap register is empty.
+18 and 19 are built too — GAP-3 is closed. ⚙️ **2026-09-26:** the register is
+not empty — **GAP-15** is open: outside the employee routes a scoped grant still
+acts company-wide, and three permissions can widen their own scope. Its first
+fix must land before any grant is narrowed (`API_BUILD_STANDARD.md` §12).
 
 ### Two more on 2026-09-23 — how GAP-3 is actually built
 
@@ -978,7 +981,9 @@ it was specified.
 > 1. ~~**GAP-3, row-level authorization** — decided, not built.~~ ✅ **Built
 >    2026-09-24** for employees, per
 >    [`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`](GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md)
->    (its §8 records what was decided while building). The gap register is empty.
+>    (its §8 records what was decided while building). ⚙️ **GAP-15 is open**
+>    (registered 2026-09-26): fix its first half before the rollout narrows any
+>    grant — see `API_BUILD_STANDARD.md` §12.
 > 2. **Batch 3 itself gained a prerequisite and an obligation** — the `users`
 >    migration must land first (§9, the account model), and the importer now owes
 >    a report wherever the source names a manager the org tree disagrees with
