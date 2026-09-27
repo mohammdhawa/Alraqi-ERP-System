@@ -40,10 +40,15 @@ Default seeded admin (from `database/seeders/UserSeeder.php`): `ragab5434@gmail.
 | --- | --- | --- |
 | GET | `/roles` | `auth.roles.view` |
 | POST | `/roles` | `auth.roles.create` |
-| POST | `/roles/assign` | `auth.roles.update` |
-| POST | `/roles/unassign` | `auth.roles.update` |
+| POST | `/roles/assign` | `auth.roles.assign` |
+| POST | `/roles/unassign` | `auth.roles.assign` |
 | PUT/PATCH | `/roles/{role}` | `auth.roles.update` |
 | DELETE | `/roles/{role}` | `auth.roles.delete` (admin role is protected → 422) |
+
+`auth.roles.assign` was split out of `auth.roles.update` on 2026-09-26 (GAP-15):
+assigning is bounded by the caller's own reach, editing a role's definition is
+company-wide. A grant narrower than the company confers only the permissions the
+server enforces its scope for — see `docs/API_DOCUMENTATION.md` §5.4.
 
 ### Notifications — `/api/auth/notifications`
 | Method | Path | Notes |

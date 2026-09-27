@@ -9,7 +9,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Thrown when a role administrator grants or revokes a grant that reaches
- * further than their own `auth.roles.update` grant does (GAP-3).
+ * further than their own `auth.roles.assign` grant does (GAP-3; the permission
+ * was split out of `auth.roles.update` by GAP-15).
  *
  * 403, as for any other out-of-scope row (decision 19): the caller may use the
  * verb, just not over this reach.

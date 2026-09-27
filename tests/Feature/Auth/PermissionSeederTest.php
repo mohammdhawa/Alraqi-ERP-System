@@ -27,7 +27,7 @@ class PermissionSeederTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 27 route-level permissions + 3 field-level (C11).
+     * 28 route-level permissions + 3 field-level (C11).
      *
      * Batch 2 added ten: the job-title catalogue (4), posting history (2 — view
      * and create ONLY, because سجل التعيين is append-only), and warnings (4).
@@ -37,8 +37,12 @@ class PermissionSeederTest extends TestCase
      * inside the detail payload and no route carries it. There is deliberately
      * no create/update/delete: the table is append-only, so there is no such
      * power to grant.
+     *
+     * GAP-15 added one: `auth.roles.assign`, split out of `auth.roles.update`
+     * so that assigning (bounded by the assigner's reach) and editing a role's
+     * definition (company-wide by nature) are two grants, not one.
      */
-    private const TOTAL = 30;
+    private const TOTAL = 31;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -48,7 +52,7 @@ class PermissionSeederTest extends TestCase
 
         $expected = [
             'auth.audit.view', 'auth.audit.viewValues',
-            'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
+            'auth.roles.assign', 'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update', 'departments.view',
             'hr.assignments.create', 'hr.assignments.view',

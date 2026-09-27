@@ -36,8 +36,12 @@ class RoleService
     /**
      * The permission whose reach bounds what a role administrator may grant
      * and revoke — the one the assign/unassign routes require.
+     *
+     * `auth.roles.assign` since 2026-09-26 (GAP-15): split out of
+     * `auth.roles.update`, which now means editing role definitions and is
+     * company-only. See the note on the routes.
      */
-    public const GRANT_PERMISSION = 'auth.roles.update';
+    public const GRANT_PERMISSION = 'auth.roles.assign';
 
     public function __construct(
         private readonly AuditLogService $auditLogService,
@@ -335,7 +339,8 @@ class RoleService
 
     /**
      * A role administrator may hand out — or take away — only what their own
-     * `auth.roles.update` grant reaches (GAP-3).
+     * `auth.roles.assign` grant reaches (GAP-3; the permission was
+     * `auth.roles.update` until GAP-15 split role editing away from it).
      *
      * Without this, the scope on the assigner's grant bounded nothing: a
      * section's HR administrator could grant anyone, themselves included, a
@@ -348,11 +353,24 @@ class RoleService
      *   managed grant  → every unit the grantee manages TODAY must lie inside
      *                    it. A managed grant follows its holder around the
      *                    tree by design (decision 18); moving a manager is a
-     *                    departments decision, made by whoever may make it.
+     *                    departments decision, made by whoever may make it —
+     *                    and since GAP-15 only a company-wide grant may.
      *
-     * The check is on REACH, not on the role's permissions: which roles an
-     * `auth.roles.update` holder may hand out is not scoped, today, by
-     * anything.
+     * ⚙️ A MANAGED GRANT TO SOMEONE WHO MANAGES NOTHING is refused to a
+     * scoped assigner (2026-09-26). The rule above checks the units the
+     * grantee manages today, and for a grantee who manages none there is
+     * nothing to check — so the grant passed vacuously, and its reach was then
+     * set entirely by whichever unit that person is appointed to next, however
+     * far outside the assigner's own reach. Refused both ways, as every rule
+     * here is: a scoped assigner can neither issue such a grant nor strip one.
+     *
+     * ⚠️ WHERE, NOT WHAT — GAP-16, OPEN. This checks where a grant applies,
+     * never what the role carries. Inside their reach an assigner can hand out
+     * any role, to anyone including themselves: a clerk holding only
+     * `auth.roles.assign` over a unit can make themselves that unit's payroll.
+     * PermissionReach caps it at the unit — company-only permissions do
+     * nothing on a scoped grant — but within the unit it is an escalation. See
+     * API_BUILD_STANDARD §12.
      *
      * @throws GrantOutOfReachException
      */
@@ -362,7 +380,7 @@ class RoleService
             return;
         }
 
-        $reach =$this->scopes->for($actor, self::GRANT_PERMISSION);
+        $reach = $this->scopes->for($actor, self::GRANT_PERMISSION);
 
         if ($reach->isUnrestricted()) {
             return;
@@ -373,6 +391,12 @@ class RoleService
             ScopeType::Unit    => [$scopeDepartmentId],
             ScopeType::Managed => $this->scopes->managedUnitIds($grantee),
         };
+
+        if ($scopeType === ScopeType::Managed && $units === []) {
+            throw new GrantOutOfReachException(
+                'نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.',
+            );
+        }
 
         foreach ($units as $unit) {
             if (! $reach->covers($unit)) {

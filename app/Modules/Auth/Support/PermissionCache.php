@@ -154,11 +154,22 @@ final class PermissionCache
                 ->with('role.permissions:id,name')
                 ->get()
                 ->filter(static fn (UserRole $grant): bool => $grant->scope_type !== null)
-                ->map(static fn (UserRole $grant): array => [
-                    'scope_type'    => $grant->scope_type->value,
-                    'department_id' => $grant->scope_department_id === null ? null : (int) $grant->scope_department_id,
-                    'permissions'   => $grant->role->permissions->pluck('name')->all(),
-                ])
+                // GAP-15: a grant narrower than the company confers only the
+                // permissions something enforces its scope for. The rest are
+                // dropped HERE, once, so every reader — hasPermission(), the
+                // route middleware, /auth/me, AccessScope — agrees on what a
+                // scoped grant is worth. See PermissionReach.
+                ->map(static function (UserRole $grant): array {
+                    $permissions = $grant->role->permissions->pluck('name')->all();
+
+                    return [
+                        'scope_type'    => $grant->scope_type->value,
+                        'department_id' => $grant->scope_department_id === null ? null : (int) $grant->scope_department_id,
+                        'permissions'   => $grant->scope_type === ScopeType::Company
+                            ? $permissions
+                            : PermissionReach::effectiveForScopedGrant($permissions),
+                    ];
+                })
                 ->values()
                 ->all();
 
@@ -169,13 +180,19 @@ final class PermissionCache
     }
 
     /**
-     * ⚙️ The suffix changed from `:perms` to `:rbac` when grants joined the
-     * payload (GAP-3). An entry cached by the previous release has no `grants`
-     * key, and a shared cache store outlives a deploy — so the old key shape
-     * must be orphaned, not read.
+     * ⚙️ The suffix is part of the payload's CONTRACT, and changes whenever
+     * what a cached entry means changes — a shared cache store outlives a
+     * deploy, so an entry written by the previous release must be orphaned,
+     * not read:
+     *
+     *   `:perms` → `:rbac`   grants joined the payload (GAP-3).
+     *   `:rbac`  → `:reach`  a scoped grant's permissions are filtered through
+     *                        PermissionReach (GAP-15). An old entry still lists
+     *                        a scoped grant's company-only permissions, and
+     *                        would keep conferring them until its TTL lapsed.
      */
     private static function keyFor(User $user): string
     {
-        return sprintf('rbac:v%d:user:%d:rbac', self::version(), $user->getKey());
+        return sprintf('rbac:v%d:user:%d:reach', self::version(), $user->getKey());
     }
 }

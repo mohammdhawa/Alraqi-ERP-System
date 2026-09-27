@@ -28,4 +28,14 @@ class UnassignRoleRequest extends AssignRoleRequest
     {
         return false;
     }
+
+    protected function refusesInertGrant(): bool
+    {
+        return false;
+    }
+
+    protected function refusesScopedAssigner(): bool
+    {
+        return false;
+    }
 }

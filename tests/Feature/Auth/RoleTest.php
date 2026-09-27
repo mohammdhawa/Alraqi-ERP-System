@@ -227,8 +227,8 @@ class RoleTest extends TestCase
     /**
      * §10 test 4 — a caller holding only auth.roles.view must not be able to
      * create, edit, delete, or grant a role. Assign/unassign matter most here:
-     * they are guarded by auth.roles.update, so a read-only role must not be
-     * able to hand ITSELF a better one.
+     * they are guarded by auth.roles.assign (auth.roles.update until GAP-15),
+     * so a read-only role must not be able to hand ITSELF a better one.
      */
     public function test_a_read_only_user_cannot_write_or_grant(): void
     {
@@ -252,6 +252,33 @@ class RoleTest extends TestCase
             'user_id' => $target->id,
             'role_id' => $role->id,
         ])->assertForbidden();
+    }
+
+    /**
+     * GAP-15 split one permission into two, and the routes are the split: a
+     * company-wide `auth.roles.update` no longer assigns, and
+     * `auth.roles.assign` does not edit a role. Without this, reverting the
+     * assign middleware to `update` — or accepting both — passed every test.
+     */
+    public function test_editing_roles_and_assigning_them_are_separate_permissions(): void
+    {
+        $role   = Role::create(['name' => 'temp']);
+        $target = User::factory()->create();
+        $grant  = ['user_id' => $target->id, 'role_id' => $role->id];
+
+        $this->actingAsUserWithPermissions(['auth.roles.update']);
+
+        $this->putJson("/api/auth/roles/{$role->id}", ['name' => 'renamed'])->assertOk();
+        $this->postJson('/api/auth/roles/assign', $grant)->assertForbidden();
+        $this->postJson('/api/auth/roles/unassign', $grant)->assertForbidden();
+
+        $this->actingAsUserWithPermissions(['auth.roles.assign']);
+
+        $this->putJson("/api/auth/roles/{$role->id}", ['name' => 'renamed-again'])->assertForbidden();
+        $this->postJson('/api/auth/roles/assign', $grant)->assertOk();
+        $this->postJson('/api/auth/roles/unassign', $grant)->assertOk();
+
+        $this->assertSame('renamed', $role->fresh()->name);
     }
 
     public function test_roles_index_forbidden_without_permission(): void

@@ -617,8 +617,8 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 5 | POST | `/api/auth/password` | bearer | — (self-scoped; the only route that clears `must_change_password`) |
 | 6–9 | GET/POST/PUT/DELETE | `/api/auth/users` | bearer | `auth.users.*` |
 | 10–13 | GET/POST/PUT/DELETE | `/api/auth/roles` | bearer | `auth.roles.*` |
-| 14 | POST | `/api/auth/roles/assign` | bearer | `auth.roles.update` |
-| 15 | POST | `/api/auth/roles/unassign` | bearer | `auth.roles.update` |
+| 14 | POST | `/api/auth/roles/assign` | bearer | `auth.roles.assign` |
+| 15 | POST | `/api/auth/roles/unassign` | bearer | `auth.roles.assign` |
 | 16 | GET | `/api/auth/notifications` | bearer | owner-scoped |
 | 17 | GET | `/api/auth/notifications/unread-count` | bearer | owner-scoped |
 | 18 | POST | `/api/auth/notifications/{id}/read` | bearer | owner-scoped |
@@ -901,10 +901,11 @@ cheaper to answer as a set than one at a time.
 ⚙️ **Updated 2026-09-23, later the same day:** decisions 13, 15 and 16 were
 **built** — GAP-12 and GAP-13 are in the **Closed** register, and
 `ManagementChain` walks the escalation chain. ⚙️ **2026-09-24:** decisions 14,
-18 and 19 are built too — GAP-3 is closed. ⚙️ **2026-09-26:** the register is
-not empty — **GAP-15** is open: outside the employee routes a scoped grant still
-acts company-wide, and three permissions can widen their own scope. Its first
-fix must land before any grant is narrowed (`API_BUILD_STANDARD.md` §12).
+18 and 19 are built too — GAP-3 is closed. ⚙️ **2026-09-26:** so is **GAP-15**,
+which it left behind — outside the employee routes a scoped grant acted
+company-wide, and three permissions could widen their own scope. Decisions
+21–23 below closed it. **GAP-16 is open**: a scoped role assigner is bounded in
+WHERE they grant, not in WHAT — see `API_BUILD_STANDARD.md` §12.
 
 ### Two more on 2026-09-23 — how GAP-3 is actually built
 
@@ -965,6 +966,56 @@ two Arabic messages, two Resource keys, the service's eager-load list, rule 1 of
 `ManagementChain`, and six tests — four of them deleted, because the thing they
 covered no longer exists.
 
+### ⚙️ Three on 2026-09-26 — what a scoped grant is worth (GAP-15)
+
+| # | Question | Answer |
+|---|---|---|
+| 21 | **Which permissions does a grant narrower than the company confer?** | **Only those whose scope the server enforces.** Everything else counts only from a company-wide grant — an allow-list (`PermissionReach`), so a permission added later is company-only until something enforces its scope |
+| 22 | **`auth.roles.update` guarded both assigning roles and editing role definitions — how are they separated?** | **A new permission, `auth.roles.assign`.** Assigning is reach-bounded and may be scoped; `auth.roles.update` edits what a role carries, which changes every holder company-wide, and is company-only. Every role holding `update` was given `assign` by migration. ⚠️ The reach bound covers where, not what (GAP-16, open) — scoping `assign` waits on that fix, and until then the server refuses a non-company grant of a role carrying it (422) |
+| 23 | **What about reading the company catalogues from a scoped grant?** | **Honoured from any grant**: `departments.view`, `hr.job_titles.view` and `auth.roles.view`. The org chart, the job titles and the role list are company configuration with no personal data, and a scoped user's pickers need them. Their writes stay company-only |
+
+Why it mattered: GAP-3 scoped the employee routes, but every other route checked
+the permission by name, so a unit-scoped grant acted company-wide there — and
+`departments.update`, `auth.users.*` and role editing change who manages which
+unit, which account is which employee, and what a role carries: the inputs of
+scope itself. A scoped grant could widen its own scope. Nothing was exploitable
+yet (every grant was still company-wide), which is exactly why it had to close
+before the rollout narrows any.
+
+**What this leaves as follow-on work, not as a gap:** real subtree scoping for
+department writes and for the audit list. Until it exists those permissions are
+company-only — refused from a scoped grant, never quietly company-wide.
+
+**⚠️ Deploy order.** Run `php artisan migrate` **before** the code takes
+traffic: `2026_09_26_100000_split_auth_roles_assign_permission` creates
+`auth.roles.assign` and gives it to every role holding `auth.roles.update`.
+Code first means a 403 on assign/unassign for every role administrator short of
+a super admin until the migration runs.
+
+What the deploy changes, stated plainly: nobody loses the ability to ASSIGN,
+but any existing grant narrower than the company stops conferring its
+company-only permissions the moment the code is live — that is GAP-15's point.
+Every grant is documented as company-wide today, so it should touch nobody; the
+migration checks rather than trusts that:
+
+- it **refuses to run**, before writing anything, if a role carrying
+  `auth.roles.update` is granted over a unit or managed scope — the copy would
+  turn it into a scoped `auth.roles.assign`, which GAP-16 forbids. It names the
+  grants; narrow or revoke them and migrate again;
+- it **reports** (log and STDERR) every scoped grant that stops conferring
+  something, and what;
+- rolling it back **refuses** while a role holds `assign` without `update`: the
+  role would lose assigning, and handing it `update` instead would add role
+  editing. Whoever rolls back chooses.
+
+**And one gap found the same day, still open: GAP-16.** A review of this work
+showed the reach check on `auth.roles.assign` bounds *where* a grant applies,
+not *what* the role carries — a scoped assigner could hand themselves any role
+inside their unit. Two smaller findings from the same review were fixed at
+once: a managed grant to someone who manages nothing is refused to a scoped
+assigner (it passed unchecked), and a scoped grant that would confer nothing at
+all is a 422 rather than a 200.
+
 ---
 
 ## 10. What to do next — Batch 3, the import tooling
@@ -981,9 +1032,10 @@ it was specified.
 > 1. ~~**GAP-3, row-level authorization** — decided, not built.~~ ✅ **Built
 >    2026-09-24** for employees, per
 >    [`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`](GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md)
->    (its §8 records what was decided while building). ⚙️ **GAP-15 is open**
->    (registered 2026-09-26): fix its first half before the rollout narrows any
->    grant — see `API_BUILD_STANDARD.md` §12.
+>    (its §8 records what was decided while building). ⚙️ **GAP-15**, which it
+>    left behind, was registered and closed on 2026-09-26 (§9, decisions
+>    21–23). Narrowed grants can roll out — **except `auth.roles.assign`**,
+>    which stays company-wide until **GAP-16** (open) is fixed.
 > 2. **Batch 3 itself gained a prerequisite and an obligation** — the `users`
 >    migration must land first (§9, the account model), and the importer now owes
 >    a report wherever the source names a manager the org tree disagrees with

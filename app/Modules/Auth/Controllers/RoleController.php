@@ -29,8 +29,8 @@ use Illuminate\Routing\Controller;
  *   POST   /api/auth/roles          → store   (permission:auth.roles.create)
  *   PUT    /api/auth/roles/{role}   → update  (permission:auth.roles.update)
  *   DELETE /api/auth/roles/{role}   → destroy  (permission:auth.roles.delete)
- *   POST   /api/auth/roles/assign   → assign   (permission:auth.roles.update)
- *   POST   /api/auth/roles/unassign → unassign (permission:auth.roles.update)
+ *   POST   /api/auth/roles/assign   → assign   (permission:auth.roles.assign)
+ *   POST   /api/auth/roles/unassign → unassign (permission:auth.roles.assign)
  */
 class RoleController extends Controller
 {
@@ -91,7 +91,8 @@ class RoleController extends Controller
      * not need a follow-up request to refresh what it just changed.
      *
      * The caller is passed as the grantor: the service refuses a grant that
-     * reaches further than the caller's own `auth.roles.update` (GAP-3).
+     * reaches further than the caller's own `auth.roles.assign` (GAP-3; split
+     * out of `auth.roles.update` by GAP-15).
      */
     public function assign(AssignRoleRequest $request): JsonResponse
     {

@@ -267,7 +267,7 @@ class RoleScopeTest extends TestCase
 
     public function test_a_unit_scoped_role_admin_cannot_grant_company_wide_even_to_themselves(): void
     {
-        $admin = $this->actingAsScopedUser(['auth.roles.update'], ScopeType::Unit, $this->division->id);
+        $admin = $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
 
         foreach ([$this->target, $admin] as $grantee) {
             $this->postJson('/api/auth/roles/assign', ['user_id' => $grantee->id, 'role_id' => $this->role->id])
@@ -280,7 +280,7 @@ class RoleScopeTest extends TestCase
 
     public function test_a_unit_scoped_role_admin_grants_inside_their_unit_but_not_above_it(): void
     {
-        $this->actingAsScopedUser(['auth.roles.update'], ScopeType::Unit, $this->division->id);
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
 
         $this->postJson('/api/auth/roles/assign', [
             'user_id'             => $this->target->id,
@@ -301,7 +301,7 @@ class RoleScopeTest extends TestCase
 
     public function test_a_managed_grant_must_not_reach_past_the_role_admin(): void
     {
-        $this->actingAsScopedUser(['auth.roles.update'], ScopeType::Unit, $this->division->id);
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
 
         $head = Employee::factory()->create(['department_id' => $this->division->parent_id]);
         Department::whereKey($this->division->parent_id)->update(['manager_id' => $head->id]);
@@ -324,9 +324,56 @@ class RoleScopeTest extends TestCase
         ])->assertOk();
     }
 
+    /**
+     * Found in review, 2026-09-26: the managed rule checks every unit the
+     * grantee manages TODAY, and for someone who manages nothing that is no
+     * units — so the loop ran zero times and the grant passed unchecked. Its
+     * reach would then be set by whatever unit they are appointed to next,
+     * however far outside the admin's own.
+     */
+    public function test_a_scoped_role_admin_cannot_give_managed_scope_to_someone_who_manages_nothing(): void
+    {
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
+
+        $nobody = Employee::factory()->create(['department_id' => $this->section->id]);
+        $this->target->update(['employee_id' => $nobody->id]);
+
+        $this->postJson('/api/auth/roles/assign', [
+            'user_id'    => $this->target->id,
+            'role_id'    => $this->role->id,
+            'scope_type' => ScopeType::Managed->value,
+        ])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.');
+
+        $this->assertSame(0, UserRole::where('user_id', $this->target->id)->count());
+    }
+
+    public function test_nor_strip_one_but_a_company_wide_admin_can_do_both(): void
+    {
+        $nobody = Employee::factory()->create(['department_id' => $this->section->id]);
+        $this->target->update(['employee_id' => $nobody->id]);
+
+        // A company-wide assigner is unbounded, so the latent grant is theirs
+        // to make — an appointment is expected to follow.
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Company);
+        $body = [
+            'user_id'    => $this->target->id,
+            'role_id'    => $this->role->id,
+            'scope_type' => ScopeType::Managed->value,
+        ];
+        $this->postJson('/api/auth/roles/assign', $body)->assertOk();
+
+        // Symmetric, like every reach rule: a scoped admin cannot strip it.
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
+        $this->postJson('/api/auth/roles/unassign', $body)->assertForbidden();
+
+        $this->assertSame(1, UserRole::where('user_id', $this->target->id)->count());
+    }
+
     public function test_a_unit_scoped_role_admin_cannot_revoke_a_grant_beyond_their_reach(): void
     {
-        $this->actingAsScopedUser(['auth.roles.update'], ScopeType::Unit, $this->division->id);
+        $this->actingAsScopedUser(['auth.roles.assign'], ScopeType::Unit, $this->division->id);
 
         $this->target->roles()->attach($this->role->id);
         $this->target->roles()->attach($this->role->id, ['scope_type' => ScopeType::Unit->value, 'scope_department_id' => $this->section->id]);

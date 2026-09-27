@@ -68,6 +68,12 @@ class PermissionSeeder extends Seeder
         'auth' => [
             'auth.users.view', 'auth.users.create', 'auth.users.update', 'auth.users.delete',
             'auth.roles.view', 'auth.roles.create', 'auth.roles.update', 'auth.roles.delete',
+            // Granting a role to a user — split out of auth.roles.update on
+            // 2026-09-26 (GAP-15). Assigning is bounded by the assigner's own
+            // reach; editing what a role carries is company-wide by nature.
+            // One permission could not be both. (The reach bound is on where,
+            // not what — GAP-16 — so do not grant this over a unit yet.)
+            'auth.roles.assign',
             'auth.audit.view', 'auth.audit.viewValues',
         ],
     ];
@@ -107,6 +113,7 @@ class PermissionSeeder extends Seeder
         'auth.roles.create'         => 'إنشاء دور',
         'auth.roles.update'         => 'تعديل دور',
         'auth.roles.delete'         => 'حذف دور',
+        'auth.roles.assign'         => 'إسناد الأدوار للمستخدمين',
         'auth.audit.view'           => 'عرض سجل التدقيق',
         'auth.audit.viewValues'     => 'عرض تفاصيل التغييرات',
     ];

@@ -90,12 +90,26 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     // Assign/unassign are declared before the /{role} routes so the literal
     // paths win over the {role} wildcard.
+    //
+    // ⚙️ `auth.roles.assign`, NOT `auth.roles.update`, since 2026-09-26 (GAP-15,
+    // decision 22). The two used to be one permission, which meant one grant
+    // did two very different things: assigning is bounded by the assigner's
+    // own reach (RoleService::ensureWithinReach); editing a role's DEFINITION
+    // changes what every holder of that role can do, company-wide. Split,
+    // `auth.roles.update` is company-only (PermissionReach) and
+    // `auth.roles.assign` keeps its scope.
+    //
+    // ⚠️ NOT YET SAFE TO GRANT OVER A UNIT — GAP-16, open. The reach bound is
+    // on WHERE a grant applies, not on WHAT the role carries, so a scoped
+    // assigner can hand themselves any role inside their unit. Until the
+    // subset rule lands, `auth.roles.assign` belongs on company grants only —
+    // and AssignRoleRequest / UpdateRoleRequest refuse to put it anywhere else.
     Route::post('/roles/assign', [RoleController::class, 'assign'])
-        ->middleware('permission:auth.roles.update')
+        ->middleware('permission:auth.roles.assign')
         ->name('auth.roles.assign');
 
     Route::post('/roles/unassign', [RoleController::class, 'unassign'])
-        ->middleware('permission:auth.roles.update')
+        ->middleware('permission:auth.roles.assign')
         ->name('auth.roles.unassign');
 
     Route::match(['put', 'patch'], '/roles/{role}', [RoleController::class, 'update'])

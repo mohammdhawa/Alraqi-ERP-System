@@ -3,6 +3,22 @@
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
 >
+> ⚠️ **BREAKING, 2026-09-26 — assigning roles needs `auth.roles.assign`.**
+> `POST /api/auth/roles/assign` and `/unassign` no longer take
+> `auth.roles.update`, which now means editing role *definitions* only. Every
+> role that held `auth.roles.update` was given `auth.roles.assign` by migration,
+> so nobody lost the ability to assign — but **a client that shows the assign UI on
+> `auth.roles.update` must switch to `auth.roles.assign`**. And a grant scoped to
+> a unit or «الوحدات التي أديرها» now confers **only** the permissions whose
+> scope the server enforces (see §5.4, "What a scoped grant confers"); `/auth/me`
+> lists exactly those, so a UI built from it stays truthful.
+> **Deploy:** run `php artisan migrate` before the new code takes traffic — the
+> migration creates `auth.roles.assign` and hands it out; code live first would
+> 403 every role administrator short of a super admin until it runs. It
+> **refuses** if a role carrying `auth.roles.update` is granted over a unit
+> (that would become a scoped `assign`, which GAP-16 forbids), and it **reports**
+> every existing scoped grant that stops conferring a company-only permission.
+>
 > ⚠️ **BREAKING, 2026-09-24 — `direct_manager_id` and `direct_manager` are
 > gone.** Employee payloads carry a single **`manager`**, resolved from the org
 > tree; bind "المدير المباشر" to it. `direct_manager_id` is no longer accepted on
@@ -319,7 +335,7 @@ Permission string format: `{module}.{resource}.{action}`.
 | HR – Assignments  | `hr.assignments.view`, `hr.assignments.create` — **no update or delete**, see [§8.3](#83-posting-history--سجل-التعيين) |
 | HR – Warnings     | `hr.warnings.view`, `hr.warnings.create`, `hr.warnings.update`, `hr.warnings.delete`         |
 | Auth – Users      | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`             |
-| Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`             |
+| Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`, `auth.roles.assign` — **`update` edits a role's definition; `assign` grants roles to users** (split 2026-09-26) |
 | Auth – Audit      | `auth.audit.view` — **no create/update/delete**, see [§9](#9-audit-log--سجل-التدقيق); `auth.audit.viewValues` — **field-level**, see below |
 
 > `hr.assignments` has no `update` or `delete` **by design**, not by omission:
@@ -745,11 +761,15 @@ Partial update.
 
 **200 Response** → `{ data: <role object>, message: "تم تحديث الدور." }`
 **409** — system role (`is_system`, e.g. `super_admin`): `لا يمكن تعديل أو حذف دور نظام.`
+**422 on `permissions`** — adding `auth.roles.assign` to a role that is already
+granted over a unit or «الوحدات التي أديرها» (to a live account) would turn
+every such holder into a scoped assigner (GAP-16):
+`لا تُضاف صلاحية إسناد الأدوار إلى دور مُسند على نطاق أضيق من «الشركة كاملة». اسحب تلك الإسنادات أو اجعلها على مستوى الشركة أولاً.`
 
 ### 5.4 Assign role to user
 
 ```
-POST /api/auth/roles/assign        (permission: auth.roles.update)
+POST /api/auth/roles/assign        (permission: auth.roles.assign)
 ```
 
 | Field                 | Type    | Rules                                                                 |
@@ -789,19 +809,61 @@ scope, so `scope_type` `2` or `3` with the `super_admin` role is a **422** on
 `scope_type`.
 
 **You can only grant what you reach.** The grant may not reach further than the
-caller's own `auth.roles.update` grant. A company-wide caller may grant anything;
-a caller holding `auth.roles.update` over a unit may grant `2` inside that unit,
+caller's own `auth.roles.assign` grant. A company-wide caller may grant anything;
+a caller holding `auth.roles.assign` over a unit may grant `2` inside that unit,
 or `3` to someone whose managed units are all inside it — and **never** `1`, not
 even to themselves. Anything else is a **403**:
 `لا يمكنك منح أو سحب صلاحية تتجاوز نطاق صلاحياتك.`
 
+A scoped caller may not give `3` to someone who **manages nothing** — nor revoke
+one: its reach would be set by whatever unit that person is appointed to next,
+beyond the caller's. **403**:
+`نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.`
+
+⚠️ **This bounds WHERE a grant applies, not WHAT the role carries** (GAP-16,
+open): inside their reach a scoped assigner could hand out any role, to
+themselves included. Until the subset rule lands the server keeps scoped
+assigners from being created at all — **422 on `scope_type`** when a role
+carrying `auth.roles.assign` is granted over anything narrower than the
+company, for every caller:
+`هذا الدور يتضمن صلاحية إسناد الأدوار، ولا يُسند إلا على مستوى «الشركة كاملة» حالياً.`
+Revoking such a grant is always accepted. (Role edits have the same rule — see
+§5.3.)
+
+**422 on `scope_type`** when a grant over a unit or «الوحدات التي أديرها» would
+confer **nothing** — every permission in the role works company-wide only (see
+below). A role that is only *partly* company-only is accepted, and so is a role
+with no permissions at all (it confers nothing at any scope):
+`لن يمنح هذا الإسناد أي صلاحية على هذا النطاق: كل صلاحيات هذا الدور لا تعمل إلا بإسناد على مستوى «الشركة كاملة». اختر دوراً آخر لهذا النطاق.`
+
 **422** — unknown user/role: `المستخدم المحدد غير موجود.` / `الدور المحدد غير موجود.`;
 a malformed scope names the field (`scope_type` or `scope_department_id`).
+
+#### What a scoped grant confers (GAP-15, 2026-09-26)
+
+A grant over a unit or «الوحدات التي أديرها» confers **only** the permissions
+whose scope the server actually enforces. Everything else in its role counts
+only from a **company-wide** grant — held over a unit, it is simply not held:
+absent from `/auth/me`, and a route requiring it answers the ordinary **403**.
+
+| From any grant (scope applied where it means something) | Only from a company-wide grant |
+| --- | --- |
+| `hr.employees.*` (incl. `viewSalary` / `viewIdentity`), `hr.assignments.*`, `hr.warnings.*` — **row-scoped** (§8.1) | `departments.create` / `update` / `delete` |
+| `auth.roles.assign` — **bounded by the assigner's reach** (above) — where, not what: GAP-16 | `hr.job_titles.create` / `update` / `delete` |
+| `departments.view`, `hr.job_titles.view`, `auth.roles.view` — **company catalogues**, readable from any grant so a scoped user's pickers work | `auth.users.*`, `auth.roles.create` / `update` / `delete`, `auth.audit.view` / `viewValues` |
+
+Why: those routes check the permission by name and nothing else, and three of
+them edit what scope is computed from — who manages which unit, which account is
+which employee, what a role carries — so a scoped grant holding them could widen
+its own reach. A permission added in future is company-only until the server
+enforces its scope. **For an admin UI:** a role assigned over a unit keeps its
+company-only permissions on paper, but they do nothing there — worth a warning
+when assigning.
 
 ### 5.5 Unassign role from user
 
 ```
-POST /api/auth/roles/unassign      (permission: auth.roles.update)
+POST /api/auth/roles/unassign      (permission: auth.roles.assign)
 ```
 Same body as assign. **With** `scope_type` (and `scope_department_id` for a unit)
 only that one grant is revoked; **without** it, **every** grant of the role is
@@ -1687,8 +1749,8 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 11| POST        | `/api/auth/roles`                            | bearer   | `auth.roles.create`    |
 | 12| PUT/PATCH   | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.update`    |
 | 13| DELETE      | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.delete`    |
-| 14| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.update`    |
-| 15| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.update`    |
+| 14| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.assign`    |
+| 15| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.assign`    |
 | 16| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
 | 17| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
 | 18| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
