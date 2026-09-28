@@ -8,9 +8,10 @@
 > and the audit trail, and for `departments.update`, `auth.users.*` and editing
 > role definitions that was a way for a scoped grant to widen its own scope. Now
 > a scoped grant confers only what something enforces its scope for
-> (`PermissionReach`; START_HERE §9, decisions 21–23). ⚠️ **GAP-16 (open):**
-> the reach check this work order built for role assignment bounds where a
-> grant applies, not what the role carries. What was decided while
+> (`PermissionReach`; START_HERE §9, decisions 21–23). ⚙️ **GAP-16, closed
+> 2026-09-28 (decision 24):** the reach check this work order built for role
+> assignment bounded where a grant applies, not what the role carries; the
+> subset rule now bounds both. What was decided while
 > building — including the two traps in §4 that asked for a decision — is in
 > **§8** at the bottom.
 

@@ -33,9 +33,4 @@ class UnassignRoleRequest extends AssignRoleRequest
     {
         return false;
     }
-
-    protected function refusesScopedAssigner(): bool
-    {
-        return false;
-    }
 }

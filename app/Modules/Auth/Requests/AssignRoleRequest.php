@@ -117,39 +117,14 @@ class AssignRoleRequest extends FormRequest
                     );
                 }
             },
-            function (Validator $validator): void {
-                if ($validator->errors()->isNotEmpty() || ! $this->refusesScopedAssigner()) {
-                    return;
-                }
-
-                if ($this->grantWouldMakeAScopedAssigner()) {
-                    $validator->errors()->add(
-                        'scope_type',
-                        'هذا الدور يتضمن صلاحية إسناد الأدوار، ولا يُسند إلا على مستوى «الشركة كاملة» حالياً.',
-                    );
-                }
-            },
         ];
     }
 
-    /**
-     * A grant narrower than the company of a role that carries
-     * `auth.roles.assign` — what GAP-16 forbids until the subset rule lands.
-     *
-     * A scoped assigner is bounded in WHERE they grant, never in WHAT, so they
-     * can hand themselves any role inside their unit. The documentation said
-     * not to create one; this is the server saying it too. Refused for every
-     * assigner, super admin included: the danger is in the grant, not in who
-     * makes it. Its twin for role edits is UpdateRoleRequest.
-     */
-    private function grantWouldMakeAScopedAssigner(): bool
-    {
-        if (($this->scopeType() ?? ScopeType::Company) === ScopeType::Company) {
-            return false;
-        }
-
-        return $this->role()?->permissions->contains('name', RoleService::GRANT_PERMISSION) === true;
-    }
+    // ⚙️ A scoped grant of a role carrying `auth.roles.assign` was refused
+    // here from 2026-09-26 while GAP-16 was open: its holder was bounded in
+    // WHERE they could grant, never in WHAT. RoleService::ensureMayGrant()
+    // now bounds both — an assigner hands out only what they hold over the
+    // same units — so a scoped assigner is a legitimate grant (2026-09-28).
 
     /**
      * A grant narrower than the company that would confer NOTHING (GAP-15).
@@ -185,7 +160,7 @@ class AssignRoleRequest extends FormRequest
 
     /**
      * The role being granted, with its permissions, loaded ONCE for every
-     * after-validation check (narrowed super_admin, inert grant, scoped assigner).
+     * after-validation check (narrowed super_admin, inert grant).
      * Each used to fetch it for itself. RoleService loads it once more by id —
      * the service takes ids by design, so every caller gets the same lookup.
      */
@@ -205,15 +180,6 @@ class AssignRoleRequest extends FormRequest
      * one needs to do.
      */
     protected function refusesInertGrant(): bool
-    {
-        return true;
-    }
-
-    /**
-     * Granting refuses a scoped grant of a role that can assign (GAP-16).
-     * Revoking must not: removing one is the way back to the safe state.
-     */
-    protected function refusesScopedAssigner(): bool
     {
         return true;
     }

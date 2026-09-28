@@ -41,11 +41,11 @@ final class PermissionReach
      * - The employee family: EmployeePolicy / EmployeeWarningPolicy per row,
      *   the list filtered on the builder, the destination unit of a create or
      *   transfer checked, and the pay / identity fields gated per row.
-     * - `auth.roles.assign`: RoleService::ensureWithinReach() refuses a grant
-     *   beyond the assigner's own reach (decision 22 split it out of
-     *   `auth.roles.update`, which edits role DEFINITIONS and is company-only).
-     *   ⚠️ That bounds WHERE a grant applies, not WHAT the role carries —
-     *   GAP-16, open: until it is fixed, grant this over the company only.
+     * - `auth.roles.assign`: RoleService::ensureMayGrant() refuses a grant
+     *   beyond the assigner's own reach, and one carrying a permission they do
+     *   not hold over the same units (GAP-16, decision 24). Decision 22 split
+     *   it out of `auth.roles.update`, which edits role DEFINITIONS and is
+     *   company-only.
      *
      * @var array<int, string>
      */

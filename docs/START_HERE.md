@@ -67,8 +67,9 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **362 passing**, 1819 assertions, ~10s |
-| **Working tree** | modified — Batch 2 (the employees rebuild), سجل التدقيق, and the account model are all uncommitted |
+| **Test suite** | **470 passing**, 2173 assertions (2026-09-28) |
+| **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
+| **Open gaps** | GAP-17, 18, 19 — `API_BUILD_STANDARD.md` §12. **GAP-19 blocks Batch 3** |
 | **Production data** | none — the database has never held a real employee |
 
 **Done:** Phase 1 (the whole foundation) + Batches 1 and 2 of Phase 1.5
@@ -904,8 +905,9 @@ cheaper to answer as a set than one at a time.
 18 and 19 are built too — GAP-3 is closed. ⚙️ **2026-09-26:** so is **GAP-15**,
 which it left behind — outside the employee routes a scoped grant acted
 company-wide, and three permissions could widen their own scope. Decisions
-21–23 below closed it. **GAP-16 is open**: a scoped role assigner is bounded in
-WHERE they grant, not in WHAT — see `API_BUILD_STANDARD.md` §12.
+21–23 below closed it. ⚙️ **2026-09-28:** **GAP-16** too — a scoped role
+assigner was bounded in WHERE they granted, not in WHAT; decision 24 below
+closed it.
 
 ### Two more on 2026-09-23 — how GAP-3 is actually built
 
@@ -971,7 +973,7 @@ covered no longer exists.
 | # | Question | Answer |
 |---|---|---|
 | 21 | **Which permissions does a grant narrower than the company confer?** | **Only those whose scope the server enforces.** Everything else counts only from a company-wide grant — an allow-list (`PermissionReach`), so a permission added later is company-only until something enforces its scope |
-| 22 | **`auth.roles.update` guarded both assigning roles and editing role definitions — how are they separated?** | **A new permission, `auth.roles.assign`.** Assigning is reach-bounded and may be scoped; `auth.roles.update` edits what a role carries, which changes every holder company-wide, and is company-only. Every role holding `update` was given `assign` by migration. ⚠️ The reach bound covers where, not what (GAP-16, open) — scoping `assign` waits on that fix, and until then the server refuses a non-company grant of a role carrying it (422) |
+| 22 | **`auth.roles.update` guarded both assigning roles and editing role definitions — how are they separated?** | **A new permission, `auth.roles.assign`.** Assigning is reach-bounded and may be scoped; `auth.roles.update` edits what a role carries, which changes every holder company-wide, and is company-only. Every role holding `update` was given `assign` by migration. ⚠️ The reach bound covers where, not what (GAP-16) — scoping `assign` waited on that fix, and until it landed the server refused a non-company grant of a role carrying it (422). ⚙️ Fixed 2026-09-28 by decision 24; the 422 is gone |
 | 23 | **What about reading the company catalogues from a scoped grant?** | **Honoured from any grant**: `departments.view`, `hr.job_titles.view` and `auth.roles.view`. The org chart, the job titles and the role list are company configuration with no personal data, and a scoped user's pickers need them. Their writes stay company-only |
 
 Why it mattered: GAP-3 scoped the employee routes, but every other route checked
@@ -1008,13 +1010,43 @@ migration checks rather than trusts that:
   role would lose assigning, and handing it `update` instead would add role
   editing. Whoever rolls back chooses.
 
-**And one gap found the same day, still open: GAP-16.** A review of this work
-showed the reach check on `auth.roles.assign` bounds *where* a grant applies,
-not *what* the role carries — a scoped assigner could hand themselves any role
-inside their unit. Two smaller findings from the same review were fixed at
-once: a managed grant to someone who manages nothing is refused to a scoped
-assigner (it passed unchecked), and a scoped grant that would confer nothing at
-all is a 422 rather than a 200.
+**And one gap found the same day: GAP-16** (⚙️ closed 2026-09-28, below). A
+review of this work showed the reach check on `auth.roles.assign` bounds *where*
+a grant applies, not *what* the role carries — a scoped assigner could hand
+themselves any role inside their unit. Two smaller findings from the same review
+were fixed at once: a managed grant to someone who manages nothing is refused to
+a scoped assigner (it passed unchecked), and a scoped grant that would confer
+nothing at all is a 422 rather than a 200.
+
+### ⚙️ One on 2026-09-28 — what an administrator may hand out (GAP-16)
+
+| # | Question | Answer |
+|---|---|---|
+| 24 | **What may a role administrator hand out, and to whom does that bound apply?** | **Only what they hold themselves, over the same units — for every administrator but a super admin, company-wide ones included.** Three rulings, taken together: (a) the **subset rule** binds company-wide assigners as well as scoped ones; (b) **`super_admin` is granted and revoked by a super admin only**; (c) **revoking is bounded exactly as granting is** — nobody takes away what they could not have given |
+
+**What it means in practice.** A company-wide HR administrator who does not hold
+`hr.employees.viewSalary` cannot hand out a payroll role — not to themselves,
+not to anyone. Only a super admin can hand out any role at all. The cost,
+accepted: a role carrying a permission no ordinary administrator holds has to be
+granted by a super admin.
+
+**It reached further than assigning, on purpose.** Adding a permission to a
+role you already hold gives you that permission with no grant at all, so the
+same bound applies to role **definitions**: creating, editing (every permission
+added or removed) and deleting a role require each permission touched to be held
+**company-wide** — a definition is a company-wide object, whoever holds it.
+
+**Why (a) and (c) mattered.** Without (a), `auth.roles.assign` held company-wide
+would still be every permission in the catalogue, one self-grant away. Without
+(c), a lesser administrator could strip a senior one's access — not an
+escalation, but the same failure of least privilege pointed the other way.
+
+**What changed for the rollout.** The 422 that refused a scoped grant of a role
+carrying `auth.roles.assign` existed only because this rule did not. It is gone:
+a section's administrator may now hold `auth.roles.assign` over their section,
+and hand out, there, only what they hold there. Built in
+`RoleService::ensureMayGrant()` and `ensureHoldsCompanyWide()`; tested in
+`RoleSubsetRuleTest`; contract in `API_DOCUMENTATION.md` §5.2–§5.6.
 
 ---
 
@@ -1034,12 +1066,18 @@ it was specified.
 >    [`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`](GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md)
 >    (its §8 records what was decided while building). ⚙️ **GAP-15**, which it
 >    left behind, was registered and closed on 2026-09-26 (§9, decisions
->    21–23). Narrowed grants can roll out — **except `auth.roles.assign`**,
->    which stays company-wide until **GAP-16** (open) is fixed.
+>    21–23). Narrowed grants can roll out — ~~except `auth.roles.assign`,
+>    which stays company-wide until GAP-16 is fixed~~ — ⚙️ `auth.roles.assign`
+>    included since **GAP-16** closed on 2026-09-28 (decision 24).
 > 2. **Batch 3 itself gained a prerequisite and an obligation** — the `users`
 >    migration must land first (§9, the account model), and the importer now owes
 >    a report wherever the source names a manager the org tree disagrees with
 >    (§9, decision 20).
+> 3. ⚙️ **And a second prerequisite (2026-09-28): GAP-19.** Correcting an
+>    employee's `hire_date` does not move their opening posting, and the
+>    importer re-runs against HR corrections — so every hire date fixed between
+>    runs would leave the posting history disagreeing with it. Fix it in the
+>    model before the importer is written; see `API_BUILD_STANDARD.md` §12.
 
 ### Why it had to happen before the import
 

@@ -3,6 +3,16 @@
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
 >
+> ⚠️ **2026-09-28 — you can only hand out what you hold (GAP-16).** Assigning or
+> revoking a role, and creating, editing or deleting one, is now a **403** when
+> it would make someone gain or lose a permission the caller does not hold
+> themselves — over the grant's units for assign/unassign, company-wide for a
+> role definition. The message names the missing permissions by their Arabic
+> labels. **Only a super admin** grants or revokes `super_admin`. The interim
+> **422** that refused a scoped grant of a role carrying `auth.roles.assign`
+> (and adding `assign` to a role held narrowly) is **gone**: a scoped assigner
+> is legitimate now. See §5.2–§5.6. Nothing to migrate.
+>
 > ⚠️ **BREAKING, 2026-09-26 — assigning roles needs `auth.roles.assign`.**
 > `POST /api/auth/roles/assign` and `/unassign` no longer take
 > `auth.roles.update`, which now means editing role *definitions* only. Every
@@ -742,6 +752,8 @@ POST /api/auth/roles         (permission: auth.roles.create)
 
 **201 Response** → `{ data: <role object>, message: "تم إنشاء الدور." }`
 **422** — `name.unique`: `يوجد دور بهذا الاسم بالفعل.` / unknown permission: `واحدة أو أكثر من الصلاحيات المحددة غير موجودة.`
+**403** — a permission the caller does not hold **company-wide** (GAP-16; a super admin holds everything). The message lists them:
+`لا يُنشأ دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة». لا تملك: «عرض رواتب الموظفين».`
 
 ### 5.3 Update role
 
@@ -761,10 +773,15 @@ Partial update.
 
 **200 Response** → `{ data: <role object>, message: "تم تحديث الدور." }`
 **409** — system role (`is_system`, e.g. `super_admin`): `لا يمكن تعديل أو حذف دور نظام.`
-**422 on `permissions`** — adding `auth.roles.assign` to a role that is already
-granted over a unit or «الوحدات التي أديرها» (to a live account) would turn
-every such holder into a scoped assigner (GAP-16):
-`لا تُضاف صلاحية إسناد الأدوار إلى دور مُسند على نطاق أضيق من «الشركة كاملة». اسحب تلك الإسنادات أو اجعلها على مستوى الشركة أولاً.`
+**403** — every permission **added or removed** must be one the caller holds
+**company-wide** (GAP-16). Editing a role changes what everyone holding it may
+do — the caller included — so without this, adding a permission to your own
+role would be a way to acquire it. Permissions left unchanged are not checked.
+The message lists what is missing:
+`لا تُضاف صلاحية إلى دور ولا تُزال منه ما لم تكن تملكها أنت على مستوى «الشركة كاملة»، لأن تعديل الدور يغيّر ما يملكه كل من أُسند إليه. لا تملك: «…».`
+
+~~422 on `permissions` for adding `auth.roles.assign` to a role held over a
+unit~~ — removed 2026-09-28 with the GAP-16 fix.
 
 ### 5.4 Assign role to user
 
@@ -820,15 +837,24 @@ one: its reach would be set by whatever unit that person is appointed to next,
 beyond the caller's. **403**:
 `نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.`
 
-⚠️ **This bounds WHERE a grant applies, not WHAT the role carries** (GAP-16,
-open): inside their reach a scoped assigner could hand out any role, to
-themselves included. Until the subset rule lands the server keeps scoped
-assigners from being created at all — **422 on `scope_type`** when a role
-carrying `auth.roles.assign` is granted over anything narrower than the
-company, for every caller:
-`هذا الدور يتضمن صلاحية إسناد الأدوار، ولا يُسند إلا على مستوى «الشركة كاملة» حالياً.`
-Revoking such a grant is always accepted. (Role edits have the same rule — see
-§5.3.)
+**You can only grant what you hold (GAP-16, 2026-09-28).** Every permission the
+grant would **confer**, the caller must hold themselves **over the same units**
+— company-wide for a `1` grant, over the named unit for `2`, over every unit the
+grantee manages today for `3` (company-wide if they manage none). "Confer" is
+exact: over a unit, the role's company-only permissions confer nothing (table
+below), so they are not asked of the caller either. This binds **every caller
+but a super admin**, company-wide assigners included — an administrator who
+cannot see pay cannot hand out a payroll role, to themselves or to anyone.
+**403**, naming what is missing:
+`لا يُمنح دور ولا يُسحب إلا ممن يملك كل ما يمنحه هذا الدور على النطاق نفسه. لا تملك: «عرض رواتب الموظفين».`
+
+**`super_admin` is granted and revoked by a super admin only** — it carries no
+permission rows, so the rule above would pass it for anyone. **403**:
+`دور مدير النظام لا يمنحه ولا يسحبه إلا مدير نظام.`
+
+A role carrying `auth.roles.assign` **may** be granted over a unit or
+«الوحدات التي أديرها» since 2026-09-28: its holder is bound by the same two rules.
+(From 2026-09-26 until then it was a 422, while this was open.)
 
 **422 on `scope_type`** when a grant over a unit or «الوحدات التي أديرها» would
 confer **nothing** — every permission in the role works company-wide only (see
@@ -849,7 +875,7 @@ absent from `/auth/me`, and a route requiring it answers the ordinary **403**.
 | From any grant (scope applied where it means something) | Only from a company-wide grant |
 | --- | --- |
 | `hr.employees.*` (incl. `viewSalary` / `viewIdentity`), `hr.assignments.*`, `hr.warnings.*` — **row-scoped** (§8.1) | `departments.create` / `update` / `delete` |
-| `auth.roles.assign` — **bounded by the assigner's reach** (above) — where, not what: GAP-16 | `hr.job_titles.create` / `update` / `delete` |
+| `auth.roles.assign` — **bounded by the assigner's reach and by what they hold** (above) | `hr.job_titles.create` / `update` / `delete` |
 | `departments.view`, `hr.job_titles.view`, `auth.roles.view` — **company catalogues**, readable from any grant so a scoped user's pickers work | `auth.users.*`, `auth.roles.create` / `update` / `delete`, `auth.audit.view` / `viewValues` |
 
 Why: those routes check the permission by name and nothing else, and three of
@@ -872,8 +898,10 @@ user's next request. **200 Response** → `{ data: <user object>, message: "تم
 
 Differences from assign: `scope_department_id` **may name a soft-deleted unit**
 (a grant on a unit deleted afterwards keeps working, so it has to stay revocable
-on its own). Every grant being revoked must lie within the caller's reach, as for
-assign; if any one does not, **nothing** is revoked and the answer is **403**.
+on its own). Every grant being revoked must pass **the same rules as assign** —
+within the caller's reach, carrying nothing the caller does not hold there, and
+`super_admin` only by a super admin; if any one does not, **nothing** is revoked
+and the answer is **403**. Nobody takes away what they could not have given.
 
 ### 5.6 Delete role
 
@@ -882,8 +910,10 @@ DELETE /api/auth/roles/{role}      (permission: auth.roles.delete)
 ```
 **200 Response** → `{ message: "تم حذف الدور." }`
 **409** — system role (`is_system`, e.g. `super_admin`) — the RBAC bootstrap is protected on **every** path, not just this endpoint: `لا يمكن تعديل أو حذف دور نظام.`
+**403** — the role carries a permission the caller does not hold **company-wide** (GAP-16): deleting it revokes that permission from every holder.
+`لا يُحذف دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة»، لأن حذفه يسحبها من كل من أُسند إليه. لا تملك: «…».`
 
-> Assigning/unassigning a system role to users **is** allowed — only mutating the role itself is blocked.
+> Assigning/unassigning a system role to users **is** allowed — only mutating the role itself is blocked. For `super_admin`, only a **super admin** may assign or unassign it (§5.4).
 
 ---
 

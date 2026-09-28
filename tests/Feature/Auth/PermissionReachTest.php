@@ -228,7 +228,9 @@ class PermissionReachTest extends TestCase
 
     public function test_the_same_role_company_wide_or_partly_scoped_is_accepted(): void
     {
-        $this->actingCompanyWide(['auth.roles.assign']);
+        // The assigner holds what they hand out — GAP-16's subset rule, which
+        // RoleSubsetRuleTest covers; this test is about the inert check only.
+        $this->actingCompanyWide(['auth.roles.assign', 'departments.update', 'hr.employees.view']);
 
         // Company-wide, the same role confers everything it carries.
         [, $body] = $this->assignOverA(['departments.update'], ScopeType::Company);
@@ -258,88 +260,42 @@ class PermissionReachTest extends TestCase
         $this->assertCount(0, $grantee->fresh()->roles);
     }
 
-    // ── GAP-16: no new scoped assigners ──────────────────────────────────
+    // ── GAP-16: scoped assigners, once the subset rule bounds them ───────
 
     /**
-     * Found in review, 2026-09-26: GAP-16 said "do not grant auth.roles.assign
-     * over a unit", and only the one-time migration enforced it. Refused for a
-     * company-wide assigner — the grant is the danger, not who makes it.
+     * From 2026-09-26 until GAP-16 closed, a scoped grant of a role carrying
+     * auth.roles.assign was a 422, and so was adding assign to a role already
+     * held narrowly. The subset rule made both safe (2026-09-28): an assigner
+     * hands out only what they hold over the same units. RoleSubsetRuleTest
+     * covers the rule itself; this pins that the interim refusals are gone.
      */
-    public function test_a_scoped_grant_of_a_role_that_can_assign_is_a_422(): void
+    public function test_a_scoped_grant_of_a_role_that_can_assign_is_accepted(): void
     {
-        $this->actingCompanyWide(['auth.roles.assign']);
+        $this->actingCompanyWide(['auth.roles.assign', 'hr.employees.view']);
 
-        foreach ([ScopeType::Unit, ScopeType::Managed] as $scope) {
+        foreach ([ScopeType::Unit, ScopeType::Company] as $scope) {
             [$grantee, $body] = $this->assignOverA(['auth.roles.assign', 'hr.employees.view'], $scope);
 
-            $this->postJson('/api/auth/roles/assign', $body)
-                ->assertUnprocessable()
-                ->assertJsonValidationErrors(['scope_type']);
-
-            $this->assertCount(0, $grantee->fresh()->roles, $scope->name);
+            $this->postJson('/api/auth/roles/assign', $body)->assertOk();
+            $this->assertCount(1, $grantee->fresh()->roles, $scope->name);
         }
-
-        // Company-wide, the same role is a plain administrator grant.
-        [, $body] = $this->assignOverA(['auth.roles.assign', 'hr.employees.view'], ScopeType::Company);
-        $this->postJson('/api/auth/roles/assign', $body)->assertOk();
     }
 
-    public function test_a_scoped_grant_of_a_role_that_can_assign_can_still_be_revoked(): void
+    public function test_assign_can_be_added_to_a_role_already_held_over_a_unit(): void
     {
-        $this->actingCompanyWide(['auth.roles.assign']);
-        [$grantee, $body] = $this->assignOverA(['auth.roles.assign']);
-
-        // Written around the request, as a seeder or an older release may.
-        $grantee->roles()->attach($body['role_id'], [
-            'scope_type'          => ScopeType::Unit->value,
-            'scope_department_id' => $body['scope_department_id'],
-        ]);
-
-        $this->postJson('/api/auth/roles/unassign', $body)->assertOk();
-        $this->assertCount(0, $grantee->fresh()->roles);
-    }
-
-    public function test_assign_cannot_be_added_to_a_role_already_held_over_a_unit(): void
-    {
-        // The role-edit path to the same place: every narrow holder of the
-        // role would become a scoped assigner at once.
-        $this->actingCompanyWide(['auth.roles.update']);
+        $this->actingCompanyWide(['auth.roles.update', 'auth.roles.assign']);
         $clerks = $this->roleWith('clerks', ['hr.employees.view']);
         User::factory()->create()->roles()->attach($clerks->id, [
             'scope_type'          => ScopeType::Unit->value,
             'scope_department_id' => $this->units['a']->id,
         ]);
 
+        // Only the addition is measured against the editor: hr.employees.view
+        // stays, and they need not hold it.
         $this->putJson("/api/auth/roles/{$clerks->id}", ['permissions' => ['hr.employees.view', 'auth.roles.assign']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['permissions']);
-
-        $this->assertFalse($clerks->fresh()->permissions->contains('name', 'auth.roles.assign'));
-
-        // Edits that leave assign out are untouched.
-        $this->putJson("/api/auth/roles/{$clerks->id}", ['permissions' => ['hr.employees.view', 'hr.employees.update']])
-            ->assertOk();
-    }
-
-    public function test_assign_can_be_added_to_a_role_held_only_company_wide_or_by_deleted_accounts(): void
-    {
-        $this->actingCompanyWide(['auth.roles.update']);
-        $admins = $this->roleWith('admins', ['hr.employees.view']);
-        User::factory()->create()->roles()->attach($admins->id, ['scope_type' => ScopeType::Company->value]);
-
-        // A deleted account's scoped grant confers nothing and cannot be
-        // revoked through the API, so it must not block the edit.
-        $gone = User::factory()->create();
-        $gone->roles()->attach($admins->id, [
-            'scope_type'          => ScopeType::Unit->value,
-            'scope_department_id' => $this->units['a']->id,
-        ]);
-        $gone->delete();
-
-        $this->putJson("/api/auth/roles/{$admins->id}", ['permissions' => ['hr.employees.view', 'auth.roles.assign']])
             ->assertOk();
 
-        $this->assertTrue($admins->fresh()->permissions->contains('name', 'auth.roles.assign'));
+        $this->assertTrue($clerks->fresh()->permissions->contains('name', 'auth.roles.assign'));
     }
 
     // ── One effective set, for every reader ──────────────────────────────

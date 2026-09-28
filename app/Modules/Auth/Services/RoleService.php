@@ -6,12 +6,14 @@ namespace App\Modules\Auth\Services;
 
 use App\Modules\Auth\Enums\ScopeType;
 use App\Modules\Auth\Exceptions\GrantOutOfReachException;
+use App\Modules\Auth\Exceptions\PermissionNotHeldException;
 use App\Modules\Auth\Exceptions\SystemRoleException;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Models\UserRole;
 use App\Modules\Auth\Support\PermissionCache;
+use App\Modules\Auth\Support\PermissionReach;
 use App\Modules\Departments\Models\Department;
 use App\Shared\Services\AccessScope;
 use App\Shared\Services\AuditLogService;
@@ -76,10 +78,22 @@ class RoleService
      * Wrapped in a transaction so the role and its permission links are written
      * atomically. Creating a role is a security-relevant action, so it's audited.
      *
+     * `$actingUser` may put into the role only permissions they hold
+     * company-wide (GAP-16, see ensureHoldsCompanyWide()). Null means the
+     * system itself — a seeder or a console command.
+     *
      * @param  array{name: string, label?: string|null, description?: string|null, permissions?: array<int, string>}  $data
+     *
+     * @throws PermissionNotHeldException
      */
-    public function create(array $data): Role
+    public function create(array $data, ?User $actingUser): Role
     {
+        $this->ensureHoldsCompanyWide(
+            $actingUser,
+            $data['permissions'] ?? [],
+            'لا يُنشأ دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة».',
+        );
+
         $role = DB::transaction(function () use ($data): Role {
             // is_system is never accepted from input: API-created roles are
             // always ordinary. Set explicitly (not just via the DB default) so
@@ -119,13 +133,32 @@ class RoleService
      * A built-in system role (super_admin) is immutable: renaming or re-scoping
      * it would break the RBAC bootstrap, so this refuses before touching it.
      *
+     * ⚙️ EVERY PERMISSION ADDED OR REMOVED must be one `$actingUser` holds
+     * company-wide (GAP-16). Editing a role changes what every holder of it
+     * may do, the editor included — so without this, an administrator
+     * lacking `hr.employees.viewSalary` could add it to a role they hold and
+     * have it on the next request, no grant needed. Removing is bounded too,
+     * as revoking is: nobody takes away what they could not have given.
+     *
      * @param  array{name?: string, label?: string|null, description?: string|null, permissions?: array<int, string>}  $data
      *
      * @throws SystemRoleException if the role is a system role.
+     * @throws PermissionNotHeldException
      */
-    public function update(Role $role, array $data): Role
+    public function update(Role $role, array $data, ?User $actingUser): Role
     {
         $this->guardNotSystem($role);
+
+        if (array_key_exists('permissions', $data)) {
+            $current = $role->permissions()->pluck('name')->all();
+            $next = Permission::whereIn('name', $data['permissions'])->pluck('name')->all();
+
+            $this->ensureHoldsCompanyWide(
+                $actingUser,
+                [...array_diff($next, $current), ...array_diff($current, $next)],
+                'لا تُضاف صلاحية إلى دور ولا تُزال منه ما لم تكن تملكها أنت على مستوى «الشركة كاملة»، لأن تعديل الدور يغيّر ما يملكه كل من أُسند إليه.',
+            );
+        }
 
         $role = DB::transaction(function () use ($role, $data): Role {
             if (array_key_exists('name', $data)) {
@@ -161,11 +194,21 @@ class RoleService
      * Delete a role. The user_roles and role_permissions pivots cascade.
      * A built-in system role cannot be deleted.
      *
+     * Deleting a role revokes it from every holder, so `$actingUser` must hold
+     * everything it carries, company-wide (GAP-16).
+     *
      * @throws SystemRoleException if the role is a system role.
+     * @throws PermissionNotHeldException
      */
-    public function delete(Role $role): void
+    public function delete(Role $role, ?User $actingUser): void
     {
         $this->guardNotSystem($role);
+
+        $this->ensureHoldsCompanyWide(
+            $actingUser,
+            $role->permissions()->pluck('name')->all(),
+            'لا يُحذف دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة»، لأن حذفه يسحبها من كل من أُسند إليه.',
+        );
 
         $name = $role->name;
 
@@ -219,11 +262,13 @@ class RoleService
      * normally catches this first and returns a friendlier field-level 422.
      *
      * `$grantedBy` is the administrator making the grant, and bounds it: see
-     * ensureWithinReach(). Null means the system itself (a seeder, a console
+     * ensureMayGrant(). Null means the system itself (a seeder, a console
      * command), which answers to no grant. Every HTTP caller passes one.
      *
      * @throws GrantOutOfReachException when the grant reaches further than
-     *                                  `$grantedBy` does.
+     *                                  `$grantedBy` does, or is super_admin.
+     * @throws PermissionNotHeldException when it confers a permission
+     *                                    `$grantedBy` does not hold there.
      */
     public function assign(
         int $userId,
@@ -235,7 +280,7 @@ class RoleService
         $user = User::findOrFail($userId);
         $role = Role::findOrFail($roleId);
 
-        $this->ensureWithinReach($grantedBy, $user, $scopeType, $scopeDepartmentId);
+        $this->ensureMayGrant($grantedBy, $user, $role, $scopeType, $scopeDepartmentId);
 
         DB::transaction(function () use ($user, $role, $scopeType, $scopeDepartmentId): void {
             User::whereKey($user->getKey())->lockForUpdate()->first();
@@ -281,9 +326,11 @@ class RoleService
      * `$revokedBy` bounds a revocation exactly as `$grantedBy` bounds a grant:
      * every grant that would go must lie within their reach, or nothing goes.
      * A section's administrator must not be able to strip a company-wide
-     * grant, any more than hand one out.
+     * grant, any more than hand one out — nor strip a role carrying
+     * permissions they could not have granted (GAP-16).
      *
      * @throws GrantOutOfReachException
+     * @throws PermissionNotHeldException
      */
     public function unassign(
         int $userId,
@@ -311,7 +358,7 @@ class RoleService
                 // A grant whose stored type is undefined reaches nothing, so
                 // anyone who may revoke at all may clear it away.
                 if ($grant->scope_type !== null) {
-                    $this->ensureWithinReach($revokedBy, $user, $grant->scope_type, $grant->scope_department_id === null ? null : (int) $grant->scope_department_id);
+                    $this->ensureMayGrant($revokedBy, $user, $role, $grant->scope_type, $grant->scope_department_id === null ? null : (int) $grant->scope_department_id);
                 }
             }
         }
@@ -338,13 +385,31 @@ class RoleService
     }
 
     /**
-     * A role administrator may hand out — or take away — only what their own
-     * `auth.roles.assign` grant reaches (GAP-3; the permission was
-     * `auth.roles.update` until GAP-15 split role editing away from it).
+     * May `$actor` hand out — or take away — this role over this scope?
+     * Three rules, in this order. A super admin passes all three; null (the
+     * system itself) is never asked.
      *
-     * Without this, the scope on the assigner's grant bounded nothing: a
-     * section's HR administrator could grant anyone, themselves included, a
-     * company-wide role. So:
+     * 1. super_admin IS GRANTED AND REVOKED BY A SUPER ADMIN ONLY (GAP-16,
+     *    decision 24). Rule 3 cannot see it: the role carries no permission
+     *    rows — its power is the Gate bypass — so a subset check passes it
+     *    vacuously, and any company-wide assigner could crown themselves or
+     *    depose every real administrator.
+     *
+     * 2. WHERE — the grant lies within the actor's own `auth.roles.assign`
+     *    reach. See the rules below.
+     *
+     * 3. WHAT — THE SUBSET RULE (GAP-16, decision 24). Every permission the
+     *    grant would confer, the actor must hold over the same units: what a
+     *    company grant confers is the role's whole list; what a narrower one
+     *    confers is what PermissionReach lets it — so the actor is measured
+     *    against exactly what the grantee would gain or lose, no more. The
+     *    actor's own side is their EFFECTIVE set, through AccessScope, which
+     *    already applies PermissionReach to them. It binds company-wide
+     *    assigners too — the project owner's call, 2026-09-28: an HR
+     *    administrator who cannot see pay cannot hand out a payroll role,
+     *    to themselves or to anyone.
+     *
+     * The WHERE rules (GAP-3):
      *
      *   company-wide assigner (or super admin) → any grant;
      *   company grant  → company-wide assigners only;
@@ -364,38 +429,45 @@ class RoleService
      * far outside the assigner's own reach. Refused both ways, as every rule
      * here is: a scoped assigner can neither issue such a grant nor strip one.
      *
-     * ⚠️ WHERE, NOT WHAT — GAP-16, OPEN. This checks where a grant applies,
-     * never what the role carries. Inside their reach an assigner can hand out
-     * any role, to anyone including themselves: a clerk holding only
-     * `auth.roles.assign` over a unit can make themselves that unit's payroll.
-     * PermissionReach caps it at the unit — company-only permissions do
-     * nothing on a scoped grant — but within the unit it is an escalation. See
-     * API_BUILD_STANDARD §12.
+     * A latent managed grant is held to the company for rule 3 as well: the
+     * units it will cover are unknown, so the actor must hold what it confers
+     * everywhere.
+     *
+     * Before 2026-09-28 only rule 2 existed, and a clerk holding
+     * `auth.roles.assign` over a unit could make themselves that unit's
+     * payroll (GAP-16).
      *
      * @throws GrantOutOfReachException
+     * @throws PermissionNotHeldException
      */
-    private function ensureWithinReach(?User $actor, User $grantee, ScopeType $scopeType, ?int $scopeDepartmentId): void
+    private function ensureMayGrant(?User $actor, User $grantee, Role $role, ScopeType $scopeType, ?int $scopeDepartmentId): void
     {
-        if ($actor === null) {
+        if ($actor === null || $actor->isSuperAdmin()) {
             return;
         }
 
-        $reach = $this->scopes->for($actor, self::GRANT_PERMISSION);
-
-        if ($reach->isUnrestricted()) {
-            return;
+        if ($role->name === User::SUPER_ADMIN_ROLE) {
+            throw new GrantOutOfReachException('دور مدير النظام لا يمنحه ولا يسحبه إلا مدير نظام.');
         }
 
+        // The units the grant covers; [null] stands for the whole company,
+        // which RowScope::covers() answers true for only when unrestricted.
         $units = match ($scopeType) {
             ScopeType::Company => [null],
             ScopeType::Unit    => [$scopeDepartmentId],
             ScopeType::Managed => $this->scopes->managedUnitIds($grantee),
         };
 
-        if ($scopeType === ScopeType::Managed && $units === []) {
-            throw new GrantOutOfReachException(
-                'نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.',
-            );
+        $reach = $this->scopes->for($actor, self::GRANT_PERMISSION);
+
+        if ($units === []) {
+            if (! $reach->isUnrestricted()) {
+                throw new GrantOutOfReachException(
+                    'نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.',
+                );
+            }
+
+            $units = [null];
         }
 
         foreach ($units as $unit) {
@@ -403,6 +475,94 @@ class RoleService
                 throw new GrantOutOfReachException;
             }
         }
+
+        $permissions = $role->permissions()->pluck('name')->all();
+        $conferred = $scopeType === ScopeType::Company
+            ? $permissions
+            : PermissionReach::effectiveForScopedGrant($permissions);
+
+        $missing = array_values(array_filter(
+            $conferred,
+            fn (string $permission): bool => ! $this->holdsOver($actor, $permission, $units),
+        ));
+
+        if ($missing !== []) {
+            throw new PermissionNotHeldException(
+                $this->labelsFor($missing),
+                'لا يُمنح دور ولا يُسحب إلا ممن يملك كل ما يمنحه هذا الدور على النطاق نفسه.',
+            );
+        }
+    }
+
+    /**
+     * Role DEFINITIONS are company-wide objects, so whoever edits one must hold
+     * every permission they add, remove or delete across the whole company
+     * (GAP-16, decision 24). `auth.roles.create/update/delete` are
+     * company-only already (GAP-15), so the editor is company-wide; this
+     * bounds what they may put in, not where.
+     *
+     * @param  array<int, string>  $permissions
+     *
+     * @throws PermissionNotHeldException
+     */
+    private function ensureHoldsCompanyWide(?User $actor, array $permissions, string $lead): void
+    {
+        if ($actor === null || $actor->isSuperAdmin()) {
+            return;
+        }
+
+        $missing = array_values(array_filter(
+            array_unique($permissions),
+            fn (string $permission): bool => ! $this->holdsOver($actor, $permission, [null]),
+        ));
+
+        if ($missing !== []) {
+            throw new PermissionNotHeldException($this->labelsFor($missing), $lead);
+        }
+    }
+
+    /**
+     * Whether the actor holds the permission over every one of the units —
+     * null standing for the whole company.
+     *
+     * ⚙️ A CATALOGUE READ HELD AT ALL IS HELD EVERYWHERE. `departments.view`,
+     * `hr.job_titles.view` and `auth.roles.view` read the whole catalogue from
+     * any grant (decision 23), so what the actor has is the same whichever
+     * grant it came through. Measured by the grant's scope, a unit-scoped
+     * holder would be refused handing out a company-wide read they already
+     * exercise company-wide.
+     *
+     * @param  array<int, int|null>  $units
+     */
+    private function holdsOver(User $actor, string $permission, array $units): bool
+    {
+        if (in_array($permission, PermissionReach::CATALOGUE_READS, true)) {
+            return $actor->hasPermission($permission);
+        }
+
+        $scope = $this->scopes->for($actor, $permission);
+
+        foreach ($units as $unit) {
+            if (! $scope->covers($unit)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Permission names as an administrator reads them — the catalogue's
+     * Arabic label, the name itself where a row has none.
+     *
+     * @param  array<int, string>  $names
+     * @return array<int, string>
+     */
+    private function labelsFor(array $names): array
+    {
+        $labels = Permission::whereIn('name', $names)->pluck('label', 'name');
+
+        return array_map(static fn (string $name): string => $labels[$name] ?? $name, $names);
     }
 
     /**

@@ -53,7 +53,7 @@ class RoleController extends Controller
 
     public function store(CreateRoleRequest $request): JsonResponse
     {
-        $role = $this->roleService->create($request->validated());
+        $role = $this->roleService->create($request->validated(), $request->user());
 
         return $this->created(
             data: new RoleResource($role),
@@ -63,7 +63,7 @@ class RoleController extends Controller
 
     public function update(UpdateRoleRequest $request, Role $role): JsonResponse
     {
-        $role = $this->roleService->update($role, $request->validated());
+        $role = $this->roleService->update($role, $request->validated(), $request->user());
 
         return $this->success(
             data: new RoleResource($role),
@@ -71,13 +71,14 @@ class RoleController extends Controller
         );
     }
 
-    public function destroy(Role $role): JsonResponse
+    public function destroy(Request $request, Role $role): JsonResponse
     {
         // System roles (e.g. super_admin) are the RBAC bootstrap and cannot be
         // deleted. That guard lives in RoleService — it throws a self-rendering
         // SystemRoleException (409) that covers every delete path, not just this
-        // controller — so nothing is needed here beyond delegating.
-        $this->roleService->delete($role);
+        // controller — so nothing is needed here beyond delegating. So does the
+        // GAP-16 bound on what the caller may take away from the role's holders.
+        $this->roleService->delete($role, $request->user());
 
         return $this->success(message: 'تم حذف الدور.');
     }
