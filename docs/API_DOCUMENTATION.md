@@ -3,6 +3,12 @@
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
 >
+> ⚠️ **2026-09-28 — `hire_date` and the posting history agree (GAP-19).**
+> Correcting an employee's `hire_date` now moves their opening تعيين posting
+> with it; a correction the history cannot follow is a **422 on `hire_date`**,
+> and a posting may not start before the hire (**422 on `from_date`** on the
+> assignments endpoint). See §8 (employee write) and the assignments section.
+>
 > ⚠️ **2026-09-28 — you can only hand out what you hold (GAP-16).** Assigning or
 > revoking a role, and creating, editing or deleting one, is now a **403** when
 > it would make someone gain or lose a permission the caller does not hold
@@ -1330,11 +1336,23 @@ required; required applies on create only.
 | `job_title_id` | int | optional, nullable, existing **non-deleted** title |
 | `employment_type` | int | optional, nullable, `1` متعاقد · `2` يحتاج تثبيت · `3` جماعة · `4` مثبت |
 | `workplace` | string | optional, nullable, max 255 |
-| `hire_date` / `termination_date` | date | optional, nullable — termination may not precede hire |
+| `hire_date` / `termination_date` | date | optional, nullable — termination may not precede hire. **Correcting `hire_date` moves the opening تعيين posting with it** (see below) |
 | `status` | int | optional, 1–3 |
 | `sham_cash_account` | string | optional, nullable, **exactly 16 digits**, unique |
 | `salary_mode` | int | optional, `1` نظام رواتب (default) · `2` إتفاق |
 | `agreed_salary` | numeric | **required when `salary_mode` = 2, must be absent/null when = 1** |
+
+**`hire_date` and the posting history (2026-09-28, GAP-19).** The opening
+تعيين posting is dated from the hire, so a corrected `hire_date` **moves that
+posting's `from_date` with it** — earlier or later, open or already closed. The
+move is audited on the posting. It is a **422 on `hire_date`** when the history
+cannot follow:
+
+- the new date is after the opening posting's own end (the person has been
+  transferred since) — a correction that deep is made on the assignments
+  history: `لا يمكن نقل تاريخ التعيين إلى ما بعد نهاية التعيين الأول (…)…`
+- the first posting is not a تعيين (hired with no unit, placed later) and the
+  new date falls after it: `لا يمكن أن يكون تاريخ التعيين بعد بداية أول تعيين مسجّل للموظف (…).`
 
 **Cross-field rules (422).** These are enforced for every writer, not just HTTP:
 
@@ -1443,7 +1461,7 @@ what a payslip was computed against, with no trace of the original.
 
 | Field | Type | Rules |
 | --- | --- | --- |
-| `from_date` | date | **required**, may be back-dated, **may not be in the future** |
+| `from_date` | date | **required**, may be back-dated, **may not be in the future**, **nor before the employee's `hire_date`** (422 `تاريخ بدء التعيين لا يمكن أن يسبق تاريخ تعيين الموظف (…).`, 2026-09-28) |
 | `reason` | int | **required, no default** — `1` تعيين · `2` نقل داخلي · `3` ترقية · `4` تعديل مسمى وظيفي · `5` إعادة هيكلة · `6` إنهاء عمل |
 | `department_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |
 | `job_title_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |

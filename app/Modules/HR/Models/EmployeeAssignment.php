@@ -7,6 +7,7 @@ namespace App\Modules\HR\Models;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Enums\AssignmentReason;
 use App\Modules\HR\Exceptions\AssignmentConflictException;
+use App\Modules\HR\Support\HireDateGuard;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -98,6 +99,7 @@ class EmployeeAssignment extends Model
     {
         static::saving(function (self $assignment): void {
             $assignment->guardDateOrder();
+            $assignment->guardStartsAfterHire();
             $assignment->guardSingleOpenAssignment();
         });
 
@@ -115,6 +117,29 @@ class EmployeeAssignment extends Model
             throw new AssignmentConflictException(
                 'تاريخ انتهاء التعيين لا يمكن أن يسبق تاريخ بدايته.',
             );
+        }
+    }
+
+    /**
+     * No posting starts before the person was hired (GAP-19, HireDateGuard).
+     *
+     * Only when the start date is being WRITTEN — a new row, or a moved
+     * `from_date`. Closing a posting or restating its unit leaves its start
+     * alone, and must not be refused over a start date that predates this rule.
+     */
+    private function guardStartsAfterHire(): void
+    {
+        if ($this->from_date === null || ($this->exists && ! $this->isDirty('from_date'))) {
+            return;
+        }
+
+        $violation = (new HireDateGuard)->postingViolation(
+            HireDateGuard::storedHireDate((int) $this->employee_id),
+            $this->from_date,
+        );
+
+        if ($violation !== null) {
+            throw new AssignmentConflictException($violation->message);
         }
     }
 

@@ -67,9 +67,9 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **470 passing**, 2173 assertions (2026-09-28) |
+| **Test suite** | **483 passing**, 2200 assertions (2026-09-28) |
 | **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
-| **Open gaps** | GAP-17, 18, 19 — `API_BUILD_STANDARD.md` §12. **GAP-19 blocks Batch 3** |
+| **Open gaps** | GAP-17, 18 — `API_BUILD_STANDARD.md` §12. Neither blocks Batch 3 |
 | **Production data** | none — the database has never held a real employee |
 
 **Done:** Phase 1 (the whole foundation) + Batches 1 and 2 of Phase 1.5
@@ -1073,11 +1073,10 @@ it was specified.
 >    migration must land first (§9, the account model), and the importer now owes
 >    a report wherever the source names a manager the org tree disagrees with
 >    (§9, decision 20).
-> 3. ⚙️ **And a second prerequisite (2026-09-28): GAP-19.** Correcting an
->    employee's `hire_date` does not move their opening posting, and the
->    importer re-runs against HR corrections — so every hire date fixed between
->    runs would leave the posting history disagreeing with it. Fix it in the
->    model before the importer is written; see `API_BUILD_STANDARD.md` §12.
+> 3. ⚙️ **And a second prerequisite (2026-09-28): GAP-19** — ✅ **closed the
+>    same day.** Correcting an employee's `hire_date` did not move their opening
+>    posting, and the importer re-runs against HR corrections. It moves now, in
+>    the model; see "Two things the importer gets for free" below.
 
 ### Why it had to happen before the import
 
@@ -1210,6 +1209,12 @@ Two things the importer gets for free and should not re-implement:
 - **The opening posting writes itself.** Creating an employee with a
   `department_id` opens a `تعيين` assignment dated from their `hire_date`, via a
   model hook. Do not create it separately — a second open posting is refused.
+  ⚙️ **And it follows corrections (GAP-19, 2026-09-28):** a re-run that fixes a
+  `hire_date` moves that posting with it, and a correction the history cannot
+  follow (past a later transfer) raises `AssignmentConflictException` — report
+  it like any other refused row. Updating an existing employee that changes no
+  unit, title or grade writes no posting (a create-then-update used to write a
+  spurious one; fixed the same day).
 - **Every invariant is enforced at the model layer**, not just over HTTP, so a
   bad row raises `EmployeeClassificationException` with an Arabic message naming
   the field. That is the hook to catch and turn into the import report.

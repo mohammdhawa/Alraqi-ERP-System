@@ -17,6 +17,7 @@ use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\JobTitle;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Carbon;
 
 /**
  * Development fixtures — invented units, invented staff, and login accounts.
@@ -44,6 +45,11 @@ use Illuminate\Database\Seeder;
  */
 class DevDepartmentSeeder extends Seeder
 {
+    /**
+     * The day fixture hire dates count back from. See hireDateFor().
+     */
+    private const HIRE_DATE_ANCHOR = '2026-09-01';
+
     public function run(): void
     {
         $marketing = Department::query()->where('code', 'MKT')->firstOrFail();
@@ -271,9 +277,16 @@ class DevDepartmentSeeder extends Seeder
 
     /**
      * Build a deterministic hire date so repeated seeding does not churn rows.
+     *
+     * ⚙️ From a FIXED anchor since 2026-09-28. It used to count back from
+     * `now()`, so the docblock's promise held only on the day it was written:
+     * every later re-seed moved every hire date, which is how GAP-19 (the
+     * opening posting not following a hire-date correction) showed up in the
+     * dev database. Anchored before any fixture's plausible first run, so a
+     * seeded date is never in the future.
      */
     private function hireDateFor(string $name): string
     {
-        return now()->subDays(30 + (crc32($name) % 1171))->toDateString();
+        return Carbon::parse(self::HIRE_DATE_ANCHOR)->subDays(30 + (crc32($name) % 1171))->toDateString();
     }
 }

@@ -16,9 +16,11 @@ use App\Modules\HR\Enums\Gender;
 use App\Modules\HR\Enums\Governorate;
 use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
+use App\Modules\HR\Exceptions\AssignmentConflictException;
 use App\Modules\HR\Exceptions\EmployeeClassificationException;
 use App\Modules\HR\Policies\EmployeePolicy;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
+use App\Modules\HR\Support\HireDateGuard;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
@@ -262,11 +264,65 @@ class Employee extends Model
             if ($violations !== []) {
                 throw new EmployeeClassificationException($violations[0]->message);
             }
+
+            // GAP-19: judged BEFORE the write, so a refused correction leaves
+            // the row and its history exactly as they were.
+            if ($employee->isDirty('hire_date')) {
+                $violation = (new HireDateGuard)->hireDateViolation($employee, $employee->hire_date);
+
+                if ($violation !== null) {
+                    throw new AssignmentConflictException($violation->message);
+                }
+            }
         });
 
-        static::saved(function (self $employee): void {
-            $employee->recordPostingChange();
+        // ⚙️ `created` and `updated`, NOT `saved` + `wasRecentlyCreated` (fixed
+        // 2026-09-28, found with GAP-19). Laravel leaves `wasRecentlyCreated`
+        // true for the instance's whole life, so any later save of a model
+        // created in the same process — a phone edit, say — was read as the
+        // insert, and wrote a spurious نقل داخلي posting dated today. The two
+        // events fire only on a real insert and a real update.
+        static::created(function (self $employee): void {
+            $employee->recordPostingChange(created: true);
         });
+
+        static::updated(function (self $employee): void {
+            // Hire date first: a correction and a transfer in one save must
+            // see the opening posting already on its corrected date.
+            $employee->followHireDate();
+            $employee->recordPostingChange(created: false);
+        });
+    }
+
+    /**
+     * Carry a `hire_date` correction onto the opening تعيين posting (GAP-19).
+     *
+     * That posting is dated FROM the hire — recordPostingChange() writes it
+     * so — and until 2026-09-28 only its creation read `hire_date`: a later
+     * correction left the history saying the person was posted before they
+     * were hired, or was employed on days they held no unit. HireDateGuard,
+     * in the saving hook, has already refused any correction the posting
+     * cannot follow.
+     *
+     * Through the model, not DB::table(): the moved date is an event worth an
+     * audit row ("the history was corrected to match"), and the posting's own
+     * guards run on it. Called from `updated` only: a new employee's opening
+     * posting is written from the hire date already.
+     */
+    private function followHireDate(): void
+    {
+        if (! $this->wasChanged('hire_date') || $this->hire_date === null) {
+            return;
+        }
+
+        $first = HireDateGuard::earliestPosting($this);
+
+        if ($first === null || ! HireDateGuard::followsHireDate($first)
+            || $first->from_date?->isSameDay($this->hire_date)) {
+            return;
+        }
+
+        $first->update(['from_date' => $this->hire_date->toDateString()]);
     }
 
     /**
@@ -352,9 +408,9 @@ class Employee extends Model
      * ترقية says so through the assignments endpoint, which writes the history
      * row directly and leaves this hook nothing to do.
      */
-    private function recordPostingChange(): void
+    private function recordPostingChange(bool $created): void
     {
-        $changed = $this->wasRecentlyCreated
+        $changed = $created
             ? array_filter(EmployeeAssignment::SYNCED_COLUMNS, fn (string $column): bool => $this->{$column} !== null)
             : array_filter(EmployeeAssignment::SYNCED_COLUMNS, fn (string $column): bool => $this->wasChanged($column));
 

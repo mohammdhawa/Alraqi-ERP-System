@@ -16,9 +16,11 @@ use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeResource;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
+use App\Modules\HR\Support\HireDateGuard;
 use App\Shared\Support\RequestRowScopes;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
@@ -381,7 +383,28 @@ class EmployeeRequest extends FormRequest
     {
         return [
             fn (Validator $validator) => $this->applyClassificationGuard($validator),
+            fn (Validator $validator) => $this->applyHireDateGuard($validator),
         ];
+    }
+
+    /**
+     * Front door over HireDateGuard (GAP-19): a `hire_date` correction the
+     * posting history cannot follow is a field-level 422 on `hire_date`,
+     * rather than the model hook's message with no field attached.
+     */
+    protected function applyHireDateGuard(Validator $validator): void
+    {
+        $employee = $this->subject();
+
+        if ($validator->errors()->isNotEmpty() || $employee === null || ! $this->filled('hire_date')) {
+            return;
+        }
+
+        $violation = (new HireDateGuard)->hireDateViolation($employee, Carbon::parse($this->input('hire_date')));
+
+        if ($violation !== null) {
+            $validator->errors()->add($violation->field, $violation->message);
+        }
     }
 
     /**

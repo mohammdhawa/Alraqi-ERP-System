@@ -167,8 +167,17 @@ class JobTitleTest extends TestCase
      */
     public function test_a_title_only_held_historically_cannot_be_deleted(): void
     {
-        $title    = JobTitle::create(['name' => 'محاسب']);
-        $employee = Employee::factory()->named('نور الشامي')->create(['job_title_id' => $title->id]);
+        $title = JobTitle::create(['name' => 'محاسب']);
+        // Hired in the past, so the posting that carries the title has
+        // elapsed and moving off it is a transfer that keeps it in the
+        // history. (A same-day change is an amendment in place and keeps
+        // nothing. Until 2026-09-28 this test passed on a create-then-update
+        // bug instead: the hook skipped the change, leaving the posting's
+        // title and the employee's pointer disagreeing — see GAP-19.)
+        $employee = Employee::factory()->named('نور الشامي')->create([
+            'job_title_id' => $title->id,
+            'hire_date'    => '2025-01-01',
+        ]);
 
         // Move them off it: the title is now held by nobody.
         $employee->update(['job_title_id' => null]);

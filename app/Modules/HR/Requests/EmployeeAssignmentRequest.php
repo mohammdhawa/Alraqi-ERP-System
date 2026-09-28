@@ -7,10 +7,13 @@ namespace App\Modules\HR\Requests;
 use App\Modules\HR\Enums\AssignmentReason;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeResource;
+use App\Modules\HR\Support\HireDateGuard;
 use App\Shared\Support\RequestRowScopes;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * EmployeeAssignmentRequest
@@ -95,6 +98,37 @@ class EmployeeAssignmentRequest extends FormRequest
         }
 
         return true;
+    }
+
+    /**
+     * A posting may not start before the person was hired (GAP-19,
+     * HireDateGuard) — a field-level 422 on `from_date` ahead of the model
+     * hook's refusal. Without it, back-dating a transfer past the hire date
+     * amended the opening posting in place and left the history saying the
+     * person held a unit before they worked here.
+     *
+     * @return array<int, callable>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $employee = $this->route('employee');
+
+                if ($validator->errors()->isNotEmpty() || ! $employee instanceof Employee) {
+                    return;
+                }
+
+                $violation = (new HireDateGuard)->postingViolation(
+                    $employee->hire_date,
+                    Carbon::parse($this->input('from_date')),
+                );
+
+                if ($violation !== null) {
+                    $validator->errors()->add($violation->field, $violation->message);
+                }
+            },
+        ];
     }
 
     /**
