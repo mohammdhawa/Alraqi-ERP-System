@@ -137,9 +137,11 @@ class AuthService
             $user->last_login_at = now();
             $user->saveQuietly();
 
+            // Unauthenticated by definition, so the account is passed (GAP-18).
             $this->auditLogService->logAction(
                 event: 'user_logged_in',
                 description: "User {$user->loginIdentity()} logged in.",
+                fallbackUserId: $user->getKey(),
             );
 
             return [
@@ -221,6 +223,7 @@ class AuthService
                 $this->auditLogService->logAction(
                     event: 'tokens_refreshed',
                     description: "Tokens rotated for user {$user->loginIdentity()}.",
+                    fallbackUserId: $user->getKey(),
                 );
 
                 return [
@@ -235,9 +238,14 @@ class AuthService
             if ($replayUserId !== null) {
                 $this->revokeAllUserTokens($replayUserId);
 
+                // Attributed to the account whose credential was presented —
+                // the request acted as it, whoever sent it. Unattributed, the
+                // one event an investigation starts from could not be found
+                // by filtering on the victim (GAP-18).
                 $this->auditLogService->logAction(
                     event: 'refresh_token_replay_detected',
                     description: "Possible token theft for user ID {$replayUserId}. All tokens revoked.",
+                    fallbackUserId: $replayUserId,
                 );
             }
 
@@ -344,9 +352,13 @@ class AuthService
                 ->where('revoked', false)
                 ->update(['revoked' => true]);
 
+            // From theft detection nobody is authenticated and the account is
+            // the subject; from an administrator, the administrator is the
+            // actor and the context wins (GAP-18).
             $this->auditLogService->logAction(
                 event: 'all_tokens_revoked',
                 description: "All tokens revoked for user ID {$userId}.",
+                fallbackUserId: $userId,
             );
         });
     }

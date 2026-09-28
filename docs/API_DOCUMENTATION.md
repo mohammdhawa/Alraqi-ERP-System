@@ -1707,6 +1707,16 @@ This is the §1 embedded-objects rule applied to a payload: absent ≠ null.
 The third is the case an audit is most often opened to answer, so say it
 explicitly — "مستخدم محذوف #7", not "غير معروف".
 
+⚙️ **Sign-in events carry their account (2026-09-28, GAP-18).**
+`user_logged_in`, `tokens_refreshed`, `refresh_token_replay_detected` and
+`all_tokens_revoked` are written before anyone is authenticated, and until this
+date came back as `system` with `user: null`. They now name the account signing
+in, or whose credential was presented — so filtering by `user_id` finds a
+person's sign-ins, and a replay (a possible token theft) is found by filtering on
+the victim. Rows written earlier keep `user_id` null; their `description` still
+names the account. Where an authenticated caller triggers one of these (an
+administrator revoking someone's tokens), the caller is the actor.
+
 `?actor_type=system` is how you ask for the first row of that table. `user_id`
 matches an id and no value of it expresses "no actor", so before this filter
 existed the only way to that question was paging the whole table.

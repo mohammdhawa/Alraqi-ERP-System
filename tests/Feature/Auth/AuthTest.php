@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Services\AuthService;
 use App\Modules\HR\Models\Employee;
+use App\Shared\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -72,7 +74,7 @@ class AuthTest extends TestCase
 
     public function test_login_succeeds_with_valid_credentials(): void
     {
-        $this->createUser();
+        $user = $this->createUser();
 
         $response = $this->postJson('/api/auth/login', [
             'login'    => 'user@example.com',
@@ -87,7 +89,9 @@ class AuthTest extends TestCase
                 'data' => ['user', 'access_token', 'refresh_token', 'expires_in'],
             ]);
 
-        $this->assertDatabaseHas('audit_logs', ['event' => 'user_logged_in']);
+        // WHO, not just what (GAP-18): the request is unauthenticated, and the
+        // row used to carry user_id NULL — every sign-in shown as «النظام».
+        $this->assertDatabaseHas('audit_logs', ['event' => 'user_logged_in', 'user_id' => $user->id]);
     }
 
     public function test_login_fails_with_wrong_password(): void
@@ -125,7 +129,7 @@ class AuthTest extends TestCase
 
     public function test_refresh_rotates_the_token_pair(): void
     {
-        $this->createUser();
+        $user = $this->createUser();
         $first = $this->loginAs();
 
         $response = $this->postJson('/api/auth/refresh', [
@@ -145,7 +149,7 @@ class AuthTest extends TestCase
         $this->assertSame(1, DB::table('refresh_tokens')->where('revoked', true)->count());
         $this->assertSame(1, DB::table('refresh_tokens')->where('revoked', false)->count());
 
-        $this->assertDatabaseHas('audit_logs', ['event' => 'tokens_refreshed']);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'tokens_refreshed', 'user_id' => $user->id]);
     }
 
     public function test_refresh_fails_with_expired_token(): void
@@ -173,7 +177,7 @@ class AuthTest extends TestCase
 
     public function test_reusing_a_revoked_refresh_token_terminates_all_sessions(): void
     {
-        $this->createUser();
+        $user = $this->createUser();
         $first = $this->loginAs();
 
         // First refresh succeeds and revokes the original token.
@@ -195,7 +199,37 @@ class AuthTest extends TestCase
         ])->assertUnauthorized();
 
         $this->assertSame(0, DB::table('refresh_tokens')->where('revoked', false)->count());
-        $this->assertDatabaseHas('audit_logs', ['event' => 'refresh_token_replay_detected']);
+
+        // A possible theft, attributed to the account whose credential was
+        // presented — filtering the trail by the victim must find it (GAP-18).
+        $this->assertDatabaseHas('audit_logs', ['event' => 'refresh_token_replay_detected', 'user_id' => $user->id]);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'all_tokens_revoked', 'user_id' => $user->id]);
+        $this->assertSame(
+            0,
+            DB::table('audit_logs')->whereIn('event', ['user_logged_in', 'tokens_refreshed', 'refresh_token_replay_detected', 'all_tokens_revoked'])->whereNull('user_id')->count(),
+            'no sign-in or session event is left unattributed',
+        );
+    }
+
+    /**
+     * The account passed to the audit row is a FALLBACK for an unauthenticated
+     * request, not an override (GAP-18): an administrator revoking someone's
+     * tokens is recorded as the administrator.
+     */
+    public function test_an_authenticated_actor_still_wins_over_the_account_the_event_concerns(): void
+    {
+        $victim = $this->createUser();
+        $admin = $this->actingAsAdmin();
+
+        // No route revokes another user's tokens yet, so the service is called
+        // directly — with the context given its caller exactly as the
+        // SetRequestContext middleware gives it one on a real request.
+        app(RequestContext::class)->resolveUserUsing(fn (): int => $admin->id);
+
+        app(AuthService::class)->revokeAllUserTokens($victim->id);
+
+        $this->assertDatabaseHas('audit_logs', ['event' => 'all_tokens_revoked', 'user_id' => $admin->id]);
+        $this->assertDatabaseMissing('audit_logs', ['event' => 'all_tokens_revoked', 'user_id' => $victim->id]);
     }
 
     public function test_logout_revokes_access_and_refresh_tokens(): void

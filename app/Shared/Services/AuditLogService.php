@@ -76,14 +76,26 @@ class AuditLogService
      *
      * Used for events like "user_logged_in", "password_changed",
      * "tokens_revoked", etc.
+     *
+     * ⚙️ `$fallbackUserId` — THE ACCOUNT, WHEN NOBODY IS AUTHENTICATED (GAP-18).
+     * Login and token refresh run before authentication, so the context has
+     * no user, and every such row used to be written with `user_id` NULL —
+     * shown as «النظام», invisible to the actor filter, and, for a refresh
+     * token replay, a possible theft attributed to nobody. The caller knows
+     * the account: the one signing in, or whose credential was presented.
+     *
+     * A FALLBACK, NOT AN OVERRIDE. An authenticated caller is the actor and
+     * wins: an administrator revoking someone's tokens is recorded as the
+     * administrator, not as the account being revoked.
      */
     public function logAction(
         string $event,
         ?string $description = null,
         array $metadata = [],
+        ?int $fallbackUserId = null,
     ): void {
         DB::table('audit_logs')->insert([
-            'user_id'        => $this->context->userId(),
+            'user_id'        => $this->context->userId() ?? $fallbackUserId,
             'event'          => $event,
             'auditable_type' => null,
             'auditable_id'   => null,

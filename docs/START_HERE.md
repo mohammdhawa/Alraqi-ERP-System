@@ -67,9 +67,9 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **483 passing**, 2200 assertions (2026-09-28) |
+| **Test suite** | **484 passing**, 2204 assertions (2026-09-28) |
 | **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
-| **Open gaps** | GAP-17, 18 — `API_BUILD_STANDARD.md` §12. Neither blocks Batch 3 |
+| **Open gaps** | GAP-17 — `API_BUILD_STANDARD.md` §12. Does not block Batch 3 |
 | **Production data** | none — the database has never held a real employee |
 
 **Done:** Phase 1 (the whole foundation) + Batches 1 and 2 of Phase 1.5
