@@ -38,6 +38,31 @@ class ApiEnvelopeTest extends TestCase
             ->assertJsonStructure(['success', 'message']);
     }
 
+    /**
+     * GAP-17: the same request WITHOUT asking for JSON was a 500. Every other
+     * case in this file sends `Accept: application/json` (getJson does), which
+     * is exactly why it survived: `auth:sanctum` answers a guest that does not
+     * expect JSON by redirecting to route('login'), there is no such route, and
+     * the redirect itself threw. curl sends a wildcard Accept, a browser
+     * `text/html`, a webhook or health check often nothing — all of them got
+     * «حدث خطأ داخلي في الخادم».
+     */
+    public function test_an_unauthenticated_request_that_does_not_ask_for_json_is_still_a_401(): void
+    {
+        foreach (['*/*', 'text/html,application/xhtml+xml', ''] as $accept) {
+            $response = $this->call('GET', '/api/departments', server: ['HTTP_ACCEPT' => $accept]);
+
+            $response->assertUnauthorized()->assertHeader('Content-Type', 'application/json');
+            $this->assertSame(false, $response->json('success'), "Accept: '{$accept}'");
+            $this->assertArrayHasKey('message', $response->json(), "Accept: '{$accept}'");
+            $this->assertNull($response->headers->get('Location'), 'no redirect, to a login page or anywhere');
+        }
+
+        // And on a POST, the shape a webhook would send.
+        $this->call('POST', '/api/departments', ['name' => 'x'], server: ['HTTP_ACCEPT' => '*/*'])
+            ->assertUnauthorized();
+    }
+
     public function test_forbidden_request_carries_the_envelope(): void
     {
         $this->actingAsRolelessUser();

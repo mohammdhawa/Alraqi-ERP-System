@@ -37,6 +37,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => CheckPermission::class,
         ]);
 
+        // GUESTS ARE NEVER REDIRECTED (GAP-17, 2026-09-28). This is an API with
+        // no login PAGE: Laravel's default sends a guest who does not ask for
+        // JSON to route('login'), and with no such route the redirect itself
+        // threw — so curl, a browser, a webhook or a health check hitting any
+        // protected route got a 500 where a 401 belonged. Answering null makes
+        // `auth:sanctum` throw a plain AuthenticationException, which
+        // ApiExceptionRenderer turns into the 401 envelope for every `api/*`
+        // request, whatever its Accept header.
+        $middleware->redirectGuestsTo(fn (): ?string => null);
+
         // STAGE 1 (global transport). Laravel 12's default `api` group contains
         // only SubstituteBindings — ->throttleApi() was never called, so despite
         // the comment in ModuleServiceProvider claiming otherwise, 26 of 28

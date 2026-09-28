@@ -84,7 +84,7 @@ All routes below are relative to `/api`. Each module is mounted under its own pr
 ### Content type
 
 - Send `Content-Type: application/json` and `Accept: application/json` on every request.
-- Always send `Accept: application/json` — it makes Laravel return JSON errors (e.g. 401/422) instead of HTML redirects.
+- Always send `Accept: application/json` — it is what the API is written for. ⚙️ Since 2026-09-28 (GAP-17) it is no longer what stands between you and a broken error: every `/api/*` error comes back as the JSON envelope whatever the header says, and an unauthenticated request is a **401**, never a redirect. Before that date, a request to a protected route **without** it got a **500** (Laravel tried to redirect to a login page that does not exist) — curl, a browser tab, a webhook or a health check all saw it.
 
 ### Authentication
 
