@@ -8,6 +8,8 @@ use App\Modules\Auth\Models\Notification;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Shared\Push\PushMessage;
+use App\Shared\Push\SendPushNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Model;
 
@@ -94,6 +96,21 @@ class NotificationService
         }
 
         return $notification;
+    }
+
+    /**
+     * Mark every one of the caller's unread notifications read.
+     *
+     * One UPDATE through $user->notifications(), so it cannot reach another
+     * account's rows. No model events fire, which is fine: Notification
+     * carries no HasAuditLog, and the route is audited at the request level.
+     *
+     * @return int how many changed — the client can drop its badge without a
+     *             second request
+     */
+    public function markAllAsRead(User $user): int
+    {
+        return $user->notifications()->where('is_read', false)->update(['is_read' => true]);
     }
 
     /**
@@ -279,6 +296,20 @@ class NotificationService
             'created_at'     => $now,
             'updated_at'     => $now,
         ], $userIds));
+
+        // The same notification, to the recipients' devices (work order §4.3).
+        // From HERE, not from a model event: the bulk insert above fires none,
+        // which is what keeps a company-wide fan-out cheap. After commit, so a
+        // rolled-back action pushes nothing — see SendPushNotification.
+        SendPushNotification::dispatch($userIds, new PushMessage(
+            title: $title,
+            body: $body,
+            data: array_filter([
+                'type'           => $type,
+                'reference_type' => $reference?->getMorphClass(),
+                'reference_id'   => $reference === null ? null : (string) $reference->getKey(),
+            ], fn (?string $value): bool => $value !== null),
+        ))->afterCommit();
 
         return count($userIds);
     }

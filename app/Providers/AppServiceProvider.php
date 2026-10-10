@@ -11,6 +11,8 @@ use App\Modules\HR\Models\EmployeeAssignment;
 use App\Modules\HR\Models\EmployeeDocument;
 use App\Modules\HR\Models\EmployeeWarning;
 use App\Modules\HR\Models\JobTitle;
+use App\Shared\Push\LogPushTransport;
+use App\Shared\Push\PushTransport;
 use App\Shared\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -27,6 +29,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Push delivery (work order §4.3). LogPushTransport until the Firebase
+        // project is decided (D8) and the FCM transport is bound in its place;
+        // until then every push is a log line, and the notification row still
+        // reaches the app's list.
+        $this->app->bind(PushTransport::class, LogPushTransport::class);
+
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
         //

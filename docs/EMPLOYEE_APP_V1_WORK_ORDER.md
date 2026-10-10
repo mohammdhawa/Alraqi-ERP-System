@@ -356,3 +356,35 @@ test) **before** the importer runs, not into the importer.
   what `ID_Sarah` is and how leavers are keyed (it is absent from
   `إنهاء عمل`), and the engineering-rank sub-levels `مشارك2`–`4`, which the
   `EngineeringRank` enum does not have.
+
+### 2026-10-10 — §4.3 built, except the FCM class itself
+
+- **Sessions.** `refresh_tokens` gained `session_id`, `device_name`,
+  `platform` and `signed_in_at` — not `last_used_at`: Sanctum already stamps
+  `last_used_at` on the access token every request, and the access token is now
+  one per session (named `session:<id>`). `signed_in_at` is carried on every
+  row because the prune command deletes the first one.
+- ⚠️ **Two behaviour changes the clients must know** (API_DOCUMENTATION §3):
+  `POST /auth/logout` ends **only the caller's session** (everything is
+  `POST /auth/logout-all` now), and signing in on a second device no longer
+  deletes the first device's access token — before this, a phone and the
+  dashboard signed in as one person evicted each other on every refresh.
+- **A pre-existing defect, fixed on the way.** A deliberately ended token was
+  marked `revoked`, which replay detection reads as theft. So after a password
+  change, the other device's next routine refresh revoked **every** session —
+  including the new one the changer had just been given. Ended tokens are now
+  deleted; `revoked` means only "rotated". `SessionTest` covers both paths.
+- **Device tokens** (`device_tokens`, `POST/DELETE /api/me/device-tokens`) —
+  the first routes of a new `Me` module, self-scoped. A token belongs to the
+  session that registered it and is deleted when that session ends, by any
+  path: logout, logout-all, `DELETE /auth/sessions/{id}`, a password change,
+  `User::disable()`, `UserService::delete()`, theft detection.
+- **`POST /auth/notifications/read-all`**, and `type_label` on notifications
+  from **`NotificationEventCatalogue`** (the 11 v1 events of mapping §8).
+- **Push.** `NotificationService::deliver()` dispatches `SendPushNotification`
+  after commit; the job resolves the recipients' tokens at send time, sends
+  through the `PushTransport` interface and deletes tokens the provider reports
+  dead. **Bound to `LogPushTransport`** — every push is a log line — until the
+  FCM transport exists. Writing it needs a dependency decision: legacy uses
+  `kreait/laravel-firebase` 5.10, and D8 (reuse the legacy Firebase project)
+  is still open.

@@ -62,6 +62,17 @@ class NotificationController extends Controller
      * scoping, since a 403 would confirm the row exists. The route constrains
      * the segment to digits, so a non-numeric id never reaches here.
      */
+    /**
+     * POST /api/auth/notifications/read-all
+     */
+    public function markAllRead(Request $request): JsonResponse
+    {
+        return $this->success(
+            data: ['marked' => $this->notificationService->markAllAsRead($request->user())],
+            message: 'تم وضع علامة "مقروء" على جميع الإشعارات.',
+        );
+    }
+
     public function markRead(Request $request, int $notification): JsonResponse
     {
         $marked = $this->notificationService->markAsRead($request->user(), $notification);

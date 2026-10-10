@@ -140,4 +140,42 @@ class NotificationTest extends TestCase
             'is_read' => false,
         ]);
     }
+
+    // ── Read all (work order §4.3) ───────────────────────────────────────
+
+    public function test_read_all_marks_every_one_of_my_notifications_read(): void
+    {
+        $me = User::factory()->create();
+        $this->makeNotification($me);
+        $this->makeNotification($me);
+        $this->makeNotification($me, ['is_read' => true]);
+        Sanctum::actingAs($me);
+
+        $this->postJson('/api/auth/notifications/read-all')
+            ->assertOk()
+            ->assertJsonPath('data.marked', 2);
+
+        $this->getJson('/api/auth/notifications/unread-count')->assertJsonPath('data.unread_count', 0);
+    }
+
+    public function test_read_all_leaves_other_peoples_notifications_alone(): void
+    {
+        $me    = User::factory()->create();
+        $other = User::factory()->create();
+        $theirs = $this->makeNotification($other);
+        Sanctum::actingAs($me);
+
+        $this->postJson('/api/auth/notifications/read-all')->assertOk()->assertJsonPath('data.marked', 0);
+
+        $this->assertFalse($theirs->fresh()->is_read);
+    }
+
+    public function test_read_all_is_audited(): void
+    {
+        $this->actingAsRolelessUser();
+
+        $this->postJson('/api/auth/notifications/read-all')->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', ['event' => 'api_request']);
+    }
 }

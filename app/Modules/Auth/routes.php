@@ -207,4 +207,10 @@ Route::middleware('auth:sanctum')
             ->middleware('audit')
             ->whereNumber('notification')
             ->name('read');
+
+        // A write too, so audited. Legacy's `notifications/read-all`
+        // (mapping §8, work order §4.3).
+        Route::post('/read-all', [NotificationController::class, 'markAllRead'])
+            ->middleware('audit')
+            ->name('read-all');
     });

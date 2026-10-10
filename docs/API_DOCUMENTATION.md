@@ -1004,7 +1004,8 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
   "id": 12,
   "title": "New employee added",
   "body": "Jane Doe joined Engineering.",
-  "type": "employee_created",
+  "type": "leave.approved",
+  "type_label": "تمت الموافقة على الإجازة",
   "reference": { "type": "employee", "id": 5 },
   "is_read": false,
   "created_at": "2026-06-21T10:00:00+03:00"
@@ -1013,6 +1014,8 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
 
 > ⚠️ **Changed 2026-09-08 — `reference.type` is now a short alias.** It
 > previously returned the PHP class name (`App\Modules\HR\Models\Employee`), and
@@ -1062,6 +1065,43 @@ POST /api/auth/notifications/{notification}/read
 ```
 Idempotent — marking an already‑read notification is a no‑op. Returns the updated notification object. Message: `تم وضع علامة "مقروء" على الإشعار.`
 **404** — id doesn't exist **or** belongs to another user (the two are indistinguishable by design).
+
+### 6.4 Mark all as read
+
+```
+POST /api/auth/notifications/read-all
+```
+Marks every one of the caller's unread notifications read. Audited.
+
+```json
+{ "success": true, "message": "تم وضع علامة \"مقروء\" على جميع الإشعارات.", "data": { "marked": 3 } }
+```
+
+`marked` is how many changed, so the badge can drop to zero without another request.
+
+### 6.5 Register a device for push
+
+```
+POST   /api/me/device-tokens
+DELETE /api/me/device-tokens
+```
+**Protected. Self-scoped.** The token goes in the **body** (FCM tokens are long and not URL-safe).
+
+| Field | Type | Rules |
+|---|---|---|
+| `token` | string | required, max 512 — the device's FCM registration token |
+| `platform` | string | required to register — `android`, `ios` or `web`; ignored on DELETE |
+
+- Register on **every app start** and whenever FCM rotates the token. Re-registering the same token only refreshes it — no duplicates.
+- **One row per device**, not per user: a person's phone and tablet both receive pushes.
+- A token registered by another account (the phone changed hands) **moves to the caller**.
+- The token belongs to the **session** it was registered from. When that session ends — logout, `logout-all`, `DELETE /auth/sessions/{id}`, a password change elsewhere, the account disabled — the device stops receiving pushes. Register again after signing in.
+- `DELETE` is idempotent and answers 200 whether or not the token was the caller's.
+- While `must_change_password` is set this route is refused with 403 like every other — register after the password change.
+
+```json
+{ "success": true, "message": "تم تسجيل الجهاز للإشعارات." }
+```
 
 ---
 
@@ -1885,6 +1925,8 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 16| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
 | 17| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
 | 18| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
+| 18a| POST       | `/api/auth/notifications/read-all`           | bearer   | — (owner‑scoped)       |
+| 18b| POST/DELETE| `/api/me/device-tokens`                      | bearer   | — (self-scoped)        |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |

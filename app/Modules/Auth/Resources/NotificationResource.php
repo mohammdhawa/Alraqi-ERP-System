@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Resources;
 
+use App\Shared\Support\NotificationEventCatalogue;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -34,6 +35,9 @@ class NotificationResource extends JsonResource
             'title'      => $this->title,
             'body'       => $this->body,
             'type'       => $this->type,
+            // Null for a type the catalogue does not know: the client shows
+            // the raw key rather than a wrong label.
+            'type_label' => NotificationEventCatalogue::labelOf($this->type),
             'reference'  => $this->reference_type === null ? null : [
                 'type' => $this->reference_type,
                 'id'   => $this->reference_id,
