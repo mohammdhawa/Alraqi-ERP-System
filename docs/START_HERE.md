@@ -67,7 +67,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **485 passing**, 2223 assertions (2026-09-28) |
+| **Test suite** | **500 passing**, 2245 assertions (2026-10-10) |
 | **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (GAP-16 to 19 all closed 2026-09-28) |
 | **Production data** | none — the database has never held a real employee |
@@ -78,7 +78,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 **Not done:** Batches 3 and 4 of Phase 1.5 — the import tooling and the real data
 import.
 
-**Next:** §10 — Batch 3, the import tooling.
+**Next:** the Employee App v1 pilot, due 2026-11-01 — [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md). It starts with §10, Batch 3.
 
 ---
 
@@ -122,7 +122,7 @@ one by looking.
 
 ## 4. Which document to read for what
 
-`docs/` holds seventeen files written at different times. Several describe states the
+`docs/` holds nineteen files written at different times. Several describe states the
 code has since moved past. This table says which one to trust for what.
 
 | Document | Trust it for | Caution |
@@ -132,6 +132,8 @@ code has since moved past. This table says which one to trust for what.
 | `phase-1.5-foundation-truth-up.md` | **The active plan.** §5–§7 are your next work | §4 is done; its status markers record what changed |
 | `legacy-system-merge-plan.md` | **The real phase order** (stages 0–5) | Supersedes the design doc's phases 2 and 3 |
 | **`EMPLOYEE_APP_REQUIREMENTS.md`** | **What the employee mobile app needs from HR**, mapped onto the stages, plus the decisions it forces before the import | Requirements captured 2026-09-21, not scheduled work. It settles GAP-3 and names work no stage owns |
+| ⚙️ **`EMPLOYEE_APP_V1_WORK_ORDER.md`** | **The plan for October 2026**: the app's v1 pilot on the ERP, built through Batch 3/4, attendance, leave and the approvals engine. Its §3 lists thirteen decisions with defaults and deadlines | Written 2026-10-05; nothing in it is built yet |
+| ⚙️ **`LEGACY_TO_ERP_MAPPING.md`** | **What every legacy attendance, leave, approval, device and notification table, route and permission becomes** in the ERP, and which data moves | First pass, 2026-10-05. Documents are not mapped yet (November) |
 | **`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`** | **The build plan for row-level authorization** — the four pieces, the traps, and what is out of the first slice | Written 2026-09-24 as a handoff. The decisions it implements are §9 (14, 18, 19); this file is the *how* |
 | `phase1-completion-report.md` | Why Phase 1 is shaped the way it is; the decision index in §5 | Written before Phase 1.5; its "what comes next" (§7) is superseded |
 | `API_DOCUMENTATION.md` | The API contract, for frontend work | Reflects today's employees shape — Batch 2 will change it |
@@ -687,6 +689,13 @@ module**, and the phase order changed accordingly.
 | **5** | Decommission the legacy backend | not started |
 | later | Tasks, Projects, Purchasing, Warehouses, Assets, Finance | design doc phases 4–9 |
 
+⚙️ **Reordered 2026-10-05 (decision 25 in §9).** The approvals engine is built
+with **leave as its first consumer**, so Stages 2 and 3 now run as: approvals +
+attendance + leave (a pilot by 2026-11-01), then documents onto the same engine
+(November), then the Stage 3 parallel month and cutover (~2026-12-01). One
+approval implementation, as before — only the order of its consumers changed.
+The plan is [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md).
+
 ⚙️ **One dependency is missing from this table.** Stage 4 payroll reads
 `التمييز` (`employees.distinction_grade`), and **no stage builds the performance
 evaluation that sets it** — neither system has one.
@@ -726,6 +735,19 @@ What the design doc gets **right** and must be kept: the
 `amount_calculated` / `amount_final` pair on payslip lines. HR reviews and
 adjusts a generated draft, and the original survives the adjustment. That is
 exactly what the workbook does by hand today.
+
+⚙️ **A rule neither document states: a payslip snapshots its own inputs.** The
+rate table versions the *rates*, and `employee_assignments` versions the grade,
+but nothing records the *employee's* other criteria as they stood when the
+payslip was computed — `activity_type`, `experience_level`, `engineering_rank`,
+the three flags, `distinction_grade`, the seniority years used, `salary_mode` —
+and those are plain current-value columns on `employees`. The audit log keeps
+their old values, but stamped with when someone typed the change, not when it
+took effect, so payroll cannot read them back. So each payslip line records the
+criterion, the case it applied, and the rate-table version it read. An approved
+payslip then explains itself even after the employee row or a posting is later
+corrected. Whether the criteria *also* need effective-dated history on the HR
+side is a separate question — §11, question 6.
 
 ### Exit criteria worth writing down
 
@@ -1048,6 +1070,17 @@ and hand out, there, only what they hold there. Built in
 `RoleService::ensureMayGrant()` and `ensureHoldsCompanyWide()`; tested in
 `RoleSubsetRuleTest`; contract in `API_DOCUMENTATION.md` §5.2–§5.6.
 
+### ⚙️ One on 2026-10-05 — the Employee App moves onto the ERP
+
+**25. The Flutter app is kept and re-pointed at the ERP, the approvals engine is
+built with leave as its first consumer, and v1 ships as a pilot.** The pilot
+targets 2026-11-01 with legacy still running and still the record of pay; legacy
+retires only after the Stage 3 parallel month. This reverses the merge plan's
+documents-before-leave order without giving up its reason — one approval engine,
+built once. Scope, the thirteen open decisions and the calendar are in
+[`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md); the table-by-table
+port is [`LEGACY_TO_ERP_MAPPING.md`](LEGACY_TO_ERP_MAPPING.md).
+
 ---
 
 ## 10. What to do next — Batch 3, the import tooling
@@ -1190,6 +1223,13 @@ constant the calculator can `match` on exhaustively.
 
 ### Batch 3 — import tooling
 
+⚙️ **Since 2026-10-05 Batch 3 is the first half of a larger plan** — the Employee
+App v1 pilot (decision 25). Build order and calendar are in
+[`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §4–§5; what
+follows here is still the specification of the importer itself. ⚙️ **One
+correction to the paragraph below:** the `users` migration it asks for first
+**is done** — it shipped on 2026-09-23 with the account model (`76f533c`).
+
 **Everything the importer writes into now exists**, which is the point of having
 done Batch 2 first: `employees` in its real shape, the `job_titles` catalogue to
 dedup titles into, `employee_assignments` to carry the opening posting, and
@@ -1317,6 +1357,25 @@ decisions 7–10 in §9. What is left:
 5. ✅ **Closed the day it opened (2026-09-23).** The importer key, orphaned by
    dropping `legacy_number`, is a staging table owned by the importer — decision
    11 in §9, with the reasoning in §10.
+
+6. ⚙️ **Are changes to an employee's pay criteria ever back-dated or prorated?**
+   New (2026-10-05). For example, a promotion in experience level "effective last
+   month, pay the difference", or a flag such as الخطورة switched on mid-month and
+   paid for part of it. The grade already has dated history
+   (`employee_assignments`); the other criteria — `experience_level`,
+   `engineering_rank`, `industrial_experience_years`, the three flags — hold only
+   their current value. `distinction_grade` is left out: its history will be the
+   performance-review records that set it (question 3).
+
+   - **If no** — a change applies from the next payroll run — the payslip
+     snapshot in §8 is sufficient and the schema stays as it is.
+   - **If yes** — the calculator needs the value in force on each date, which
+     means an append-only, effective-dated history for those criteria, in the
+     same pattern as `employee_assignments`.
+
+   Either answer is cheap after the Batch 4 import — a history table can be
+   backfilled with each employee's current values dated at go-live — so **this
+   does not block Batch 4. It blocks the payroll calculator (Stage 4).**
 
 ### For the merge
 
