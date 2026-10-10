@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Services;
 
+use App\Modules\Auth\Enums\DevicePlatform;
 use App\Modules\Auth\Exceptions\AccountDisabledException;
 use App\Modules\Auth\Exceptions\AuthenticationException;
 use App\Modules\Auth\Exceptions\InvalidRefreshTokenException;
 use App\Modules\Auth\Models\RefreshToken;
 use App\Modules\Auth\Models\User;
 use App\Shared\Services\AuditLogService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * AuthService
@@ -41,7 +46,13 @@ use Illuminate\Support\Str;
  *   2. API calls use access_token in Authorization header
  *   3. When access_token expires (401), client calls /auth/refresh with refresh_token
  *   4. Server validates refresh_token, revokes it, issues new pair
- *   5. Logout revokes all tokens for the user
+ *   5. Logout ends the caller's session; logout-all ends every session
+ *
+ * SESSIONS (2026-10-10, work order §4.3): one per signed-in device. Login
+ * mints a `session_id`, every rotation copies it forward with the device it
+ * was signed in from, and the access token is named after it — so a phone and
+ * the dashboard signed in as one person no longer evict each other's access
+ * token, and ending one session ends exactly one device.
  *
  * SECURITY:
  *   - Refresh tokens are hashed with SHA-256 before storage.
@@ -113,8 +124,12 @@ class AuthService
      * It used to be an email and nothing else, which could not work once every
      * employee needed an account: most site staff have no email address.
      */
-    public function login(string $login, string $password): array
-    {
+    public function login(
+        string $login,
+        string $password,
+        ?string $deviceName = null,
+        ?DevicePlatform $platform = null,
+    ): array {
         $user = $this->resolveByLogin($login);
 
         if (! $user || ! Hash::check($password, $user->password)) {
@@ -127,9 +142,16 @@ class AuthService
             throw new AccountDisabledException;
         }
 
-        return DB::transaction(function () use ($user): array {
-            $accessToken  = $this->createAccessToken($user);
-            $refreshToken = $this->createRefreshToken($user);
+        return DB::transaction(function () use ($user, $deviceName, $platform): array {
+            $session = [
+                'session_id'   => (string) Str::uuid(),
+                'device_name'  => $deviceName,
+                'platform'     => $platform,
+                'signed_in_at' => now(),
+            ];
+
+            $accessToken  = $this->createAccessToken($user, $session['session_id']);
+            $refreshToken = $this->createRefreshToken($user, $session);
 
             // Stamp the last successful login. saveQuietly() bypasses model events
             // so it does NOT emit a HasAuditLog "updated" row on every sign-in —
@@ -216,9 +238,13 @@ class AuthService
                 // Revoke the current refresh token (single-use)
                 $refreshToken->update(['revoked' => true]);
 
-                // Issue new pair
-                $newAccessToken  = $this->createAccessToken($user);
-                $newRefreshToken = $this->createRefreshToken($user);
+                // Issue the new pair IN THE SAME SESSION: a refresh continues
+                // the device's session, it does not start another. A row from
+                // before sessions existed has none, and starts one here.
+                $session = $this->sessionOf($refreshToken);
+
+                $newAccessToken  = $this->createAccessToken($user, $session['session_id']);
+                $newRefreshToken = $this->createRefreshToken($user, $session);
 
                 $this->auditLogService->logAction(
                     event: 'tokens_refreshed',
@@ -254,25 +280,108 @@ class AuthService
     }
 
     /**
-     * Logout: revoke all tokens for the authenticated user.
+     * Logout: end the caller's own session, and only it.
      *
-     * Revokes both Sanctum access tokens and all refresh tokens.
-     * After this, the user must log in again on all devices.
+     * ⚙️ CHANGED 2026-10-10. This used to revoke every token the user held, so
+     * signing out of the phone signed the dashboard out too. Ending everything
+     * is logoutEverywhere() now — what the legacy app's "log out of all
+     * devices" maps onto.
+     *
+     * A request authenticated without a session token — Sanctum::actingAs()
+     * in tests — has no session to end; the sign-out is still recorded.
      */
     public function logout(User $user): void
     {
         DB::transaction(function () use ($user): void {
-            // Revoke all Sanctum access tokens
-            $user->tokens()->delete();
+            $sessionId = $this->currentSessionId($user);
 
-            // Revoke all refresh tokens
-            $user->refreshTokens()
-                ->where('revoked', false)
-                ->update(['revoked' => true]);
+            if ($sessionId !== null) {
+                $this->endSession($user, $sessionId);
+            }
 
             $this->auditLogService->logAction(
                 event: 'user_logged_out',
-                description: "User {$user->loginIdentity()} logged out. All tokens revoked.",
+                description: "User {$user->loginIdentity()} logged out of one session.",
+            );
+        });
+    }
+
+    /**
+     * End every session the user has, on every device.
+     */
+    public function logoutEverywhere(User $user): void
+    {
+        DB::transaction(function () use ($user): void {
+            $user->tokens()->delete();
+
+            // Deleted, not marked revoked — see endSession().
+            $user->refreshTokens()->delete();
+            $user->deviceTokens()->delete();
+
+            $this->auditLogService->logAction(
+                event: 'user_logged_out_everywhere',
+                description: "User {$user->loginIdentity()} logged out of every session.",
+            );
+        });
+    }
+
+    /**
+     * The caller's live sessions, newest sign-in first.
+     *
+     * A session is live while its head — the one row of it neither revoked
+     * nor expired — exists. "Last used" is the session's access token's
+     * `last_used_at`, which Sanctum stamps on every request, falling back to
+     * the head's own creation when that token has not been used yet.
+     *
+     * @return array<int, array{id: string, device_name: ?string, platform: ?string, signed_in_at: ?string, last_used_at: ?string, is_current: bool}>
+     */
+    public function sessions(User $user): array
+    {
+        $heads = $this->liveHeads($user)->get();
+
+        $lastUsed = $user->tokens()
+            ->whereIn('name', $heads->map(fn (RefreshToken $head): string => self::accessTokenName($head->session_id)))
+            ->pluck('last_used_at', 'name');
+
+        $current = $this->currentSessionId($user);
+
+        return $heads
+            ->sortByDesc(fn (RefreshToken $head) => $head->signed_in_at)
+            ->map(function (RefreshToken $head) use ($lastUsed, $current): array {
+                $used = $lastUsed[self::accessTokenName($head->session_id)] ?? null;
+
+                return [
+                    'id'           => $head->session_id,
+                    'device_name'  => $head->device_name,
+                    'platform'     => $head->platform?->value,
+                    'signed_in_at' => $head->signed_in_at?->toIso8601String(),
+                    'last_used_at' => ($used !== null ? Carbon::parse($used) : $head->created_at)?->toIso8601String(),
+                    'is_current'   => $head->session_id === $current,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * End one of the caller's sessions — another device, or this one.
+     *
+     * Looked up among the CALLER's live sessions only, so another account's
+     * session id, or one already ended, is a 404 rather than a 403: whether
+     * someone else's session exists is not the caller's business.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function revokeSession(User $user, string $sessionId): void
+    {
+        $this->liveHeads($user)->where('session_id', $sessionId)->firstOrFail();
+
+        DB::transaction(function () use ($user, $sessionId): void {
+            $this->endSession($user, $sessionId);
+
+            $this->auditLogService->logAction(
+                event: 'session_revoked',
+                description: "User {$user->loginIdentity()} ended a session.",
             );
         });
     }
@@ -308,11 +417,24 @@ class AuthService
             throw new AuthenticationException('كلمة المرور الحالية غير صحيحة.');
         }
 
-        return DB::transaction(function () use ($user, $newPassword): array {
+        // The caller's own session survives the change, with the device it was
+        // signed in from; read it before everything is revoked below.
+        $current = $this->currentSessionId($user);
+        $head = $current === null ? null : $this->liveHeads($user)->where('session_id', $current)->first();
+
+        return DB::transaction(function () use ($user, $newPassword, $head): array {
+            // Deleted, not marked revoked — see endSession(). Revoked, the
+            // other devices' next routine refresh read as a replay and ended
+            // the session minted below as well, signing the person who just
+            // changed their password out of the device they changed it on.
             $user->tokens()->delete();
-            $user->refreshTokens()
-                ->where('revoked', false)
-                ->update(['revoked' => true]);
+            $user->refreshTokens()->delete();
+
+            // The other devices stop receiving pushes with their sessions; the
+            // caller's device keeps its token, because its session continues.
+            $user->deviceTokens()
+                ->where(fn ($query) => $query->whereNull('session_id')->orWhere('session_id', '!=', $head?->session_id))
+                ->delete();
 
             // Saved through the model, not quietly: HasAuditLog records the
             // change, and AuditLogService::sanitize() already redacts
@@ -330,9 +452,11 @@ class AuthService
                 description: "User {$user->loginIdentity()} changed their password. Other sessions revoked.",
             );
 
+            $session = $this->sessionOf($head);
+
             return [
-                'access_token'  => $this->createAccessToken($user),
-                'refresh_token' => $this->createRefreshToken($user),
+                'access_token'  => $this->createAccessToken($user, $session['session_id']),
+                'refresh_token' => $this->createRefreshToken($user, $session),
                 'expires_in'    => $this->accessTokenLifetimeSeconds(),
             ];
         });
@@ -352,6 +476,8 @@ class AuthService
                 ->where('revoked', false)
                 ->update(['revoked' => true]);
 
+            $user->deviceTokens()->delete();
+
             // From theft detection nobody is authenticated and the account is
             // the subject; from an administrator, the administrator is the
             // actor and the context wins (GAP-18).
@@ -363,12 +489,6 @@ class AuthService
         });
     }
 
-    /**
-     * Create a short-lived Sanctum access token.
-     *
-     * Sanctum stores the hashed token in personal_access_tokens.
-     * Returns the plaintext token (only available at creation time).
-     */
     /**
      * Find the account a login identifier belongs to.
      *
@@ -404,17 +524,100 @@ class AuthService
             ->first();
     }
 
-    private function createAccessToken(User $user): string
+    /**
+     * The Sanctum token name that ties an access token to its session.
+     */
+    public static function accessTokenName(string $sessionId): string
     {
-        // Delete existing access tokens to prevent accumulation.
-        // In a multi-device scenario, you might keep them and rely on expiry.
-        // For an ERP with controlled access, cleanup is cleaner.
-        $user->tokens()->delete();
+        return 'session:'.$sessionId;
+    }
+
+    /**
+     * The session the current request's access token belongs to, or null for
+     * a request authenticated some other way (a transient token in tests).
+     */
+    public function currentSessionId(User $user): ?string
+    {
+        $token = $user->currentAccessToken();
+
+        if (! $token instanceof PersonalAccessToken || ! str_starts_with((string) $token->name, 'session:')) {
+            return null;
+        }
+
+        return substr((string) $token->name, strlen('session:'));
+    }
+
+    /**
+     * The heads of the user's live sessions: one row per session, neither
+     * revoked nor expired.
+     *
+     * @return HasMany<RefreshToken, User>
+     */
+    private function liveHeads(User $user): HasMany
+    {
+        return $user->refreshTokens()
+            ->whereNotNull('session_id')
+            ->where('revoked', false)
+            ->where('expires_at', '>', now());
+    }
+
+    /**
+     * End one session: delete its access token, its refresh tokens, and the
+     * push token of the device it was — a signed-out phone must stop showing
+     * the person's notifications.
+     *
+     * ⚠️ DELETED, NOT MARKED REVOKED. `revoked = true` is what replay
+     * detection reads as "this token was rotated, so whoever presents it again
+     * stole it" — and answers by ending every session the user has. A device
+     * whose session was ended elsewhere does not know it, and its next refresh
+     * is routine. Left revoked, that refresh would end all the user's other
+     * sessions, including the one that just ended this one. Deleted, the token
+     * is simply unknown: a 401, and nothing else happens.
+     *
+     * So `revoked` keeps exactly one meaning — rotated — and only rotation and
+     * the theft response itself set it.
+     */
+    private function endSession(User $user, string $sessionId): void
+    {
+        $user->tokens()->where('name', self::accessTokenName($sessionId))->delete();
+
+        $user->refreshTokens()->where('session_id', $sessionId)->delete();
+        $user->deviceTokens()->where('session_id', $sessionId)->delete();
+    }
+
+    /**
+     * The session a new row continues: $previous's, or a fresh one when there
+     * is no previous row or it predates sessions.
+     *
+     * @return array{session_id: string, device_name: ?string, platform: ?DevicePlatform, signed_in_at: mixed}
+     */
+    private function sessionOf(?RefreshToken $previous): array
+    {
+        return [
+            'session_id'   => $previous->session_id ?? (string) Str::uuid(),
+            'device_name'  => $previous?->device_name,
+            'platform'     => $previous?->platform,
+            'signed_in_at' => $previous?->signed_in_at ?? now(),
+        ];
+    }
+
+    /**
+     * Create a short-lived Sanctum access token for one session.
+     *
+     * ⚙️ Deletes only THIS session's previous access token (2026-10-10). It
+     * used to delete every access token the user held, so each refresh on one
+     * device signed every other device out until it refreshed in turn.
+     */
+    private function createAccessToken(User $user, string $sessionId): string
+    {
+        $name = self::accessTokenName($sessionId);
+
+        $user->tokens()->where('name', $name)->delete();
 
         $minutes = $this->accessTokenLifetimeMinutes();
 
         $token = $user->createToken(
-            name: 'access_token',
+            name: $name,
             abilities: self::DEFAULT_TOKEN_ABILITIES,
             // Null means "no per-token expiry" — the same thing config/sanctum's
             // null means — rather than a silently different lifetime here.
@@ -425,16 +628,19 @@ class AuthService
     }
 
     /**
-     * Create a long-lived refresh token.
+     * Create a long-lived refresh token in $session.
      *
      * Generates a cryptographically random token, stores only its hash.
      * Returns the plaintext token (only available at creation time).
+     *
+     * @param  array{session_id: string, device_name: ?string, platform: ?DevicePlatform, signed_in_at: mixed}  $session
      */
-    private function createRefreshToken(User $user): string
+    private function createRefreshToken(User $user, array $session): string
     {
         $plainToken = Str::random(64);
 
         RefreshToken::create([
+            ...$session,
             'user_id'    => $user->id,
             'token_hash' => $this->hashToken($plainToken),
             'expires_at' => now()->addDays(self::REFRESH_TOKEN_EXPIRATION_DAYS),

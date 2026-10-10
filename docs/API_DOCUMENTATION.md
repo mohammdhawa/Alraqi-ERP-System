@@ -54,6 +54,12 @@
 > everything except that route, `/auth/logout` and `/auth/me`. Read §3.1 and
 > §3.5 before touching the auth code.
 >
+> ⚠️ **BEHAVIOUR CHANGE, 2026-10-10 — `/auth/logout` ends only the caller's
+> session.** It used to sign the user out on every device. That is
+> **`POST /auth/logout-all`** now, and each signed-in device is a session the
+> user can list and end (§3.6). Login accepts optional `device_name` and
+> `platform` to label it.
+>
 > ⚙️ **Changed 2026-09-23 — `legacy_number` is gone.** The employee payload no
 > longer carries it, `search` no longer matches it, and it is rejected on create
 > and update. The company keeps **one** staff number — `employee_number` — and a
@@ -440,6 +446,8 @@ POST /api/auth/login
 | ---------- | ------ | --------------------------------------------------------- |
 | `login`    | string | required, max 255 — an employee number **or** an email      |
 | `password` | string | required, 8–128 chars                                       |
+| `device_name` | string | optional, max 100 — labels this session in §3.6 (`Galaxy A54`) |
+| `platform` | string | optional — `android`, `ios` or `web`; anything else is a 422 |
 
 ```json
 { "login": "EMP-00042", "password": "secret123" }
@@ -534,12 +542,23 @@ POST /api/auth/refresh
 ```
 POST /api/auth/logout
 ```
-**Protected** (`Authorization: Bearer`). Revokes **all** access + refresh tokens for the user (logs them out on every device).
+**Protected** (`Authorization: Bearer`). Ends **the caller's session only** — this device's access and refresh token. Other devices stay signed in.
+
+> ⚙️ **Changed 2026-10-10.** This used to sign the user out everywhere. To do that now, call `POST /api/auth/logout-all`.
 
 **200 Response**
 
 ```json
 { "success": true, "message": "تم تسجيل الخروج بنجاح." }
+```
+
+```
+POST /api/auth/logout-all
+```
+**Protected.** Ends **every** session the user has, on every device. Reachable while `must_change_password` is set.
+
+```json
+{ "success": true, "message": "تم تسجيل الخروج من جميع الأجهزة." }
 ```
 
 ---
@@ -587,7 +606,7 @@ POST /api/auth/password
 ```
 **Protected. Self-scoped — no permission required**, because it acts only on the caller's own credential.
 
-> **Why this exists.** The first password of every account is issued by HR, so it is a secret more than one person knows. The account carries `must_change_password` until it is replaced, and while that flag is set **the API refuses every route except this one, `/auth/logout` and `/auth/me`** with a **403**.
+> **Why this exists.** The first password of every account is issued by HR, so it is a secret more than one person knows. The account carries `must_change_password` until it is replaced, and while that flag is set **the API refuses every route except this one, `/auth/logout`, `/auth/logout-all` and `/auth/me`** with a **403**.
 >
 > **403, not 401 — do not refresh the token and do not bounce to login.** The session is valid; the *action* is refused. Treating it as an auth failure produces an infinite loop, because re-authenticating changes nothing.
 
@@ -622,6 +641,57 @@ POST /api/auth/password
 | ------ | ---- |
 | **401** | `current_password` is wrong (`كلمة المرور الحالية غير صحيحة.`) |
 | **422** | The new password is too short, unconfirmed, or identical to the current one |
+
+---
+
+### 3.6 Sessions — the caller's signed-in devices
+
+A **session** is one sign-in on one device. Login starts it; every `/refresh` continues it (same `id`); it ends at logout, at `DELETE` below, at a password change (every session except the caller's), or when the account is disabled. **Self-scoped — no permission required**: these act on the caller's own sessions only.
+
+```
+GET /api/auth/sessions
+```
+
+**200 Response** — newest sign-in first.
+
+```json
+{
+  "success": true,
+  "message": "تم جلب الجلسات.",
+  "data": [
+    {
+      "id": "3f1c2a9e-8b7d-4e21-9a55-2c4f0d6b7e10",
+      "device_name": "Galaxy A54",
+      "platform": "android",
+      "signed_in_at": "2026-10-10T08:02:11+03:00",
+      "last_used_at": "2026-10-10T11:47:03+03:00",
+      "is_current": true
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | The session's UUID — stable across refreshes |
+| `device_name`, `platform` | As sent at login; `null` when the client sent none |
+| `signed_in_at` | When this device signed in |
+| `last_used_at` | The last request made with this session's access token |
+| `is_current` | `true` for the session making this request |
+
+```
+DELETE /api/auth/sessions/{id}
+```
+
+Ends that session: the device's next request is a **401** and its refresh token is refused. Ending your own (`is_current`) is the same as logout.
+
+- **404** — the id is not one of **your** live sessions (another account's, or already ended). Deliberately not 403.
+
+> **Client note — an ended session is not a stolen one.** A device whose session was ended elsewhere gets a plain **401** from `/refresh` and should go to login. That refresh does **not** trip replay detection (§3.2): only a *rotated* token presented twice does.
+
+```json
+{ "success": true, "message": "تم إنهاء الجلسة." }
+```
 
 ---
 
@@ -1796,7 +1866,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | - | ----------- | -------------------------------------------- | -------- | ---------------------- |
 | 1 | POST        | `/api/auth/login`                            | public   | — (5/min)              |
 | 2 | POST        | `/api/auth/refresh`                          | public   | — (10/min)             |
-| 3 | POST        | `/api/auth/logout`                           | bearer   | —                      |
+| 3 | POST        | `/api/auth/logout`                           | bearer   | — (this session)       |
+| 3a| POST        | `/api/auth/logout-all`                       | bearer   | — (every session)      |
+| 3b| GET         | `/api/auth/sessions`                         | bearer   | — (self-scoped)        |
+| 3c| DELETE      | `/api/auth/sessions/{id}`                    | bearer   | — (self-scoped)        |
 | 4 | GET         | `/api/auth/me`                               | bearer   | —                      |
 | 5 | POST        | `/api/auth/password`                         | bearer   | — (self-scoped)        |
 | 6 | GET         | `/api/auth/users`                            | bearer   | `auth.users.view`      |

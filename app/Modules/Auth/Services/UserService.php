@@ -175,6 +175,7 @@ class UserService
             // account's tokens are dead" should be a fact this method asserts.
             $user->tokens()->delete();
             $user->refreshTokens()->delete();
+            $user->deviceTokens()->delete();
 
             $user->delete();
         });

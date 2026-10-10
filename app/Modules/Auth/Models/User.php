@@ -192,6 +192,16 @@ class User extends Authenticatable
 
         $this->tokens()->delete();
         $this->refreshTokens()->delete();
+        $this->deviceTokens()->delete();
+    }
+
+    /**
+     * This account's devices registered for push — one per device, each
+     * owned by the session that registered it.
+     */
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
     }
 
     /**

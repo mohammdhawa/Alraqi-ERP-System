@@ -67,6 +67,8 @@ final class AuditEventCatalogue
         self::GROUP_AUTH => [
             'user_logged_in',
             'user_logged_out',
+            'user_logged_out_everywhere',
+            'session_revoked',
             'tokens_refreshed',
             'password_changed',
             'all_tokens_revoked',
@@ -96,6 +98,8 @@ final class AuditEventCatalogue
         'deleted'                       => 'حذف',
         'user_logged_in'                => 'تسجيل دخول',
         'user_logged_out'               => 'تسجيل خروج',
+        'user_logged_out_everywhere'    => 'تسجيل خروج من جميع الأجهزة',
+        'session_revoked'               => 'إنهاء جلسة',
         'tokens_refreshed'              => 'تجديد الجلسة',
         'password_changed'              => 'تغيير كلمة المرور',
         'all_tokens_revoked'            => 'إنهاء جميع الجلسات',

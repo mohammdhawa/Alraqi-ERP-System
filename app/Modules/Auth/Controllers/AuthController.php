@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Controllers;
 
+use App\Modules\Auth\Enums\DevicePlatform;
 use App\Modules\Auth\Requests\ChangePasswordRequest;
 use App\Modules\Auth\Requests\LoginRequest;
 use App\Modules\Auth\Requests\RefreshTokenRequest;
@@ -29,7 +30,10 @@ use Illuminate\Routing\Controller;
  * ENDPOINTS:
  *   POST   /api/auth/login    → Authenticate and get tokens
  *   POST   /api/auth/refresh  → Rotate tokens
- *   POST   /api/auth/logout   → Revoke all tokens
+ *   POST   /api/auth/logout     → End the caller's session
+ *   POST   /api/auth/logout-all → End every session
+ *   GET    /api/auth/sessions   → The caller's signed-in devices
+ *   DELETE /api/auth/sessions/{id} → End one of them
  *   POST   /api/auth/password → Replace own password (self-scoped)
  *   GET    /api/auth/me       → Get authenticated user profile
  */
@@ -62,6 +66,8 @@ class AuthController extends Controller
         $result = $this->authService->login(
             login: $request->validated('login'),
             password: $request->validated('password'),
+            deviceName: $request->validated('device_name'),
+            platform: DevicePlatform::tryFrom((string) $request->validated('platform')),
         );
 
         // Eager-load roles + their permissions so the response carries the
@@ -145,6 +151,37 @@ class AuthController extends Controller
      * This is one of three routes reachable while `must_change_password` is
      * set. It is the only one that clears it.
      */
+    /**
+     * POST /api/auth/logout-all — sign out of every device.
+     */
+    public function logoutAll(Request $request): JsonResponse
+    {
+        $this->authService->logoutEverywhere($request->user());
+
+        return $this->success(message: 'تم تسجيل الخروج من جميع الأجهزة.');
+    }
+
+    /**
+     * GET /api/auth/sessions — the caller's signed-in devices.
+     */
+    public function sessions(Request $request): JsonResponse
+    {
+        return $this->success(
+            data: $this->authService->sessions($request->user()),
+            message: 'تم جلب الجلسات.',
+        );
+    }
+
+    /**
+     * DELETE /api/auth/sessions/{session} — end one of them.
+     */
+    public function revokeSession(Request $request, string $session): JsonResponse
+    {
+        $this->authService->revokeSession($request->user(), $session);
+
+        return $this->success(message: 'تم إنهاء الجلسة.');
+    }
+
     public function changePassword(ChangePasswordRequest $request): JsonResponse
     {
         $result = $this->authService->changePassword(

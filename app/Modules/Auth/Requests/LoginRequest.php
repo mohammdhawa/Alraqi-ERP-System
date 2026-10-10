@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Requests;
 
+use App\Modules\Auth\Enums\DevicePlatform;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * LoginRequest
@@ -41,6 +43,11 @@ class LoginRequest extends FormRequest
         return [
             'login'    => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'min:8', 'max:128'],
+            // Optional: they label the session in the user's own session list
+            // ("Galaxy A54 · android"). A client that sends neither still signs
+            // in; its session is simply listed without a name.
+            'device_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'platform'    => ['sometimes', 'nullable', Rule::enum(DevicePlatform::class)],
         ];
     }
 
@@ -49,6 +56,7 @@ class LoginRequest extends FormRequest
         return [
             'login.required'    => 'رقم الموظف أو البريد الإلكتروني مطلوب.',
             'password.required' => 'كلمة المرور مطلوبة.',
+            'platform.enum'     => 'نوع الجهاز غير معروف.',
             'password.min'      => 'يجب ألا تقل كلمة المرور عن 8 أحرف.',
         ];
     }

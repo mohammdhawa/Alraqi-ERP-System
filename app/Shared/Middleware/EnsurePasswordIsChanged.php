@@ -48,7 +48,9 @@ class EnsurePasswordIsChanged
      * - `auth.password.change` resolves the situation. It is the only one that
      *   clears the flag.
      * - `auth.logout` ends the session. Refusing to let someone sign out of an
-     *   account they cannot use would be absurd.
+     *   account they cannot use would be absurd. `auth.logout-all` likewise —
+     *   and it is what a person does who suspects someone else signed in with
+     *   the temporary password first.
      * - `auth.me` is what the client reads to discover the state it is in —
      *   including `must_change_password` itself, which is how the app knows to
      *   open the change screen rather than the dashboard.
@@ -58,6 +60,7 @@ class EnsurePasswordIsChanged
     private const ALLOWED_ROUTES = [
         'auth.password.change',
         'auth.logout',
+        'auth.logout-all',
         'auth.me',
     ];
 

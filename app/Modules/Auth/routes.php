@@ -62,6 +62,19 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('auth.logout');
 
+    // Sessions (work order §4.3) — self-scoped like logout: each acts on the
+    // caller's own sessions and on nothing else. Another account's session id
+    // is a 404 (AuthService::revokeSession).
+    Route::post('/logout-all', [AuthController::class, 'logoutAll'])
+        ->name('auth.logout-all');
+
+    Route::get('/sessions', [AuthController::class, 'sessions'])
+        ->name('auth.sessions.index');
+
+    Route::delete('/sessions/{session}', [AuthController::class, 'revokeSession'])
+        ->whereUuid('session')
+        ->name('auth.sessions.destroy');
+
     Route::get('/me', [AuthController::class, 'me'])
         ->name('auth.me');
 
