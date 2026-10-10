@@ -175,6 +175,26 @@ class User extends Authenticatable
     }
 
     /**
+     * Disable the account and end every session it has open.
+     *
+     * Clearing `is_active` alone stops the next sign-in and the next refresh,
+     * but leaves the current access token working until it expires — and for a
+     * departed employee that is a working attendance app. So the tokens go
+     * too, the same way UserService::delete() ends a deleted account's
+     * sessions.
+     *
+     * Saved through the model, so HasAuditLog records the change.
+     */
+    public function disable(): void
+    {
+        $this->is_active = false;
+        $this->save();
+
+        $this->tokens()->delete();
+        $this->refreshTokens()->delete();
+    }
+
+    /**
      * Roles granted to this user (RBAC).
      *
      * ⚙️ SINCE GAP-3 A ROLE CAN APPEAR MORE THAN ONCE here — the same role

@@ -291,6 +291,15 @@ class Employee extends Model
             // see the opening posting already on its corrected date.
             $employee->followHireDate();
             $employee->recordPostingChange(created: false);
+
+            // Termination disables the account (EMPLOYEE_APP_REQUIREMENTS.md
+            // §7.1 C), on every path — the importer included. On the change to
+            // terminated only: a later edit of a terminated row must not
+            // overrule an administrator who re-enabled the account, and a
+            // rehire does not re-enable it either. That is a person's decision.
+            if ($employee->wasChanged('status') && $employee->status === EmployeeStatus::Terminated) {
+                $employee->user?->disable();
+            }
         });
     }
 
