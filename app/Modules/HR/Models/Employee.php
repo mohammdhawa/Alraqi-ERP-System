@@ -534,6 +534,15 @@ class Employee extends Model
     }
 
     /**
+     * The import-source rows that resolve to this employee — more than one
+     * for a rehire, who appears in both إنهاء عمل and قاعدة البيانات.
+     */
+    public function importSources(): HasMany
+    {
+        return $this->hasMany(EmployeeImportSource::class);
+    }
+
+    /**
      * The login account linked to this employee, if any. The FK lives on
      * `users`, so this is a hasOne.
      */
