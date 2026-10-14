@@ -1017,6 +1017,21 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 - `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
 - **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
 
+**What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
+
+| `type` | Sent to | `reference` | Dashboard opens | App opens |
+|---|---|---|---|---|
+| `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1) | the approval screen for that request | the same, under الطلبات |
+| `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled` | the requester | their leave request | that leave request | that leave request |
+| `leave.excuse_filed`, `leave.excuse_cancelled` | the employee | the excuse | the full text | the employee's leave history |
+| `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
+| `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
+| any other type | — | any | by `reference` alone (an `employee` opens their profile); otherwise the full text | the same |
+
+- The leave, approval and attendance screens arrive with those modules (work order §4.5–§4.7); until a screen exists, its rows fall back to the full text.
+- **Never act from the notification itself.** By the time it is opened, the request may be decided, cancelled or reassigned. The destination screen shows the request's current state, and that is where approve / reject live.
+- A reference the reader can no longer open (deleted, or now out of their scope) gets a **404 / 403** from the API. Show a plain message, not a broken page.
+
 > ⚠️ **Changed 2026-09-08 — `reference.type` is now a short alias.** It
 > previously returned the PHP class name (`App\Modules\HR\Models\Employee`), and
 > this document published that as the contract. It now returns a stable

@@ -45,7 +45,7 @@ moves onto the ERP, and the order of the merge changes to get it there:
 | حساب الموظف — home | Name, photo (if the import has one), job title, unit, employee number, **direct manager**, today's attendance state, leave balance, unread notifications and pending requests. Salary card `null` |
 | الدوام والحضور | Check in/out with GPS + selfie, offline queue, history by day |
 | الإجازات | Request with type, reason and **attachment**; balance; the two-step chain (direct manager → مدير الموارد); cancel |
-| الطلبات — as approver | My pending approvals; approve / reject with a note |
+| الطلبات — as approver | My pending approvals; approve / reject with a note — **in the app and in the dashboard** (decided 2026-10-14, §8) |
 | الملف الوظيفي | Read-only profile from `/api/me/profile` |
 | الإشعارات | In-app list + FCM push for the v1 event catalogue |
 | Account | Login by employee number, forced first-login password change, my sessions, log out a device |
@@ -178,6 +178,12 @@ collapse rule.
 
 Designed against its four known consumers — leave now; documents, purchase
 requests and payroll approval later — not against leave alone (merge plan §5).
+
+⚙️ **Two clients act on it** (2026-10-14, §8): a manager approves leave in the
+Flutter app **or the dashboard**. Nothing in the engine changes for that —
+acting is by being the step's approver, whichever client sends it — but the
+API must serve a dashboard approvals inbox, and the dashboard needs that inbox
+and a request screen to act from.
 
 ### 4.7 Leave — `app/Modules/Leave`, on the engine
 
@@ -398,3 +404,31 @@ test) **before** the importer runs, not into the importer.
 - ⚙️ Installing the package also moved `laravel/framework` 12.58 → 12.69 and
   ~45 Symfony/Guzzle/Carbon packages to their locked versions; the suite was
   green before writing any code against it.
+
+### 2026-10-14 — managers approve in the dashboard too; a notification opens where you act
+
+**Decided by the project owner:** a manager can approve leave in the dashboard
+as well as in the app. §1's v1 table said the app; it now says both.
+
+**What it adds to the plan** — frontend work, not engine work (§4.6):
+
+- A dashboard **approvals inbox** (my pending steps, from `pendingFor`) and a
+  **request screen** showing the request, its chain and its current state, with
+  approve / reject / note. Built with §4.6–§4.7, in week 3.
+- The request screen shows the **live state**, never a cached one: by the time
+  a manager opens it the step may be decided, cancelled or reassigned, and the
+  screen says so instead of offering a button that fails.
+
+⚠️ **The calendar does not absorb this for free.** Week 3 already holds the
+engine, leave and `/api/me`. If it slips, the §5 fallback applies to the
+dashboard inbox first: managers approve in the app for the pilot, and the
+dashboard inbox follows.
+
+**A notification opens where its recipient acts** (project owner, same day).
+The destination is chosen by the notification's **type** first and its
+`reference` second — the same leave request opens the approval screen for the
+approver (`approval.step_pending`) and the requester's own request for them
+(`leave.approved`). The server sends `type` + `reference` and never a URL;
+each client maps them to its own screen, per the "tap opens" contract in
+API_DOCUMENTATION §6. A type with no destination opens the notification's
+detail window. Approve / reject is never a button on the notification itself.
