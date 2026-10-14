@@ -368,7 +368,7 @@ never be conflated — a section head (`السوية 3`) can sit in a division (
 | `activity_type` | enum(engineering, financial, administrative, industrial, security) | XLSForm `q9` | هندسي / مالي / إداري / صناعي / أمني. Selects which experience axis applies |
 | `organizational_grade` | tinyint 1–5 | DB-sheet `السوية التنظيمية` | **Position grade. Not `departments.level`.** |
 | `experience_level` | tinyint 1–5, nullable | DB-sheet `الخبرة` | `خبرة 1…5`. Applies when `activity_type` ∈ {administrative, financial, security} |
-| `engineering_rank` | enum, 9 cases, nullable | XLSForm `q10` | استشاري، رأي، ممارس، مشارك، مساعد مهندس، مراقب فني، متدرب، ركن، لا يوجد. Applies when `activity_type = engineering` |
+| `engineering_rank` | enum, ~~9~~ **12** cases, nullable | XLSForm `q10` | ~~استشاري، رأي، ممارس، مشارك، مساعد مهندس، مراقب فني، متدرب، ركن، لا يوجد~~ ⚙️ **Since 2026-10-14:** لا يوجد، متدرب، مراقب فني، مساعد مهندس، مشارك، مشارك1–4، ممارس، رأي، استشاري (ركن retired) — see EMPLOYEE_APP_V1_WORK_ORDER §8. Applies when `activity_type = engineering` |
 | `industrial_experience_years` | smallint, nullable | XLSForm `w6` | Applies when `activity_type = industrial` |
 
 The three experience axes are mutually exclusive by `activity_type`. Enforce

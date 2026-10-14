@@ -7,18 +7,24 @@ namespace App\Modules\HR\Enums;
 /**
  * EngineeringRank — الرتبة الهندسية
  *
- * The nine rungs of the engineering ladder, from unranked to ركن.
+ * The twelve rungs of the engineering ladder as approved on 2026-10-14 (work
+ * order §8): لا يوجد، متدرب، مراقب فني، مساعد مهندس، مشارك، مشارك1–4، ممارس،
+ * رأي، استشاري — the list «نظام الرواتب» prices. مشارك1–4 are ranks of their
+ * own, between مشارك and ممارس (150, then 165, 180, 195, 210, then 225 before
+ * the company scale factor); none may be folded into another. ركن is not a
+ * rank; migration 2026_10_14_100000 moves any row that held one.
  *
- * ORDER: ascending by the amount the pay matrix attaches to each rung —
- * 0, 25, 100, 125, 150, 225, 300, 400, 1000 (before the company scale factor).
- * That makes `->value` a legitimate ordering key and `>=` comparisons
- * meaningful, the same property EducationLevel has and for the same reason. The
- * reference schema lists these descending; the direction is cosmetic there and
- * load-bearing here.
+ * ⚙️ THE INT IS AN IDENTITY, NOT AN ORDER (changed 2026-10-14). It used to be
+ * both — the rungs were numbered in pay order, so `>=` read as "at least this
+ * rank". Adding four rungs between مشارك (5) and ممارس (6) would have meant
+ * renumbering ممارس، رأي and استشاري, which every stored row, every audit-log
+ * value and the dashboard's form all carry. So the existing ranks keep their
+ * ints, مشارك1–4 are 10–13, and THE PAY ORDER IS THE DECLARATION ORDER below:
+ * cases() and options() list the ladder lowest first. Nothing compares ranks by
+ * int — do not start: compare positions in cases() if "higher than" is needed.
  *
- * ⚠️ As with EducationLevel, THE INT IS AN ORDER, NOT AN AMOUNT — and the gaps
- * here are enormous (ركن is worth two and a half times استشاري). Never compute
- * pay from the case value. The amounts belong to the payroll rate table.
+ * Never compute pay from the case value either. The amounts belong to the
+ * payroll rate table.
  *
  * APPLIES ONLY to `activity_type = Engineering`; EmployeeClassificationGuard
  * refuses to store a rank on any other kind of post. `None` (لا يوجد) is a real
@@ -27,15 +33,21 @@ namespace App\Modules\HR\Enums;
  */
 enum EngineeringRank: int
 {
-    case None              = 1;   // لا يوجد
-    case Trainee           = 2;   // متدرب
-    case TechnicalMonitor  = 3;   // مراقب فني
-    case AssistantEngineer = 4;   // مساعد مهندس
-    case Associate         = 5;   // مشارك
-    case Practitioner      = 6;   // ممارس
-    case Authority         = 7;   // رأي
-    case Consultant        = 8;   // استشاري
-    case Principal         = 9;   // ركن
+    // Declared lowest-paid first — see the docblock. 9 (ركن) is retired and
+    // must not be reused: an old audit row holding it has to read as unknown,
+    // not as some other rank.
+    case None              = 1;    // لا يوجد
+    case Trainee           = 2;    // متدرب
+    case TechnicalMonitor  = 3;    // مراقب فني
+    case AssistantEngineer = 4;    // مساعد مهندس
+    case Associate         = 5;    // مشارك
+    case Associate1        = 10;   // مشارك1
+    case Associate2        = 11;   // مشارك2
+    case Associate3        = 12;   // مشارك3
+    case Associate4        = 13;   // مشارك4
+    case Practitioner      = 6;    // ممارس
+    case Authority         = 7;    // رأي
+    case Consultant        = 8;    // استشاري
 
     /**
      * Arabic display name.
@@ -48,10 +60,13 @@ enum EngineeringRank: int
             self::TechnicalMonitor  => 'مراقب فني',
             self::AssistantEngineer => 'مساعد مهندس',
             self::Associate         => 'مشارك',
+            self::Associate1        => 'مشارك1',
+            self::Associate2        => 'مشارك2',
+            self::Associate3        => 'مشارك3',
+            self::Associate4        => 'مشارك4',
             self::Practitioner      => 'ممارس',
             self::Authority         => 'رأي',
             self::Consultant        => 'استشاري',
-            self::Principal         => 'ركن',
         };
     }
 
@@ -61,7 +76,7 @@ enum EngineeringRank: int
     }
 
     /**
-     * All rungs, lowest first.
+     * All rungs, lowest first (declaration order, not value order).
      *
      * @return array<int, array{value: int, label: string}>
      */
