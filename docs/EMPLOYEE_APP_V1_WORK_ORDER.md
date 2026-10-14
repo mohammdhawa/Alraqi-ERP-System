@@ -432,3 +432,73 @@ approver (`approval.step_pending`) and the requester's own request for them
 each client maps them to its own screen, per the "tap opens" contract in
 API_DOCUMENTATION §6. A type with no destination opens the notification's
 detail window. Approve / reject is never a button on the notification itself.
+
+### 2026-10-14 — HR's answers: the import key, leavers, the صرح file, the ranks
+
+Asked and answered the same day. They unblock §4.4.
+
+| # | Question | HR's answer | What it means |
+|---|---|---|---|
+| 1 | Is `ID_Sarah` the KoboToolbox `_id` of the employee's «استمارة بيانات الموظفين» submission — the dataset exchanged with شركة صرح? | Yes | **The import key for every active employee is `kobo:<_id>`** in `employee_import_sources` |
+| 2 | Does editing an employee keep the Kobo record, or create a new one? | The number is never changed | The key survives HR's corrections between runs |
+| 3 | How are leavers keyed? | **Do not import leavers at all, for now** | §4.9 imports the 237 active only. Stage 1's "223 terminated" is deferred; `إنهاء عمل` is not read |
+| 4 | May the latest صرح file (`مستقبل صرح 9-2026.xlsx`, 296 records) be a source? | Yes | It supplies what the workbook lacks: national ID, personal photo, mother's name, sons and daughters separately, the full birth date — matched on `_id` (232 of 236 active found) |
+| 5 | Are مشارك1–4 approved ranks, at 165 / 180 / 195 / 210? | Yes | Added to `EngineeringRank` as 10–13 |
+| 6 | Is plain مشارك a rank of its own? | «لا» — then **corrected by the project owner: مشارك is a rank** | Kept (5). The question was either/or, so «لا» never settled it |
+| 7 | Is استشاري still a rank? | «لا» — then **corrected by the project owner: استشاري is a rank** | Kept (8) |
+| 8 | Is ركن a rank? | No | Retired; any row holding it moves to استشاري. Nobody holds it |
+
+The engineering ladder is therefore **لا يوجد، متدرب، مراقب فني، مساعد مهندس،
+مشارك، مشارك1–4، ممارس، رأي، استشاري** — exactly the list «نظام الرواتب»
+prices.
+
+⚠️ **Corrected the same day.** The first reading of answers 6 and 7 removed
+مشارك and استشاري; the project owner corrected it. A draft migration that
+moved مشارك → مشارك1 and استشاري → رأي had already run on the development
+database (never committed, never anywhere else); its two seeded engineers
+were put back by hand, and the committed migration retires ركن only.
+
+⚠️ **The صرح file also carries religion, sect, criminal record and ID-card
+scans.** The importer reads an explicit allow-list of its columns and nothing
+else; none of those four is on it.
+
+**Still to report, not to resolve:** 4 active employees whose `ID_Sarah` is
+not in the صرح file, and 1 with no `ID_Sarah` at all. The importer lists them
+for HR rather than keying them some other way.
+
+### 2026-10-14 — the production division is not imported; the import is 185 people
+
+**Decided by the project owner**, on the evidence of HR's September monthly
+report (`تقارير شهرية/تقرير_الموارد_البشرية_9-2026.pptx`, slide 4), which
+lists «إدارة المشاريع الإنتاجية» as **«نقل لصلد»** — transferred out to صلد —
+and counts **184** current employees.
+
+- **The import reads `Program_HR_10_2026.xlsx` → `قاعدة البيانات` only: 185
+  people.** The production workbook (`فصل الانتاجية/…انتاجية.xlsx`, 52 people)
+  is not read. The 237 in the §8 entries above is superseded.
+- **184 vs 185 is one hire on 2026-10-03**, after the report — the one row with
+  no `ID_Sarah` yet.
+- The report's per-division counts match the workbook (77 الآليات الثقيلة,
+  21 الأمن والحماية, 9 الإمداد والتوريد, …), and it names the quality division
+  «منشأ حديثاً» — confirming the fourteenth division the HR review file raised.
+- **The rows the صرح file lacks are new hires:** two September hires came after
+  the September صرح export, and one is in the new quality division. The
+  importer takes the workbook's fields for them and fills the صرح-only ones
+  (national ID, mother's name, photo) on a later run — reported, not refused.
+- **Reconciliation target for Stage 4:** September's net payroll, $114,208
+  (base $113,699), per the same report.
+- The folder `Downloads/HR_changed_Oct2026` (HR's latest edits, located by the
+  project owner) holds byte-identical copies of every spreadsheet already used
+  — so `Program_HR_10_2026` is confirmed as the latest as of 2026-10-05.
+
+`إدارة المشاريع الإنتاجية` stays in `DepartmentSeeder` for now: a tree change
+is HR's to confirm (the review file), and an empty division costs nothing.
+
+### 2026-10-14 — four import decisions by the project owner
+
+| # | Question | Answer | Built / where |
+|---|---|---|---|
+| 1 | 207 national IDs have 10 digits — restore the leading `0` Excel dropped? | Yes | The importer pads them to 11; the shorter ones and the 2 duplicates are reported |
+| 2 | A KoboToolbox API token to download the photos in the صرح file? | No | **No photo is imported.** ⚠️ **The app needs a photo upload from day one** — §4.8 gains `POST /api/me/photo` into `employee_documents` (personal photo), and §4.10 a picker on the profile screen; home shows initials until one is uploaded |
+| 3 | The opening posting's title: the one they started with, or today's? | The one they started with | The importer sets the opening `تعيين` posting's `job_title_id` from `المسمى الوظيفي بداية التعيين` (today's when blank) |
+| 4 | `اللقب` and `مكان الراتب` — needed in v1? | Yes | **Built:** `employees.nickname` (identity, ungated) and `employees.payroll_location` (pay-gated, read and write). `EmployeeNicknameAndPayrollLocationTest` |

@@ -4,7 +4,18 @@
 > reads (work order §8):
 >
 > - `Program_HR_10_2026.xlsx` — `قاعدة البيانات` (185 active), `إنهاء عمل` (216)
-> - `فصل الانتاجية/Program_HR_9_2026-انتاجية.xlsx` — `قاعدة البيانات` (52 active)
+> - ~~`فصل الانتاجية/Program_HR_9_2026-انتاجية.xlsx` — `قاعدة البيانات` (52 active)~~
+>   ⚙️ **Not read** (project owner, 2026-10-14): the production division was
+>   transferred to صلد (HR's September report). **The import is the main
+>   sheet's 185 people.** Counts below that say "237" or "active sheets
+>   combined" include the 52 and are kept for the record.
+> - ⚙️ **Added 2026-10-14 (HR, work order §8):** `استقبال وتعديل شركة صرح/مستقبل صرح 9-2026.xlsx`
+>   — the KoboToolbox «استمارة بيانات الموظفين» export, 296 records, joined on
+>   `_id` = `ID_Sarah` (232 of the 236 active with an `ID_Sarah` are in it). It
+>   fills the fields §2 marks **صرح**.
+>
+> ⚙️ **Leavers are not imported** (HR, 2026-10-14): `إنهاء عمل` is not read, and
+> every leaver-only row below is for reference.
 >
 > Header row is row 3 of each sheet, and there is an empty column A. **Read
 > columns by header name, never by position**: the three sheets do not share a
@@ -18,28 +29,33 @@
 
 | Column | Filled | Use |
 |---|---|---|
-| `ID_Sarah` | 236/237 active, unique · **absent from `إنهاء عمل`** | **The proposed source key for active rows**, as `id_sarah:<value>` in `employee_import_sources` |
+| `ID_Sarah` | 236/237 active, unique | ✅ **The import key**, as `kobo:<value>` in `employee_import_sources`. HR confirmed (2026-10-14) it is the Kobo `_id` of the employee's record and never changes |
 | `الرقم الوظيفي` (`M024333`) | 108/237, 127/216 leavers | Not imported (decision 11). Too sparse to key on |
 | `التسلسل` | all | Row order. Not stable across HR's edits; not a key |
 
-⚠️ **Open:** what `ID_Sarah` is, whether it is stable, and how leavers are keyed —
-the leavers sheet has no `ID_Sarah`, no national ID, and 76 rows without a unit.
-**58 names appear on both an active sheet and `إنهاء عمل`** (rehires, or
-duplicates); the importer must report each pair, never merge by name silently.
+✅ **Settled 2026-10-14.** The one active row with no `ID_Sarah`, and the 4 whose
+`ID_Sarah` is not in the صرح file, are **reported, not keyed some other way** —
+HR adds the number, and the next run picks them up. The 58 names that appear on
+both an active sheet and `إنهاء عمل` no longer matter: leavers are not imported.
 
 ## 2. Identity
 
 | Column | Filled | → ERP | Rule |
 |---|---|---|---|
 | `الإسم الثلاثي` | all | `first_name`, `middle_name`, `last_name` | 320 of 453 names have 3 words. **133 have 4–6** (`خلدون قرنفل علي قرنفل`), 3 have 2. Rule: first word, second word, rest as `last_name`; report every non-3-word name for HR to check. Leavers are often a kunya only (`أبو إبراهيم عندان`) |
-| `اللقب` | 76/237 | — | The kunya (`أبو عبد الرحمن`). **No column for it.** Decide whether it matters to HR — it is how half the site staff are addressed |
+| `اللقب` | 76/237 | `nickname` | ✅ Column added 2026-10-14 (needed in v1). Trimmed; blank → null |
 | `الجنس` | active only | `gender` | `ذكر` / `انثى`. Leavers: `Column4` holds it, unnamed |
-| `مواليد_دقيقة` | main sheet only | `birth_date` | A full date |
-| `المواليد` | all | `birth_date` year | Production and leavers carry **only the year**. Do not invent `YYYY-01-01`; leave `birth_date` null and report — or decide a year-only rule |
+| صرح `تاريخ التولد` | 232/232 matched | `birth_date` | ✅ A full date for every matched employee, production included — **preferred over the workbook** |
+| `مواليد_دقيقة` | main sheet only | `birth_date` | Fallback when the صرح record is missing |
+| `المواليد` | all | — | Year only. Used to cross-check the full date; a disagreement is reported |
+| صرح `الرقم الوطني في الهوية` | 232/232 | `national_id` | ⚠️ **207 have 10 digits** where a Syrian national number has 11 — Excel dropped a leading `0`. 9 have 11, and 10 are shorter (9 or 6 digits). **2 values are shared by two people.** ✅ **The importer restores the leading `0` on the 10-digit ones** (2026-10-14); the shorter ones and the duplicates are reported |
+| صرح `اسم الام` | 232/232 | `mother_name` | |
+| صرح `الصورة الشخصية_URL` | 231/232 | — | **Not imported** (2026-10-14): hosted on `kf.kobotoolbox.org`, and no KoboToolbox API token is available. Employees add their photo from the app |
 | `المحافظة` | all active | `residence_governorate` (+ `address`) | **47 distinct values, not 14**: governorates mixed with towns and full street addresses (`حلب - منطقة الباب - شارع الكورنيش…`). Match a leading governorate name (`حماه` = `حماة`, `ادلب` = `إدلب`), put the whole string in `address`, report what matches nothing (`عندان`, `فاس`, `عمان. الكرك`) |
 | `الحالة الاجتماعية` | most | `marital_status` | `أرملة`/`مطلقة` arrive feminine. **3 rows hold phone numbers** — a shifted row; report |
 | `عدد الزوجات` | most | `wives_count` | |
-| `عدد الأبناء` | most | `sons_count`? | One number; the ERP splits sons and daughters. **Cannot be split** — decide: store in neither, or add a total |
+| صرح `عدد الأبناء الذكور` · `عدد الأبناء الاناث` | 194/232 | `sons_count` · `daughters_count` | ✅ The split the workbook lacked. Blank on 38 → null, not 0 |
+| `عدد الأبناء` | most | — | One number; cross-check only — the صرح split wins |
 | `معرف / رقم  التواصل` | all active | `phone` | 235 digits, 2 usernames (`alhmdllorbalalmeen`) → report, do not store as a phone |
 
 ## 3. Employment
@@ -51,15 +67,15 @@ duplicates); the importer must report each pair, never merge by name silently.
 | `السوية التنظيمية` | all | `organizational_grade` | 1–5 |
 | `نوع النشاط` | all | `activity_type` | `هندسي / مالي / إداري / صناعي / أمني` |
 | `الحالة` (active) | all | `employment_type`, `status = active` | `متعاقد` / `جماعة` / `يحتاج تثبيت` |
-| `الحالة` (leavers) | all | `status` | `إنهاء عمل` 148, `نقل لصلد` 52, `نقل لاصل` 15, `إجازة بدون راتب` 1 — **waiting on HR** (review file, questions 2–3) |
+| `الحالة` (leavers) | all | — | Not imported (HR, 2026-10-14). For the record: `إنهاء عمل` 148, `نقل لصلد` 52, `نقل لاصل` 15, `إجازة بدون راتب` 1 |
 | `تاريخ التعيين` | all | `hire_date` | Several are `YYYY-01-01` — likely year-only data typed as a date. Imported as given; the opening posting follows it |
 | `تاريخ انهاء العمل` | 100/216 leavers | `termination_date` | Half the leavers have none |
 | `مكان العمل` | 86/237 | `workplace` | Free text |
 | `مكان الدوام` | 35/237 | `workplace` if `مكان العمل` is blank | Overlaps `مكان العمل`; `-` means blank |
-| `مكان الراتب` | most | — | **Payroll cost centre** (`الآليات الثقيلة`, `مكتب رئيسي - هندسي`, project sites). **No ERP column.** Stage 4 needs it; not v1 |
+| `مكان الراتب` | most | `payroll_location` | ✅ Column added 2026-10-14 (needed in v1). The payroll cost centre (`الآليات الثقيلة`, `مكتب رئيسي - هندسي`, project sites); free text, pay-gated |
 | `مكان العمل بداية التعيين` | 118/237 | opening posting `legacy_workplace` | |
 | `المدير المباشر بداية التعيين` | 156/237 | opening posting `legacy_manager_name` | |
-| `المسمى الوظيفي بداية التعيين` | 125/237 | — | The opening posting takes today's `job_title_id` from the model hook. A different first title is lost unless the importer writes the opening posting's title from this column — decide |
+| `المسمى الوظيفي بداية التعيين` | 125/237 | opening posting `job_title_id` | ✅ **The opening posting carries the title they started with** (2026-10-14), deduped into `job_titles` like the current one; blank → today's title. The model hook writes the opening posting from today's title, so the importer corrects it afterwards |
 | `تاريخ الإنذار` · `رقم الإنذار` | 2 rows | `employee_warnings` | `نوع الإنذار` is empty everywhere |
 | `ملاحظات` | 67 leavers | — | Report only |
 
@@ -68,7 +84,7 @@ duplicates); the importer must report each pair, never merge by name silently.
 | Column | → ERP | Rule |
 |---|---|---|
 | `الخبرة` | `experience_level` | ⚠️ **Three kinds of value in one column:** `خبرة 1`–`خبرة 5`, bare numbers `0`–`4`, and — for engineers — the engineering rank again (`ممارس`, `مشارك2`). Plus 108 `#N/A` across the three sheets. Map `خبرة N` and `N`; ignore a rank here when `الرتبة الهندسية` holds it; report the rest |
-| `الرتبة الهندسية` | `engineering_rank` | ⚠️ **`مشارك2`, `مشارك3`, `مشارك4` exist; the enum has one `مشارك`.** The rank carries pay, so the sub-levels cannot be folded. The April intake form lists 12 ranks against the enum's 9. **Blocks importing engineers' ranks** — ask HR for the rank list and its rate table |
+| `الرتبة الهندسية` | `engineering_rank` | ✅ **Settled 2026-10-14:** مشارك1–4 approved beside مشارك, استشاري kept, ركن retired; `EngineeringRank` now matches (مشارك1–4 = 10–13). Active employees hold only approved ranks |
 | `سنوات الخبرة الصناعية` | `industrial_experience_years` | |
 | `الخطورة` | `has_hazard_pay` | `خطورة` → true, blank → false |
 | `الندرة` · `إزدواجية العمل` | `has_scarcity_pay` · `has_dual_role_pay` | Empty on the active sheets |
@@ -90,8 +106,10 @@ the rate table and calculator are Stage 4. They stay useful as the
 
 ## 5. The three source questions — `EMPLOYEE_APP_REQUIREMENTS.md` §7.2
 
-1. **A personal photo?** **No.** No sheet carries one. The app needs a photo
-   upload path from day one, or home shows no photo.
+1. **A personal photo?** ~~No~~ ⚙️ **Yes, in the صرح file** (2026-10-14): 231 of 232
+   matched employees have one, on KoboToolbox — but **no API token is available
+   to download them**, so none is imported. **The app needs a photo upload
+   path from day one** (work order §8).
 2. **Contract start and end dates?** **No, for almost everyone.** No column on
    the active sheets. `إنهاء عمل` has a column headed `تاريخ نهاية العقد`, but
    it holds salary modes and leave notes, not dates. The separate sheet
@@ -107,10 +125,12 @@ the rate table and calculator are Stage 4. They stay useful as the
 
 | # | Question | Who |
 |---|---|---|
-| 1 | What is `ID_Sarah`, and how are leavers keyed? | HR / project owner |
-| 2 | The engineering-rank sub-levels (`مشارك2`–`4`) — the full list and their rates | HR |
+| ~~1~~ | ~~What is `ID_Sarah`, and how are leavers keyed?~~ ✅ Kobo `_id`, stable; leavers not imported (2026-10-14) | — |
+| ~~2~~ | ~~The engineering-rank sub-levels~~ ✅ مشارك1–4 approved (2026-10-14) | — |
 | 3 | What `التمييز بحسب التقييم` holds | HR |
-| 4 | Year-only birth dates: null, or a stated convention? | project owner |
-| 5 | `عدد الأبناء` cannot be split into sons and daughters | project owner |
-| 6 | `اللقب` and `مكان الراتب` have no column — needed in v1? | project owner |
-| 7 | The opening posting's title from `المسمى الوظيفي بداية التعيين`, or today's? | project owner |
+| ~~4~~ | ~~Year-only birth dates~~ ✅ The صرح file has full dates | — |
+| ~~5~~ | ~~`عدد الأبناء` cannot be split~~ ✅ The صرح file splits it | — |
+| ~~6~~ | ~~`اللقب` and `مكان الراتب`~~ ✅ Needed in v1 — `nickname`, `payroll_location` added (2026-10-14) | — |
+| ~~7~~ | ~~The opening posting's title~~ ✅ The title they started with (2026-10-14) | — |
+| ~~8~~ | ~~10-digit national IDs~~ ✅ Restore the leading `0` (2026-10-14) | — |
+| ~~9~~ | ~~A KoboToolbox API token~~ ✅ None — no photos imported; upload from the app (2026-10-14) | — |
