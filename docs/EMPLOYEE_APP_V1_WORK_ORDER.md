@@ -384,7 +384,17 @@ test) **before** the importer runs, not into the importer.
 - **Push.** `NotificationService::deliver()` dispatches `SendPushNotification`
   after commit; the job resolves the recipients' tokens at send time, sends
   through the `PushTransport` interface and deletes tokens the provider reports
-  dead. **Bound to `LogPushTransport`** — every push is a log line — until the
-  FCM transport exists. Writing it needs a dependency decision: legacy uses
-  `kreait/laravel-firebase` 5.10, and D8 (reuse the legacy Firebase project)
-  is still open.
+  dead.
+- **FCM** (2026-10-11): `FcmPushTransport` on `kreait/laravel-firebase` 6.2
+  (legacy runs 5.10 of the same library), bound when `FIREBASE_CREDENTIALS`
+  is set, `LogPushTransport` otherwise. Retried only when a send reached no
+  device and found no dead token — a partial failure is logged, not retried,
+  so nobody gets a push twice. Keeps legacy's `click_action:
+  FLUTTER_NOTIFICATION_CLICK` so the re-pointed app routes taps unchanged.
+  `FcmPushTransportTest`, 7 tests, Firebase mocked at the `Messaging`
+  contract — **a real send has not been tested**; that needs the legacy
+  project's service-account JSON on the server (D8, still open) and a
+  `queue:work` process, which the ERP has never run before.
+- ⚙️ Installing the package also moved `laravel/framework` 12.58 → 12.69 and
+  ~45 Symfony/Guzzle/Carbon packages to their locked versions; the suite was
+  green before writing any code against it.

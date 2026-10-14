@@ -11,6 +11,7 @@ use App\Modules\HR\Models\EmployeeAssignment;
 use App\Modules\HR\Models\EmployeeDocument;
 use App\Modules\HR\Models\EmployeeWarning;
 use App\Modules\HR\Models\JobTitle;
+use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
 use App\Shared\Push\PushTransport;
 use App\Shared\Support\RequestContext;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Kreait\Firebase\Contract\Messaging;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -29,11 +31,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Push delivery (work order §4.3). LogPushTransport until the Firebase
-        // project is decided (D8) and the FCM transport is bound in its place;
-        // until then every push is a log line, and the notification row still
-        // reaches the app's list.
-        $this->app->bind(PushTransport::class, LogPushTransport::class);
+        // Push delivery (work order §4.3). FCM when Firebase credentials are
+        // configured (FIREBASE_CREDENTIALS — the legacy project's service
+        // account, D8); otherwise every push is a log line, and the
+        // notification row still reaches the app's list. Decided at resolve
+        // time, so a server without credentials never builds a Firebase client.
+        $this->app->bind(PushTransport::class, function ($app): PushTransport {
+            $project = config('firebase.default', 'app');
+
+            return filled(config("firebase.projects.{$project}.credentials"))
+                ? new FcmPushTransport($app->make(Messaging::class))
+                : new LogPushTransport;
+        });
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
