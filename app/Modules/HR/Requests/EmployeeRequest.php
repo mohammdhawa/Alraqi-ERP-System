@@ -90,6 +90,7 @@ class EmployeeRequest extends FormRequest
         'salary_mode',
         'agreed_salary',
         'sham_cash_account',
+        'payroll_location',
     ];
 
     /**
@@ -236,6 +237,8 @@ class EmployeeRequest extends FormRequest
             'middle_name' => [$required, 'string', 'max:255'],
             'last_name'   => [$required, 'string', 'max:255'],
             'mother_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            // اللقب — the kunya (أبو عبد الرحمن); identity, ungated (2026-10-14).
+            'nickname'    => ['sometimes', 'nullable', 'string', 'max:100'],
 
             'gender'                => [$required, 'integer', Rule::enum(Gender::class)],
             'birth_date'            => ['sometimes', 'nullable', 'date', 'before:today'],
@@ -307,6 +310,9 @@ class EmployeeRequest extends FormRequest
                 Rule::unique('employees', 'sham_cash_account')->ignore($id)],
             'salary_mode'   => ['sometimes', 'integer', Rule::enum(SalaryMode::class)],
             'agreed_salary' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // مكان الراتب — the payroll cost centre; free text until Finance
+            // has a table of them. Pay-gated: SALARY_GATED_FIELDS (2026-10-14).
+            'payroll_location' => ['sometimes', 'nullable', 'string', 'max:150'],
         ];
     }
 
@@ -372,6 +378,8 @@ class EmployeeRequest extends FormRequest
 
             'sham_cash_account.digits' => 'رقم الشام كاش يجب أن يتكون من 16 رقماً.',
             'sham_cash_account.unique' => 'رقم الشام كاش مستخدم بالفعل.',
+            'nickname.max'             => 'اللقب يجب ألا يتجاوز 100 حرف.',
+            'payroll_location.max'     => 'مكان الراتب يجب ألا يتجاوز 150 حرفاً.',
             'agreed_salary.numeric'    => 'الراتب المتفق عليه يجب أن يكون رقماً.',
         ];
     }

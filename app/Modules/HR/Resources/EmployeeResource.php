@@ -100,6 +100,7 @@ class EmployeeResource extends JsonResource
             'middle_name' => $this->middle_name,
             'last_name'   => $this->last_name,
             'mother_name' => $this->mother_name,
+            'nickname'    => $this->nickname,   // اللقب
             'full_name'   => $this->full_name,
 
             'national_id' => $this->when(
@@ -234,6 +235,7 @@ class EmployeeResource extends JsonResource
             'salary_mode_label'           => $this->salary_mode?->label(),
             'agreed_salary'               => $this->agreed_salary,
             'sham_cash_account'           => $this->sham_cash_account,
+            'payroll_location'            => $this->payroll_location,   // مكان الراتب
         ];
     }
 

@@ -376,7 +376,7 @@ them; they decide whether certain keys appear in a response:
 
 | Permission | Unlocks |
 | --- | --- |
-| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, and **every classification axis** — `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
+| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, `payroll_location`, and **every classification axis** — `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
 | `hr.employees.viewIdentity` | `national_id` |
 | `auth.audit.viewValues` | `old_values` and `new_values` on `GET /api/auth/audit-logs/{id}` — see [§9](#9-audit-log--سجل-التدقيق) |
 
@@ -1267,6 +1267,7 @@ which that was a migration rather than a data migration.
   "middle_name": "خالد",
   "last_name": "الحلبي",
   "mother_name": "فاطمة",
+  "nickname": "أبو عبد الرحمن",
   "full_name": "سامر خالد الحلبي",
   "national_id": "1098765432",
 
@@ -1331,6 +1332,7 @@ which that was a migration rather than a data migration.
   "salary_mode_label": "نظام رواتب",
   "agreed_salary": null,
   "sham_cash_account": "1234567890123456",
+  "payroll_location": "مكتب رئيسي - هندسي",
 
   "created_at": "2026-09-13T10:00:00+03:00",
   "updated_at": "2026-09-13T10:00:00+03:00"
@@ -1365,7 +1367,7 @@ gated — a name and a staff number are not sensitive fields.
 | Permission | Gates |
 | --- | --- |
 | `hr.employees.viewIdentity` | `national_id` |
-| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, **and every classification axis**: `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
+| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, `payroll_location`, **and every classification axis**: `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
 
 > **Why the axes are gated with the amount:** they are the inputs the salary is
 > computed from. Publishing them while hiding the result would let anyone with
@@ -1434,6 +1436,7 @@ required; required applies on create only.
 | `employee_number` | string | optional, max 50, unique — **auto-generated when omitted**, and a supplied value is kept as-is |
 | `national_id` | string | optional, nullable, max 50, unique |
 | `mother_name` | string | optional, nullable, max 255 |
+| `nickname` | string | optional, nullable, max 100 — اللقب, the kunya (`أبو عبد الرحمن`). Added 2026-10-14; not gated |
 | `birth_date` | date | optional, nullable, must be before today |
 | `birth_place` | string | optional, nullable, max 255 |
 | `origin_governorate` / `residence_governorate` | int | optional, nullable, 1–14 |
@@ -1464,6 +1467,7 @@ required; required applies on create only.
 | `hire_date` / `termination_date` | date | optional, nullable — termination may not precede hire. **Correcting `hire_date` moves the opening تعيين posting with it** (see below) |
 | `status` | int | optional, 1–3 |
 | `sham_cash_account` | string | optional, nullable, **exactly 16 digits**, unique |
+| `payroll_location` | string | optional, nullable, max 150 — مكان الراتب, the payroll cost centre (`الآليات الثقيلة`, `مكتب رئيسي - هندسي`, a project site). Added 2026-10-14. **Read and write need `hr.employees.viewSalary`** |
 | `salary_mode` | int | optional, `1` نظام رواتب (default) · `2` إتفاق |
 | `agreed_salary` | numeric | **required when `salary_mode` = 2, must be absent/null when = 1** |
 

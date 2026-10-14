@@ -162,6 +162,7 @@ class Employee extends Model
         'middle_name',
         'last_name',
         'mother_name',
+        'nickname',
         'national_id',
         'gender',
         'birth_date',
@@ -208,6 +209,7 @@ class Employee extends Model
         'status',
         // Pay reference
         'sham_cash_account',
+        'payroll_location',
         'salary_mode',
         'agreed_salary',
     ];
