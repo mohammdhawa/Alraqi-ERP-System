@@ -502,3 +502,58 @@ is HR's to confirm (the review file), and an empty division costs nothing.
 | 2 | A KoboToolbox API token to download the photos in the صرح file? | No | **No photo is imported.** ⚠️ **The app needs a photo upload from day one** — §4.8 gains `POST /api/me/photo` into `employee_documents` (personal photo), and §4.10 a picker on the profile screen; home shows initials until one is uploaded |
 | 3 | The opening posting's title: the one they started with, or today's? | The one they started with | The importer sets the opening `تعيين` posting's `job_title_id` from `المسمى الوظيفي بداية التعيين` (today's when blank) |
 | 4 | `اللقب` and `مكان الراتب` — needed in v1? | Yes | **Built:** `employees.nickname` (identity, ungated) and `employees.payroll_location` (pay-gated, read and write). `EmployeeNicknameAndPayrollLocationTest` |
+
+### 2026-10-15 — HANDOFF: §4.4 importer, core built; reader, command and one decision left
+
+**Read this first in a new session.** State of the tree: branch `phase_1`,
+last commit `4b4b172`; **618 tests passing, Pint clean**. Uncommitted (the
+project owner decides when to commit): everything below marked built, plus
+`composer.json`/`composer.lock` with **`openspout/openspout` ^4.28** — installed
+2026-10-15 for reading the workbooks and writing HR's files.
+
+**Built (uncommitted), all in `app/Modules/HR/Import/`:**
+
+| Piece | What it does | Tests |
+|---|---|---|
+| `ArabicText` | `key()` folds spelling variants for comparison; `clean()` trims for storage | via the others |
+| `UnitResolver` | division/section/office → department by **path**, August drop rules, one-level fallback with a warning, unknown division → no unit + `error` | `Import/UnitResolverTest` (12) |
+| `EmployeeRowMapper` → `MappedRow` | one workbook row + its صرح record → `employees` attributes + issues. صرح **allow-list** `SARH_COLUMNS`. Applies the guard's cross-field rules itself (rank on non-engineer, wives when not married, `اتفاق` without amount) so one value never refuses a row. Omits unknown counts (NOT NULL DEFAULT 0) | `Import/EmployeeRowMapperTest` (28) |
+| `EmployeeImporter` → `ImportReport` | `run(rows, sarhById, dryRun, sourceFile, sourceSheet)`: key `kobo:<ID_Sarah>`; create / `correct()` / restore; per-row transaction; drops a national ID or Sham Cash someone else holds; job titles deduped by key; opening posting's `legacy_workplace` / `legacy_manager_name`; accounts via `UserService` with a 10-char readable temporary password returned **only** in `credentials()`; dry run = whole run rolled back | `Import/EmployeeImporterTest` (14) |
+| `Employee::correct()` | a change to unit/title/grade saved as a **correction** — amends the open posting, no نقل داخلي invented. Used by re-runs | `EmployeeCorrectionTest` (4) |
+
+**Left to build, in order:**
+
+1. **The reader** — openspout, behind a small interface: rows of one sheet as
+   *sheet row number → header → value*, header row given (row 3 for
+   `قاعدة البيانات`, row 1 for the صرح file), headers trimmed, empty column A
+   ignored, dates as `DateTimeImmutable`. Plus `sarhById` keyed by the digits of
+   `_id`.
+2. **The command** `hr:import-employees {workbook} {--sarh=} {--dry-run}
+   {--report=} {--credentials=}`: reads, runs, writes the report (xlsx, one row
+   per source row: row, name, outcome, employee number, issues — Arabic, RTL)
+   and, only on a real run, the credentials file. **The passwords go to that
+   file and nowhere else** — not the report, not stdout, not the log.
+3. **A dry run against the real October files**, report reviewed with the
+   project owner before any real run. Sources: `Downloads/Shared/شركة الراقي/
+   ملف ابو جهاد محدث/برنامج الموارد/…Program_HR_10_2026.xlsx` (sheet
+   `قاعدة البيانات`, 185 rows) and `…/استقبال وتعديل شركة صرح/مستقبل صرح
+   9-2026.xlsx`.
+
+**One decision open — the starting title (question 3 above).** The workbook
+gives the title someone *started* with and the one they hold *now*, but not
+when it changed. Options put to the project owner on 2026-10-14, not yet
+answered:
+
+- **A.** Two postings: starting title from `hire_date` until the import date,
+  current title from the import date (reason تعديل مسمى وظيفي). The boundary
+  date is invented and flagged in the report.
+- **B. (recommended)** One posting with the current title; the starting title
+  kept as text on it, as `legacy_workplace` / `legacy_manager_name` already are
+  (a `legacy_job_title` column on `employee_assignments`). No invented date.
+
+Until answered, the importer writes the current title and ignores
+`المسمى الوظيفي بداية التعيين`.
+
+**Still owed by HR, not blocking:** what `التمييز بحسب التقييم` holds (not
+imported until answered); confirmation of the tree changes in the review file
+(quality division, Supply's sections).

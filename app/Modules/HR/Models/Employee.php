@@ -251,6 +251,37 @@ class Employee extends Model
         ];
     }
 
+    /**
+     * True only inside correct(): tells recordPostingChange() that a change to
+     * the unit, title or grade is a correction, not a move.
+     */
+    private bool $correcting = false;
+
+    /**
+     * Save $attributes as a CORRECTION of the record, not as an event in the
+     * person's working life.
+     *
+     * An ordinary update of the unit, title or grade closes the open posting
+     * and opens a نقل داخلي dated today — right for a real move. When the
+     * source was simply wrong (the importer re-running against HR's
+     * corrections), that would invent a transfer on the day of the re-run. Here
+     * the open posting is amended in place instead, keeping its date and
+     * reason. Everything else is an ordinary save: the guards run, and
+     * HasAuditLog records the change.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function correct(array $attributes): void
+    {
+        $this->correcting = true;
+
+        try {
+            $this->fill($attributes)->save();
+        } finally {
+            $this->correcting = false;
+        }
+    }
+
     protected static function booted(): void
     {
         static::creating(function (self $employee): void {
@@ -442,6 +473,14 @@ class Employee extends Model
                 'from_date' => $this->hire_date ?? now()->toDateString(),
                 'reason'    => AssignmentReason::Hire,
             ]);
+
+            return;
+        }
+
+        // A correction (see correct()) amends the open posting in place: the
+        // person did not move, the record was wrong.
+        if ($this->correcting) {
+            $open->update($posting);
 
             return;
         }

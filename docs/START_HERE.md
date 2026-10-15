@@ -67,7 +67,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `phase_1` |
-| **Test suite** | **500 passing**, 2245 assertions (2026-10-10) |
+| **Test suite** | **618 passing**, 2664 assertions (2026-10-15) — the latest work is the §4.4 importer; its handoff is the last entry of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (GAP-16 to 19 all closed 2026-09-28) |
 | **Production data** | none — the database has never held a real employee |
