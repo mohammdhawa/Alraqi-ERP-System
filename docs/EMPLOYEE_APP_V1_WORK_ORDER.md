@@ -506,12 +506,12 @@ is HR's to confirm (the review file), and an empty division costs nothing.
 ### 2026-10-15 — HANDOFF: §4.4 importer, core built; reader, command and one decision left
 
 **Read this first in a new session.** State of the tree: branch `phase_1`,
-last commit `4b4b172`; **618 tests passing, Pint clean**. Uncommitted (the
-project owner decides when to commit): everything below marked built, plus
-`composer.json`/`composer.lock` with **`openspout/openspout` ^4.28** — installed
-2026-10-15 for reading the workbooks and writing HR's files.
+**618 tests passing, Pint clean**, everything below committed —
+`3506ea8` adds **`openspout/openspout` ^4.28** (for reading the workbooks and
+writing HR's files), `f8e7e14` the importer core. The only untracked path is
+`docs/manual-test-scenarios/`, the project owner's own draft — leave it alone.
 
-**Built (uncommitted), all in `app/Modules/HR/Import/`:**
+**Built, all in `app/Modules/HR/Import/`:**
 
 | Piece | What it does | Tests |
 |---|---|---|
