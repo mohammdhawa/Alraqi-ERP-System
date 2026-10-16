@@ -23,9 +23,10 @@ use Illuminate\Database\Eloquent\Model;
  * mutate another user's notifications — the scoping is the authorization.
  *
  * SEND SIDE (the fan-out layer, ratified in erp-phase1-architecture.md §7.2) —
- * the ONLY way notification rows are created. Three explicit entry points:
+ * the ONLY way notification rows are created. Four explicit entry points:
  *
  *   sendToUser()        one recipient.
+ *   sendToUsers()       a set of accounts the caller already resolved.
  *   sendToDepartment()  every current member of an organizational unit AND its
  *                       subtree (see the method docblock for the scope rule).
  *   sendToRole()        every current holder of a role.
@@ -36,7 +37,7 @@ use Illuminate\Database\Eloquent\Model;
  * retroactively receive the notification. This is why the storage schema never
  * models a department or role as a recipient: the expansion happens here, once.
  *
- * ELIGIBILITY (uniform across all three): a recipient is a user account that
+ * ELIGIBILITY (uniform across all four): a recipient is a user account that
  * EXISTS and has `is_active = true`; the department path additionally requires
  * a non-soft-deleted employee row linking the person to a unit. An employee
  * with no login can never receive a row. Empty audiences are valid and silent
@@ -133,6 +134,32 @@ class NotificationService
 
         $recipients = User::query()
             ->whereKey($userId)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+
+        return $this->deliver($recipients, $title, $body, $type, $reference);
+    }
+
+    /**
+     * Send one notification to a given set of accounts — an audience a module
+     * has already resolved (the attendance check-out reminder: everyone still
+     * checked in). One bulk insert and one push job, rather than a send per
+     * person. Same eligibility as the others: inactive or unknown accounts
+     * receive nothing, silently.
+     *
+     * @param  array<int, int>  $userIds
+     * @return int rows created
+     */
+    public function sendToUsers(
+        array $userIds,
+        string $title,
+        ?string $body = null,
+        ?string $type = null,
+        ?Model $reference = null,
+    ): int {
+        $recipients = $userIds === [] ? [] : User::query()
+            ->whereKey($userIds)
             ->where('is_active', true)
             ->pluck('id')
             ->all();

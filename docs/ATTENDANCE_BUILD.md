@@ -113,6 +113,10 @@ un-reject, selfie — with the permission names from mapping §9, scoped.
 
 ## 4. For the project owner
 
+- **Closing the day notifies nobody**, as legacy. Like the undo below, the
+  2026-10-05 mapping (§8) had planned a notification for it
+  (`attendance.missing_checkout`, in the catalogue, unused). One line each.
+
 - **Undoing a refusal notifies nobody**, as legacy. The 2026-10-05 mapping
   (§8) had planned an `attendance.record_unrejected` notification, and the
   event exists in the catalogue unused. Kept as legacy, because no change was
@@ -143,5 +147,18 @@ un-reject, selfie — with the permission names from mapping §9, scoped.
     them through `ApprovedLeave::spans()` — a `LeaveSpan` per approved leave —
     so they are correct now (nobody is on leave) and need no change when the
     Leave module binds its own implementation.
-- Slice 3 — schedules — next: `attendance:checkout-reminder`,
-  `attendance:auto-close`, `attendance:purge-selfies`.
+- ✅ **Slice 3 — schedules — built 2026-10-16**:
+  - `attendance:checkout-reminder` — 17:00 on working days, everyone with a
+    standing check-in and no check-out, to active accounts, in one bulk send
+    (`NotificationService::sendToUsers()`, new).
+  - `attendance:auto-close` — 23:59 on working days: a standing check-in with
+    no check-out becomes a missing check-out; no check-out invented, no hours,
+    a refused day left alone; running it twice changes nothing.
+  - `attendance:purge-selfies` — daily at 03:00: selfie files whose record is
+    older than three months (from the start of today) are deleted and
+    `selfie_purged_at` set; the record stays.
+  - All three in `routes/console.php`, times and days through
+    `AttendanceCalendar`, in the attendance timezone. Bulk writes, as legacy's
+    close was: no audit row per record — the row says what happened.
+
+**The attendance module (§4.5) is complete.**

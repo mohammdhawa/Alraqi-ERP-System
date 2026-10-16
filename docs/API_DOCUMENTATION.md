@@ -1033,6 +1033,13 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `leave.excuse_filed`, `leave.excuse_cancelled` | the employee | the excuse | the full text | the employee's leave history |
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
+
+⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (at 17:00, to
+everyone still checked in — §12) and `attendance.record_rejected` (§13.4).
+**Catalogued but not sent:** `attendance.missing_checkout` and
+`attendance.record_unrejected` — legacy notifies nobody when the day closes or
+a refusal is undone, and the ERP keeps that until the project owner decides
+otherwise (`ATTENDANCE_BUILD.md` §4). A client should still handle them.
 | any other type | — | any | by `reference` alone (an `employee` opens their profile); otherwise the full text | the same |
 
 - The leave, approval and attendance screens arrive with those modules (work order §4.5–§4.7); until a screen exists, its rows fall back to the full text.

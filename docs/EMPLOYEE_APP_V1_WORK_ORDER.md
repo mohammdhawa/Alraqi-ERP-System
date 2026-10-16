@@ -897,3 +897,32 @@ otherwise require; recorded in API_DOCUMENTATION §14.
 legacy's `/approved-leave-users`, which belongs to the Leave module.
 
 **Next: slice 3** — the scheduled commands.
+
+### 2026-10-16 — §4.5 attendance, slice 3 built: the schedules — §4.5 complete
+
+Committed before it: slice 2b (`f813459`).
+
+| Piece | What | Tests |
+|---|---|---|
+| `attendance:checkout-reminder` | Legacy's: 17:00 on working days, everyone still checked in (a refused check-in does not count), active accounts only; `--date` | `Attendance/AttendanceScheduleCommandsTest` |
+| `attendance:auto-close` | Legacy's: 23:59 (Q10) on working days, open check-ins flagged missing, nothing invented, refused days untouched, idempotent; `--date` | same |
+| `attendance:purge-selfies` | New (Q11): files older than three months deleted, `selfie_purged_at` set, the record kept | same |
+| `NotificationService::sendToUsers()` | A fourth fan-out entry point: one bulk insert and one push job for an audience a module resolved | via the reminder |
+
+11 tests; **801 passing, Pint clean.** The day close's refused-day exclusion
+and the purge's start-of-day cutoff were each verified to fail their tests
+when disabled. Legacy's `attendance:cleanup` is not ported, and nothing in the
+ERP's schedule deletes an attendance record.
+
+⚠️ **For the server, before the pilot:** the ERP now needs the scheduler —
+`php artisan schedule:run` every minute (cron) — as well as the `queue:work`
+process §4.3 already needed for push. Neither has run on the ERP server
+before. Without the scheduler there is no reminder, no day close and no
+purge, and nothing reports that they are missing.
+
+**One question for the project owner** (with slice 2a's): closing the day
+notifies nobody, as legacy, though the mapping planned it
+([`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §4).
+
+**§4.5 attendance is complete.** Next in dependency order: **§4.6, the
+approvals engine** — a written design, reviewed before any code.
