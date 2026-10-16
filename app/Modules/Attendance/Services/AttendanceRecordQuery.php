@@ -7,10 +7,8 @@ namespace App\Modules\Attendance\Services;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
-use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Support\RequestRowScopes;
-use App\Shared\Support\SearchTerm;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -104,38 +102,18 @@ final class AttendanceRecordQuery
     }
 
     /**
-     * Whose records: employees by id, units by id — each unit WITH its
-     * subtree, as legacy's department filter covered its sections — and a
-     * name part or staff number.
+     * Whose records — the person filters every attendance list and report
+     * shares (AttendancePopulation::filter) — and the refusal reason and
+     * receipt window.
      *
      * @param  Builder<AttendanceRecord>  $query
      * @param  array<string, mixed>  $filters
      */
     private function applyPeople(Builder $query, array $filters): void
     {
-        $employeeIds = array_values(array_unique(array_map('intval', [
-            ...($filters['employee_ids'] ?? []),
-            ...(isset($filters['employee_id']) ? [$filters['employee_id']] : []),
-        ])));
-        if ($employeeIds !== []) {
-            $query->whereIn('employee_id', $employeeIds);
-        }
-
-        $unitIds = array_map('intval', [
-            ...($filters['department_ids'] ?? []),
-            ...(isset($filters['department_id']) ? [$filters['department_id']] : []),
-        ]);
-        if ($unitIds !== []) {
-            $query->whereIn('employee_id', Employee::withTrashed()->select('id')->whereIn('department_id', Department::subtreeIds($unitIds)));
-        }
-
-        $search = trim((string) ($filters['search'] ?? ''));
-        if ($search !== '') {
-            $query->whereIn('employee_id', Employee::withTrashed()->select('id')->where(function (Builder $inner) use ($search): void {
-                foreach (['first_name', 'middle_name', 'last_name', 'employee_number'] as $column) {
-                    SearchTerm::orWhere($inner, $column, $search);
-                }
-            }));
+        $people = array_intersect_key($filters, array_flip(['employee_id', 'employee_ids', 'department_id', 'department_ids', 'search']));
+        if (array_filter($people, static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []) !== []) {
+            $query->whereIn('employee_id', AttendancePopulation::filter(Employee::withTrashed()->select('id'), $people));
         }
 
         if (isset($filters['rejection_reason'])) {

@@ -137,8 +137,11 @@ un-reject, selfie — with the permission names from mapping §9, scoped.
     (the employee's own and the reviewer's), correcting a check-out, refusing
     and un-refusing. The three `attendance.records.*` permissions are now
     row-scoped (`PermissionReach::ROW_SCOPED`) through `AttendanceRecordPolicy`.
-  - **2b next**: the daily, monthly and per-employee reports and absent-today,
-    with the report half of legacy's rejection tests and
-    `AttendanceFilterAndReportTest`, `AttendanceMonthlyReportTest`,
-    `AttendanceEmployeeBreakdownTest`.
-- Slice 3 — schedules.
+  - ✅ **2b built 2026-10-16**: the daily board, the monthly report, the
+    per-employee day grid and absent-today, with the report half of legacy's
+    rejection, filter-and-report, monthly and breakdown tests. Leave reaches
+    them through `ApprovedLeave::spans()` — a `LeaveSpan` per approved leave —
+    so they are correct now (nobody is on leave) and need no change when the
+    Leave module binds its own implementation.
+- Slice 3 — schedules — next: `attendance:checkout-reminder`,
+  `attendance:auto-close`, `attendance:purge-selfies`.

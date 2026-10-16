@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Attendance\Resources;
 
 use App\Modules\Attendance\Models\AttendanceRecord;
-use App\Modules\Auth\Models\User;
+use App\Modules\Attendance\Support\Actor;
 use App\Modules\HR\Resources\EmployeeStub;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -53,32 +53,17 @@ class AttendanceRecordResource extends JsonResource
 
             'is_corrected'    => $this->corrected_at !== null,
             'corrected_at'    => $this->corrected_at?->toIso8601String(),
-            'corrected_by'    => $this->whenLoaded('correctedBy', fn (): ?array => $this->actor($this->correctedBy)),
+            'corrected_by'    => $this->whenLoaded('correctedBy', fn (): ?array => Actor::of($this->correctedBy)),
             'correction_note' => $this->correction_note,
 
             'is_rejected'            => $this->isRejected(),
             'rejected_at'            => $this->rejected_at?->toIso8601String(),
-            'rejected_by'            => $this->whenLoaded('rejectedBy', fn (): ?array => $this->actor($this->rejectedBy)),
+            'rejected_by'            => $this->whenLoaded('rejectedBy', fn (): ?array => Actor::of($this->rejectedBy)),
             'rejection_reason'       => $this->rejection_reason?->value,
             'rejection_reason_label' => $this->rejection_reason?->label(),
             'rejection_note'         => $this->rejection_note,
 
             'created_at' => $this->created_at?->toIso8601String(),
-        ];
-    }
-
-    /**
-     * The account that corrected or refused the row — legacy's
-     * `rejected_by_name`, as C31's id-plus-object. An account is not always a
-     * person (the technical department), so the name falls back to its email.
-     *
-     * @return array{id: int, name: ?string}|null
-     */
-    private function actor(?User $user): ?array
-    {
-        return $user === null ? null : [
-            'id'   => (int) $user->getKey(),
-            'name' => $user->employee?->full_name ?? $user->email,
         ];
     }
 }

@@ -1969,6 +1969,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18h| GET        | `/api/attendance/records/{record}/selfie`    | bearer   | `attendance.records.view` |
 | 18i| PATCH      | `/api/attendance/records/{record}/checkout`  | bearer   | `attendance.records.correct` |
 | 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
+| 18k| GET        | `/api/attendance/report`                     | bearer   | `attendance.records.view` (§14) |
+| 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
+| 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
+| 18n| GET        | `/api/attendance/absent-today`               | bearer   | `attendance.records.view` |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -1993,9 +1997,9 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **56 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
-device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and nine
-attendance routes (18c–18j). The count below is the one from before them.
+⚙️ **60 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
+device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and
+thirteen attendance routes (18c–18n). The count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2020,7 +2024,7 @@ above, both reads: there is no third, because the table is append-only.
 6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
 8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval. It is one of exactly **two** endpoints meant to be polled — the other is the notification list itself, and both are excluded from the audit trail for that reason. **Never poll anything else**, and least of all `/api/auth/audit-logs`, which records every read of itself (§9).
-9. **Lists:** **all eleven** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+9. **Lists:** **all twelve** list endpoints are paginated — the three attendance reports (§14) are computed objects, not lists, and are not and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
 10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.
 
 ---
@@ -2308,3 +2312,160 @@ No notification is sent (as legacy).
 **422:** «هذا السجل غير مرفوض.» · «لا يمكن التراجع عن الرفض: يوجد تسجيل حضور قائم
 لهذا اليوم بالفعل.» · «… يوجد تسجيل انصراف قائم لهذا اليوم بالفعل.» — the day
 was recorded again after the refusal, and restoring it would leave two.
+
+---
+
+## 14. Attendance — reports
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 2b). Legacy's `/attendance/report`,
+`/report/monthly`, `/report/employee` and `/absent-today`. All four need
+**`attendance.records.view`** and see only what the caller's grant reaches
+(§13), through the employee's **current** unit.
+
+**Who a report is about.** The daily board and the employee grid read every
+employee in reach. The monthly report and absent-today read those **expected
+to attend**: active employees with an active account (decision Q7 — legacy's
+`attendance_check` flag is gone). A suspended employee, or one with no
+account, has no monthly row and is never absent.
+
+**The person filters**, on every report: `employee_id` / `employee_ids`,
+`department_id` / `department_ids` (each unit with everything under it),
+`search` (a name part or the staff number) — as §13.1.
+
+**Day states** (`status`, with `status_label`):
+
+| | | |
+|---|---|---|
+| `1` حاضر (لم ينصرف بعد) — checked in, not out | `2` حاضر — in and out | `3` انصراف مفقود |
+| `4` في إجازة | `5` غياب بعذر — an HR excuse | `6` غائب |
+| `7` عطلة — not a working day | `8` تسجيل مرفوض — refused by HR | |
+
+Legacy used two names for a completed day (`checked_out` on the board,
+`present` in the grid); both are `2` here. Every day is a working day today
+(decision Q8), so `7` does not occur as configured, and until the Leave module
+exists nobody is `4` or `5`.
+
+**Not paginated, on purpose.** The three reports are computed objects whose
+totals must cover every row — a page of a monthly report with totals for the
+page would be a different report. They keep legacy's shape. absent-today is a
+list and pages as everywhere (15 by default).
+
+### 14.1 The daily board
+
+```
+GET /api/attendance/report?date=2026-06-21
+```
+
+`date` defaults to today. `sort` (every section): `employee_name`, `department`,
+`status`, `check_in_time`, `check_out_time`, `work_hours`, `-` for descending.
+
+```json
+{
+  "date": "2026-06-21",
+  "working_day": true,
+  "checked_in": [ <row> ], "checked_out": [ <row> ], "present": [ <row> ],
+  "missing_checkout": [ <row> ], "rejected": [ <row> ],
+  "on_leave": [ <leave row> ], "excused": [ <leave row> ],
+  "summary": { "checked_in": 1, "checked_out": 1, "present": 2, "on_leave": 0, "excused": 0, "missing_checkout": 1, "rejected": 0 }
+}
+```
+
+`present` is `checked_in` + `checked_out`. The sections are otherwise disjoint:
+`rejected` lists a refused day only when the employee did not record it again
+and no leave covers it.
+
+**A row** (keyed on the day's check-in):
+
+```json
+{
+  "record_id": 41, "check_out_record_id": 42,
+  "employee": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+  "department": { "id": 3, "name": "قسم أ-1" },
+  "status": 2, "status_label": "حاضر",
+  "check_in_time": "2026-06-21T08:00:00+03:00", "check_out_time": "2026-06-21T16:30:00+03:00",
+  "work_hours": 8.5, "work_hours_formatted": "8h 30m",
+  "check_in_location": { "latitude": 33.5, "longitude": 36.3 }, "check_out_location": { … },
+  "check_in_has_selfie": true, "check_out_has_selfie": true,
+  "correction": null,
+  "rejection": null
+}
+```
+
+`record_id` is what §13.3 (correct) and §13.4 (refuse) take; the selfies are
+§13.2's, by record id. `correction`: `{by, at, note}` on a corrected check-out.
+`rejection`: `{record_id, recorded_at, reason, reason_label, note, rejected_at,
+rejected_by}` on a refused day.
+
+**A leave row:** `leave_request_id`, `employee`, `department`, `status` (`4` or
+`5`), `leave_type`, `leave_type_name`, `is_excuse`, `deducts_balance`, `excuse`
+(the details, on an excuse only), `approved_by` (on a request only),
+`start_date`, `end_date`.
+
+### 14.2 The monthly report
+
+```
+GET /api/attendance/report/monthly?from=2026-06-01&to=2026-06-30
+GET /api/attendance/report/monthly?month=6&year=2026
+```
+
+`from` and `to` are required (or `month`, with `year` defaulting to this year);
+at most **92 days**. `has_absences`, `has_missing_checkouts` narrow the rows —
+and the totals are recomputed over what is left. `sort`: `employee_name`,
+`department`, and every count below.
+
+```json
+{
+  "from": "2026-06-01", "to": "2026-06-30", "working_days": 30,
+  "rows": [ {
+    "employee": { … }, "department": { … },
+    "expected_days": 30, "present_days": 2, "on_leave_days": 2,
+    "excused_days": 0, "excused_deducted_days": 0, "excused_not_deducted_days": 0,
+    "absent_days": 26, "rejected_days": 0, "missing_checkouts": 0,
+    "total_work_hours": 15.5, "total_work_hours_formatted": "15h 30m",
+    "attendance_rate": 6.7
+  } ],
+  "totals": { "employees": 1, "expected_days": 30, "present_days": 2, … }
+}
+```
+
+`expected = present + on_leave + excused + absent`, always. Leave counts working
+days inside the window, and a day the employee worked is never also a leave
+day. `rejected_days` are refusals that became absences — already inside
+`absent_days`.
+
+### 14.3 One employee's days
+
+```
+GET /api/attendance/report/employee?employee_id=7&from=2026-06-01&to=2026-06-30
+```
+
+`employee_id` required; `from`/`to` or `month` + `year`, at most 92 days. An
+employee outside the caller's reach is **403** `out_of_scope`. `status` (a day
+state) and `working_days_only` narrow `days` — not `summary`, which always
+covers the whole range. `sort`: `date`, `status`, `work_hours`.
+
+Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `status`,
+`status_label`, `check_in_id` (for §13.3), `check_in_time`, `check_out_time`,
+`work_hours`, `work_hours_formatted`, `leave_type` (whenever leave covers the
+day), `rejection` (whenever the day had a refused check-in — even when leave or
+a later check-in outranks it), `correction`, `excuse` (on an excused day).
+
+A day's state, by precedence: an accepted check-in (`2` / `1` / `3`), else a
+day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
+else absent (`6`). `summary` carries the monthly report's counts plus
+`off_days`.
+
+### 14.4 Absent today
+
+```
+GET /api/attendance/absent-today?date=2026-06-21
+```
+
+Paginated. Expected employees with no accepted check-in that day — a refused
+check-in is not one — and no approved leave over it (unless the config allows
+attendance during leave). A day off lists nobody. `sort`: `employee_name`,
+`employee_number`; by name by default.
+
+```json
+{ "success": true, "data": [ { "employee": { … }, "department": { "id": 2, "name": "إدارة أ" } } ], "meta": { … } }
+```

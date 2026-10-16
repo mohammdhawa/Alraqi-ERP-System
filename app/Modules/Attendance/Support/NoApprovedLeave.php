@@ -16,4 +16,9 @@ final class NoApprovedLeave implements ApprovedLeave
     {
         return false;
     }
+
+    public function spans(array $employeeIds, string $from, string $to): array
+    {
+        return [];
+    }
 }

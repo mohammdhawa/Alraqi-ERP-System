@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Attendance;
 
-use App\Modules\Attendance\Contracts\ApprovedLeave;
 use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Enums\AttendanceSource;
 use App\Modules\Attendance\Models\AttendanceRecord;
@@ -16,6 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
+use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
 use Tests\TestCase;
 
 /**
@@ -30,6 +30,7 @@ use Tests\TestCase;
  */
 class AttendanceCheckInOutTest extends TestCase
 {
+    use FakesApprovedLeave;
     use RefreshDatabase;
 
     // Verified weekdays: 2026-06-19 is a Friday, the 20th a Saturday, the 21st a Sunday.
@@ -90,15 +91,7 @@ class AttendanceCheckInOutTest extends TestCase
 
     private function onLeave(Employee $employee, string $date): void
     {
-        $this->app->instance(ApprovedLeave::class, new class($employee->id, $date) implements ApprovedLeave
-        {
-            public function __construct(private int $employeeId, private string $date) {}
-
-            public function covers(int $employeeId, string $date): bool
-            {
-                return $employeeId === $this->employeeId && $date === $this->date;
-            }
-        });
+        $this->grantLeave($employee, $date, $date);
     }
 
     // ── Check-in ─────────────────────────────────────────────────────────

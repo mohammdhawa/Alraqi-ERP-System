@@ -605,10 +605,10 @@ system, so an index here is paid for on every authenticated request.
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **56 routes**
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **60 routes**
 today (`route:list`, 2026-10-16) — the 41 below, the sessions and device-token
-routes of work order §4.3 (six), and nine attendance routes. The last two groups
-are rows 42–56 at the end of the table.
+routes of work order §4.3 (six), and thirteen attendance routes. The last two
+groups are rows 42–60 at the end of the table.
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -646,6 +646,8 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 53 | GET | `/api/attendance/records/{record}/selfie` | bearer | `attendance.records.view`, row-scoped |
 | 54 | PATCH | `/api/attendance/records/{record}/checkout` | bearer | `attendance.records.correct`, row-scoped |
 | 55–56 | PATCH/DELETE | `/api/attendance/records/{record}/reject` | bearer | `attendance.records.reject`, row-scoped |
+| 57–59 | GET | `/api/attendance/report` (+ `/monthly`, `/employee`) | bearer | `attendance.records.view`, row-scoped |
+| 60 | GET | `/api/attendance/absent-today` | bearer | `attendance.records.view`, row-scoped |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.

@@ -65,15 +65,24 @@ final class AttendanceCalendar
         return $this->isWorkingDay($day);
     }
 
-    /** Chargeable days in an inclusive span; 0 when the span is empty or backwards. */
-    public function workingDaysBetween(CarbonInterface|string $start, CarbonInterface|string $end): int
+    /**
+     * Chargeable days in an inclusive span; 0 when the span is empty or
+     * backwards.
+     *
+     * `$skip` (keyed by Y-m-d) leaves dates out — how the monthly report keeps
+     * a day the employee actually worked from also counting as a leave day
+     * (legacy's chargeableDaysExcluding).
+     *
+     * @param  array<string, mixed>  $skip
+     */
+    public function workingDaysBetween(CarbonInterface|string $start, CarbonInterface|string $end, array $skip = []): int
     {
         $cursor = $this->dayOf($start);
         $last = $this->dayOf($end);
 
         $count = 0;
         for (; $cursor->lte($last); $cursor->addDay()) {
-            $count += $this->isChargeableDay($cursor) ? 1 : 0;
+            $count += $this->isChargeableDay($cursor) && ! isset($skip[$cursor->toDateString()]) ? 1 : 0;
         }
 
         return $count;

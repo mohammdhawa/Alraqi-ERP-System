@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Attendance\Controllers\AttendanceRecordController;
+use App\Modules\Attendance\Controllers\AttendanceReportController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -20,6 +21,18 @@ use Illuminate\Support\Facades\Route;
 | 404 and an out-of-reach one a 403, before any body is validated.
 |
 */
+
+// The reports (slice 2b). Reads of other people's attendance, so the same
+// permission as the records list, and the same reach. Literal paths, so no
+// `{record}` route can swallow them.
+Route::middleware(['auth:sanctum', 'audit', 'permission:attendance.records.view'])
+    ->name('attendance.')
+    ->group(function () {
+        Route::get('/report', [AttendanceReportController::class, 'daily'])->name('report.daily');
+        Route::get('/report/monthly', [AttendanceReportController::class, 'monthly'])->name('report.monthly');
+        Route::get('/report/employee', [AttendanceReportController::class, 'employee'])->name('report.employee');
+        Route::get('/absent-today', [AttendanceReportController::class, 'absent'])->name('absent-today');
+    });
 
 Route::middleware(['auth:sanctum', 'audit'])
     ->prefix('records')

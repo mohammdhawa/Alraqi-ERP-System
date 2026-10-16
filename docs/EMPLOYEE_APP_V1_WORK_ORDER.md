@@ -860,3 +860,40 @@ legacy — though the 2026-10-05 mapping planned a notification for it
 
 **Next: slice 2b** — the daily, monthly and per-employee reports and
 absent-today.
+
+### 2026-10-16 — §4.5 attendance, slice 2b built: the reports
+
+Committed before it: slice 2a (`ae54d76`).
+
+**Built** ([`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §5;
+[`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) §14):
+
+| Piece | What | Tests |
+|---|---|---|
+| `GET /api/attendance/report` | Legacy's daily board: seven disjoint sections, a refused day listed only when not put right and not covered by leave, the check-out of the same refusal paired by batch | `Attendance/AttendanceDailyReportTest` (12) |
+| `GET /api/attendance/report/monthly` | One row per expected employee, legacy's counts and totals; leave clipped to the window and counted in working days, a worked day never also a leave day; the row filters recompute the totals | `Attendance/AttendanceMonthlyReportTest` (13) |
+| `GET /api/attendance/report/employee` | One state per day by legacy's precedence, with the check-in id, the correction, the refusal and the excuse; out of reach is 403 | `Attendance/AttendanceEmployeeGridTest` (7) |
+| `GET /api/attendance/absent-today` | Expected, not checked in, not on leave; paginated | `Attendance/AttendanceAbsentTodayTest` (7) |
+| `AttendancePopulation` | Who a report is about: everyone in reach, or those expected to attend (Q7 — active, with an active account), with the person filters the records list now shares | via all of the above |
+| `ApprovedLeave::spans()` + `LeaveSpan` | The leave the reports read, through attendance's own contract; the slice-1 check-in guard's fake now uses the same shared fake (`FakesApprovedLeave`) | via the reports |
+
+**790 tests passing, Pint clean, 60 routes.** The report scope, absent-today's
+leave exclusion, and the "a refused day already explained is not a refusal"
+rule were each verified to fail their tests when disabled.
+
+**Who has a monthly row (Q7, as built):** active employees with an active
+account. Legacy used its `attendance_check` flag; with the flag gone, the
+account is what makes someone expected. A new employee hired mid-range is
+expected for the whole range, as in legacy.
+
+**Different from legacy, by the house standard:** day states are ints with
+labels, and `checked_out` / `present` (one state, two legacy names) are one;
+times are ISO 8601 with the offset; no selfie URLs — `*_has_selfie` and the
+record ids for §13.2. **The three reports are not paginated** — they are
+computed objects whose totals cover every row, as legacy's — which C27 would
+otherwise require; recorded in API_DOCUMENTATION §14.
+
+**Not ported:** the XLSX exports (a dashboard feature, later, as §4.5 said);
+legacy's `/approved-leave-users`, which belongs to the Leave module.
+
+**Next: slice 3** — the scheduled commands.
