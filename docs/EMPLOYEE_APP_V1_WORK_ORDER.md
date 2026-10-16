@@ -82,9 +82,14 @@ moves onto the ERP, and the order of the merge changes to get it there:
 
 ## 3. Decisions needed
 
-Each has a recommended default. **The "blocks" column is the latest date the
+Each has a recommended default. ~~**The "blocks" column is the latest date the
 answer can arrive without moving the release.** A default not overruled by that
-date is built as written.
+date is built as written.~~
+
+⚙️ **Withdrawn 2026-10-16** (project owner, §8): a default is **not** built
+because its date passed. Each decision is put to the project owner and
+answered before the piece that rests on it is built. The "blocks" dates are
+kept for the record only.
 
 | # | Question | Recommended | Blocks |
 |---|---|---|---|
@@ -239,6 +244,11 @@ password change.
 
 ## 5. The calendar
 
+⚙️ **Not binding since 2026-10-16** (project owner: "it was just a try"). The
+target is a professional, complete v1, not a date: work goes in dependency
+order, and the fallback below — shipping without attendance — is withdrawn.
+The table is kept as the original estimate.
+
 | Week | Dates | Backend | App / people |
 |---|---|---|---|
 | **1** | Oct 5–11 | 4.1 termination hook, staging table, workbook map · 4.3 sessions and devices | **4.2 tree artefact to HR** · D1, D3, D5, D6, D9 answered |
@@ -350,6 +360,8 @@ test) **before** the importer runs, not into the importer.
   `TerminationDisablesAccountTest`, 8 tests.
   ⚙️ An administrator setting `is_active = false` through `UserService` still
   does **not** end open sessions — pre-existing, outside this item.
+  ✅ **Closed 2026-10-16 as GAP-20** (`API_BUILD_STANDARD.md` §12), with the
+  same gap on an administrator's password reset.
 - **The staging table** is `employee_import_sources`: a namespaced
   `source_key` string, unique, → `employee_id`, plus where it was last read.
   `EmployeeImportSource::employeeFor()` finds soft-deleted employees too, so the
@@ -626,3 +638,33 @@ in the workbook; then a fresh dry run, then the real one with `--credentials`
 pointing outside the repository.
 
 ⚙️ The development database has `legacy_job_title` (migrated 2026-10-15).
+
+### 2026-10-16 — quality over the date; legacy is the foundation
+
+**Decided by the project owner:**
+
+1. **The calendar is not binding** (§5), and **no decision is defaulted by
+   date** (§3). Each open decision is asked and answered before the piece
+   resting on it is built. Order is by dependency and risk.
+2. **Attendance, leave and approvals are built on the legacy system's logic
+   and workflows** — the same core behaviour, ported onto ERP employees,
+   departments and RBAC, then improved and extended. This is what §4.5–§4.7
+   already said ("a port is not a copy"); it is now the explicit rule: **read
+   the legacy implementation first**, keep its behaviour unless a change is
+   agreed, and record every deliberate difference here.
+
+**The order from here:**
+
+1. ✅ **GAP-20** — an administrator's disable or password reset now ends every
+   session (`API_BUILD_STANDARD.md` §12). Closed 2026-10-16.
+2. **A decision round** on what attendance, leave and approvals rest on —
+   D2–D7, D9, D12, D13 — asked with the legacy behaviour in front of the
+   project owner. D7 (stop legacy's monthly `attendance:cleanup`) first, because
+   every month it runs deletes history the cutover reconciliation needs.
+3. **Working calendar and attendance (§4.5)** — the holiday calendar first,
+   because attendance and leave both count working days through it.
+4. **The approvals engine (§4.6)** — a written design reviewed before code: it
+   serves leave now and documents, purchases and payroll later.
+5. **Leave (§4.7)**, then **`/api/me` (§4.8)**.
+6. **The real import (§4.9)** whenever HR's review rounds finish; nothing above
+   waits on it.
