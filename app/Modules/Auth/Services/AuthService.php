@@ -312,11 +312,7 @@ class AuthService
     public function logoutEverywhere(User $user): void
     {
         DB::transaction(function () use ($user): void {
-            $user->tokens()->delete();
-
-            // Deleted, not marked revoked — see endSession().
-            $user->refreshTokens()->delete();
-            $user->deviceTokens()->delete();
+            $user->endAllSessions();
 
             $this->auditLogService->logAction(
                 event: 'user_logged_out_everywhere',

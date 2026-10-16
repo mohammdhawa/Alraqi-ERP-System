@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Services\UserService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -253,6 +254,67 @@ class SessionTest extends TestCase
 
         $this->as($new)->getJson('/api/auth/me')->assertOk();
         $this->assertDatabaseMissing('audit_logs', ['event' => 'refresh_token_replay_detected']);
+    }
+
+    // ── Ended by an administrator (GAP-20) ───────────────────────────────
+
+    /**
+     * Disabling an account through the users screen used to clear
+     * `is_active` and nothing else: the next refresh failed, but the access
+     * token in hand kept working until it expired. Termination already ended
+     * every session (User::disable()); the administrator's path now does too.
+     */
+    public function test_disabling_an_account_ends_every_session_at_once(): void
+    {
+        $phone = $this->signIn('Galaxy A54', 'android');
+        $this->as($phone)->postJson('/api/me/device-tokens', ['token' => 'fcm-phone', 'platform' => 'android'])->assertOk();
+
+        app(UserService::class)->update(User::sole(), ['is_active' => false]);
+
+        $this->as($phone)->getJson('/api/auth/me')->assertUnauthorized();
+        $this->fresh();
+        $this->postJson('/api/auth/refresh', ['refresh_token' => $phone['refresh_token']])->assertUnauthorized();
+        $this->assertSame(0, User::sole()->deviceTokens()->count(), 'a disabled account receives no pushes');
+    }
+
+    /**
+     * A reset is what an administrator does when a password has leaked. The
+     * forced change kept the old sessions from doing much, but they could
+     * refresh forever; a reset now ends them, as the holder's own change does.
+     */
+    public function test_an_admin_password_reset_ends_every_session(): void
+    {
+        $phone = $this->signIn();
+        $browser = $this->signIn('Chrome', 'web');
+
+        app(UserService::class)->update(User::sole(), ['password' => 'reset-by-hr']);
+
+        foreach ([$phone, $browser] as $session) {
+            $this->as($session)->getJson('/api/auth/me')->assertUnauthorized();
+            $this->fresh();
+            $this->postJson('/api/auth/refresh', ['refresh_token' => $session['refresh_token']])->assertUnauthorized();
+        }
+    }
+
+    public function test_an_update_that_neither_disables_nor_resets_leaves_sessions_alone(): void
+    {
+        $phone = $this->signIn();
+
+        app(UserService::class)->update(User::sole(), ['is_active' => true, 'password' => null]);
+
+        $this->as($phone)->getJson('/api/auth/me')->assertOk();
+    }
+
+    public function test_re_enabling_an_account_does_not_bring_its_sessions_back(): void
+    {
+        $phone = $this->signIn();
+        $users = app(UserService::class);
+
+        $users->update(User::sole(), ['is_active' => false]);
+        $users->update(User::sole(), ['is_active' => true]);
+
+        $this->as($phone)->getJson('/api/auth/me')->assertUnauthorized();
+        $this->signIn();   // a fresh sign-in is how they come back
     }
 
     // ── Input ────────────────────────────────────────────────────────────

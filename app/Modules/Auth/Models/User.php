@@ -190,6 +190,20 @@ class User extends Authenticatable
         $this->is_active = false;
         $this->save();
 
+        $this->endAllSessions();
+    }
+
+    /**
+     * End every session on every device: access tokens, refresh tokens and
+     * the push tokens the sessions registered. The one definition of "signed
+     * out everywhere" — logout-all, deleting the account, disabling it, and an
+     * administrator's password reset all come here (GAP-20).
+     *
+     * Refresh tokens are DELETED, not marked revoked: revoked means "rotated",
+     * and a revoked token presented again reads as theft (AuthService).
+     */
+    public function endAllSessions(): void
+    {
         $this->tokens()->delete();
         $this->refreshTokens()->delete();
         $this->deviceTokens()->delete();

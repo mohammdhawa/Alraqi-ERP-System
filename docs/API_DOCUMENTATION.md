@@ -763,6 +763,13 @@ Partial update — all fields optional.
 
 There is **no `name` field** — the display name always tracks the linked employee.
 
+⚠️ **Two updates sign the account out everywhere** (GAP-20, 2026-10-16):
+setting `is_active` to `false`, and sending a `password` (a reset — it also sets
+`must_change_password`). Every session of that account ends at once, on every
+device: its next request is a 401 and its refresh fails. Re-enabling an account
+does not restore them; the person signs in again. **An administrator resetting
+their own password this way is signed out too** — say so before they confirm.
+
 **200 Response** → `{ data: <user object>, message: "تم تحديث المستخدم." }`
 
 ### 4.4 Delete user

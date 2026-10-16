@@ -132,11 +132,24 @@ class UserService
             if (array_key_exists('is_active', $data)) {
                 $user->is_active = $data['is_active'];
             }
+
+            // GAP-20. Disabling an account, or a password someone else chose,
+            // ends every session the account has: without this, a disabled
+            // account's access token kept working until it expired, and the
+            // sessions a reset was meant to cut off could refresh forever.
+            // Read before save(), while the dirty state still says what changed.
+            $endsSessions = ($user->isDirty('is_active') && $user->is_active === false)
+                || $user->isDirty('password');
+
             $user->save();
+
+            if ($endsSessions) {
+                $user->endAllSessions();
+            }
 
             $this->auditLogService->logAction(
                 event: 'user_updated',
-                description: "User '{$user->loginIdentity()}' updated.",
+                description: "User '{$user->loginIdentity()}' updated.".($endsSessions ? ' Every session ended.' : ''),
             );
 
             return $user->load(self::RENDER_RELATIONS);
@@ -173,9 +186,7 @@ class UserService
             // trashed user resolving to null in the guard: that is true, but it
             // is a second-order consequence of a global scope, and "the deleted
             // account's tokens are dead" should be a fact this method asserts.
-            $user->tokens()->delete();
-            $user->refreshTokens()->delete();
-            $user->deviceTokens()->delete();
+            $user->endAllSessions();
 
             $user->delete();
         });
