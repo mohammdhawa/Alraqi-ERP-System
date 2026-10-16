@@ -115,6 +115,18 @@ class EmployeeImporterTest extends TestCase
         $this->assertSame('2022-01-01', $opening->from_date->toDateString());
     }
 
+    public function test_the_starting_title_is_kept_as_text_beside_the_current_one_on_a_single_posting(): void
+    {
+        $this->import([$this->row(override: ['المسمى الوظيفي بداية التعيين' => 'مهندس متدرب'])]);
+
+        // Option B (2026-10-15): one posting with today's title, no invented
+        // date for when the title changed.
+        $opening = Employee::sole()->assignments()->sole();
+        $this->assertSame('مهندس معماري', $opening->jobTitle->name);
+        $this->assertSame('مهندس متدرب', $opening->legacy_job_title);
+        $this->assertFalse(JobTitle::where('name', 'مهندس متدرب')->exists(), 'the starting title is text, not a catalogue entry');
+    }
+
     public function test_job_titles_are_deduplicated_by_name(): void
     {
         $this->import([
@@ -201,13 +213,16 @@ class EmployeeImporterTest extends TestCase
     public function test_a_sham_cash_account_already_held_by_someone_else_is_dropped_and_reported(): void
     {
         $report = $this->import([
-            $this->row(1),
-            $this->row(2, ['الإسم الثلاثي' => 'سامر خالد الحلبي']),
+            4 => $this->row(1),
+            9 => $this->row(2, ['الإسم الثلاثي' => 'سامر خالد الحلبي']),
         ]);
 
         $this->assertSame(2, Employee::count());
         $this->assertNull(EmployeeImportSource::employeeFor('kobo:2')->sham_cash_account);
-        $this->assertNotEmpty(array_filter($report->rows()[1]['issues'], fn ($i) => $i['field'] === 'sham_cash_account'));
+        $issue = array_values(array_filter($report->rows()[1]['issues'], fn ($i) => $i['field'] === 'sham_cash_account'))[0];
+        // The holder's sheet row, so HR can find the other row even on a dry
+        // run, whose employee numbers are never kept.
+        $this->assertStringContainsString('السطر 4', $issue['message']);
     }
 
     public function test_a_row_the_model_refuses_does_not_stop_the_others(): void

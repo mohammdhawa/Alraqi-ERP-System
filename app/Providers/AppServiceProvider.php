@@ -6,6 +6,8 @@ use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Import\OpenSpoutWorkbookReader;
+use App\Modules\HR\Import\WorkbookReader;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\EmployeeAssignment;
 use App\Modules\HR\Models\EmployeeDocument;
@@ -43,6 +45,9 @@ class AppServiceProvider extends ServiceProvider
                 ? new FcmPushTransport($app->make(Messaging::class))
                 : new LogPushTransport;
         });
+
+        // The employee importer reads HR's workbooks through this (§4.4).
+        $this->app->bind(WorkbookReader::class, OpenSpoutWorkbookReader::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).

@@ -79,6 +79,7 @@ class EmployeeAssignment extends Model
         'reason',
         'legacy_workplace',
         'legacy_manager_name',
+        'legacy_job_title',
         'notes',
     ];
 

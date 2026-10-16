@@ -63,6 +63,7 @@ class EmployeeAssignmentResource extends JsonResource
             // visible to a human instead of vanishing.
             'legacy_workplace'    => $this->legacy_workplace,
             'legacy_manager_name' => $this->legacy_manager_name,
+            'legacy_job_title'    => $this->legacy_job_title,
 
             'notes'      => $this->notes,
             'created_at' => $this->created_at?->toIso8601String(),

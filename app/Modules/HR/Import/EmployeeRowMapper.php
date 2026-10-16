@@ -49,6 +49,52 @@ final class EmployeeRowMapper
         'عدد الأبناء الاناث',
     ];
 
+    /**
+     * The only workbook columns read — every header map() looks up, and
+     * nothing else: not the pay values (قيمة …), not the warnings, not the
+     * legacy number. The reader refuses a sheet missing any of them, so a
+     * column HR renames fails the run instead of importing as blank.
+     */
+    public const WORKBOOK_COLUMNS = [
+        'ID_Sarah',
+        'الإسم الثلاثي',
+        'اللقب',
+        'الجنس',
+        'المواليد',
+        'مواليد_دقيقة',
+        'الحالة الاجتماعية',
+        'عدد الزوجات',
+        'معرف / رقم  التواصل',   // two spaces, as in the workbook
+        'المحافظة',
+        'المرحلة الدراسية',
+        'المؤهل العلمي',
+        'الاختصاص الدقيق',
+        'تاريخ التخرج الدقيق',
+        'نوع النشاط',
+        'السوية التنظيمية',
+        'الخبرة',
+        'الرتبة الهندسية',
+        'سنوات الخبرة الصناعية',
+        'الخطورة',
+        'الندرة',
+        'إزدواجية العمل',
+        'حالة الراتب ( نظام / إتفاق )',
+        'الراتب المتفق عليه',
+        'رقم الشام كاش',
+        'مكان الراتب',
+        'الحالة',
+        'تاريخ التعيين',
+        'مكان العمل',
+        'مكان الدوام',
+        'أسماء الإدارات',
+        'القسم',
+        'المكتب',
+        'المسمى الوظيفي',
+        'المسمى الوظيفي بداية التعيين',
+        'مكان العمل بداية التعيين',
+        'المدير المباشر بداية التعيين',
+    ];
+
     /** @var array<int, array{severity: string, field: ?string, message: string}> */
     private array $issues = [];
 
@@ -59,7 +105,8 @@ final class EmployeeRowMapper
     public function map(array $row, ?array $sarh): MappedRow
     {
         $this->issues = [];
-        $sarh = $sarh === null ? null : array_intersect_key($sarh, array_flip(self::SARH_COLUMNS));
+        $row = $this->readable(array_intersect_key($row, array_flip(self::WORKBOOK_COLUMNS)), 'ملف الموارد');
+        $sarh = $sarh === null ? null : $this->readable(array_intersect_key($sarh, array_flip(self::SARH_COLUMNS)), 'ملف صرح');
         $at = static fn (array $from, string $header): mixed => $from[$header] ?? null;
 
         $displayName = ArabicText::clean($at($row, 'الإسم الثلاثي')) ?? '';
@@ -113,18 +160,66 @@ final class EmployeeRowMapper
                 ArabicText::clean($at($row, 'المكتب')),
             ],
             currentTitle: ArabicText::clean($at($row, 'المسمى الوظيفي')),
-            openingTitle: ArabicText::clean($at($row, 'المسمى الوظيفي بداية التعيين')),
+            // The starting title is kept as text, not as a second posting: the
+            // workbook never says when it changed (option B, 2026-10-15).
             openingPosting: [
                 'legacy_workplace'    => ArabicText::clean($at($row, 'مكان العمل بداية التعيين')),
                 'legacy_manager_name' => ArabicText::clean($at($row, 'المدير المباشر بداية التعيين')),
+                'legacy_job_title'    => ArabicText::clean($at($row, 'المسمى الوظيفي بداية التعيين')),
             ],
             issues: $this->issues,
         );
     }
 
+    /**
+     * The صرح records keyed by the digits of their `_id` — the value a
+     * workbook row's ID_Sarah is joined on — each cut to SARH_COLUMNS.
+     *
+     * @param  iterable<int, array<string, mixed>>  $records
+     * @return array<string, array<string, mixed>>
+     */
+    public static function sarhById(iterable $records): array
+    {
+        $byId = [];
+        foreach ($records as $record) {
+            $id = self::koboId($record['_id'] ?? null);
+            if ($id !== null) {
+                $byId[$id] = array_intersect_key($record, array_flip(self::SARH_COLUMNS));
+            }
+        }
+
+        return $byId;
+    }
+
+    /** The digits of an ID_Sarah or `_id` cell, or null when it has none. */
+    public static function koboId(mixed $value): ?string
+    {
+        return self::digits($value);
+    }
+
+    /**
+     * A cell holding an Excel error becomes blank here — after the report
+     * says which, so it is never mistaken for a value HR left empty.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
+     */
+    private function readable(array $values, string $file): array
+    {
+        foreach ($values as $header => $value) {
+            if ($value instanceof CellError) {
+                $what = $value->code === '' ? 'معادلة نتيجتها خطأ' : "خطأ Excel ({$value->code})";
+                $this->issue('warning', null, "خانة «{$header}» في {$file} فيها {$what} — قُرئت فارغة.");
+                $values[$header] = null;
+            }
+        }
+
+        return $values;
+    }
+
     private function key(mixed $kobo): ?string
     {
-        $digits = $this->digits($kobo);
+        $digits = self::koboId($kobo);
 
         if ($digits === null) {
             $this->issue('error', null, 'لا يوجد رقم كوبو (ID_Sarah) — لا يُستورد الموظف حتى يُضاف.');
@@ -183,7 +278,7 @@ final class EmployeeRowMapper
      */
     private function nationalId(?array $sarh): ?string
     {
-        $digits = $sarh === null ? null : $this->digits($sarh['الرقم الوطني في الهوية'] ?? null);
+        $digits = $sarh === null ? null : self::digits($sarh['الرقم الوطني في الهوية'] ?? null);
 
         if ($digits === null) {
             return null;
@@ -393,7 +488,7 @@ final class EmployeeRowMapper
 
     private function shamCash(mixed $value): ?string
     {
-        $digits = $this->digits($value);
+        $digits = self::digits($value);
         if ($digits === null) {
             return null;
         }
@@ -450,8 +545,11 @@ final class EmployeeRowMapper
      * The digits of an id-like cell. Excel hands these over as ints, floats
      * (582974643.0) or strings; a float must not become "582974643.0".
      */
-    private function digits(mixed $value): ?string
+    private static function digits(mixed $value): ?string
     {
+        if (! is_scalar($value)) {
+            return null;   // blank, or a CellError
+        }
         if (is_float($value)) {
             $value = number_format($value, 0, '', '');
         }

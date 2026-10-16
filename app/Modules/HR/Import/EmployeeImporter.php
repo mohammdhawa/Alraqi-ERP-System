@@ -104,7 +104,7 @@ final class EmployeeImporter
         $seen = [];
 
         foreach ($rows as $rowNumber => $row) {
-            $kobo = preg_replace('/\D/', '', is_float($row['ID_Sarah'] ?? null) ? number_format($row['ID_Sarah'], 0, '', '') : (string) ($row['ID_Sarah'] ?? ''));
+            $kobo = EmployeeRowMapper::koboId($row['ID_Sarah'] ?? null) ?? '';
             $mapped = $this->mapper->map($row, $sarhById[$kobo] ?? null);
             $issues = $mapped->issues;
 
@@ -220,7 +220,11 @@ final class EmployeeImporter
                 ->first();
 
             if ($holder !== null) {
-                $issues[] = $this->issue('warning', $column, "{$label} «{$value}» مسجّل لموظف آخر ({$holder->employee_number} — {$holder->full_name}) — لم يُسجَّل لهذا الموظف.");
+                // The holder's sheet row as well as their number: on a dry
+                // run the number is one the rollback takes back.
+                $row = EmployeeImportSource::where('employee_id', $holder->getKey())->orderByDesc('id')->value('source_row');
+                $where = $row === null ? '' : "، السطر {$row}";
+                $issues[] = $this->issue('warning', $column, "{$label} «{$value}» مسجّل لموظف آخر ({$holder->employee_number} — {$holder->full_name}{$where}) — لم يُسجَّل لهذا الموظف.");
                 $attributes[$column] = null;
             }
         }

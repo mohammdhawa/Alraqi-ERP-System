@@ -13,6 +13,7 @@ use App\Modules\HR\Enums\Gender;
 use App\Modules\HR\Enums\Governorate;
 use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
+use App\Modules\HR\Import\CellError;
 use App\Modules\HR\Import\EmployeeRowMapper;
 use App\Modules\HR\Import\MappedRow;
 use DateTimeImmutable;
@@ -350,8 +351,58 @@ class EmployeeRowMapperTest extends TestCase
 
         $this->assertSame(['الإدارة الهندسية', 'قسم التخطيط والدراسات', 'المعماري'], $mapped->unit);
         $this->assertSame('مهندس معماري', $mapped->currentTitle);
-        $this->assertSame('مهندس متدرب', $mapped->openingTitle);
-        $this->assertSame(['legacy_workplace' => 'الموقع العام', 'legacy_manager_name' => 'أبو يعرب'], $mapped->openingPosting);
+        $this->assertSame(
+            ['legacy_workplace' => 'الموقع العام', 'legacy_manager_name' => 'أبو يعرب', 'legacy_job_title' => 'مهندس متدرب'],
+            $mapped->openingPosting,
+        );
         $this->assertSame('نور أحمد الشامي', $mapped->displayName);
+    }
+
+    // ── What is read, and what Excel could not compute ───────────────────
+
+    public function test_a_column_outside_the_allow_list_is_never_read(): void
+    {
+        // A pay value the importer has no business with, under a header it
+        // would otherwise happily read if it were spelt the same.
+        $mapped = $this->map($this->row(['قيمة أساس الراتب' => 999]));
+
+        $this->assertNotContains(999, $mapped->attributes);
+        $this->assertContains('السوية التنظيمية', EmployeeRowMapper::WORKBOOK_COLUMNS);
+    }
+
+    public function test_an_excel_error_is_reported_and_read_as_blank(): void
+    {
+        $mapped = $this->map($this->row(['نوع النشاط' => new CellError('#N/A')]));
+
+        $this->assertNull($mapped->attributes['activity_type']);
+        $this->assertStringContainsString('#N/A', $this->messages($mapped, 'warning')[0]);
+    }
+
+    public function test_a_formula_error_in_the_sarh_file_is_reported_too(): void
+    {
+        $mapped = $this->map($this->row(), $this->sarh(['اسم الام' => new CellError('')]));
+
+        $this->assertNull($mapped->attributes['mother_name']);
+        $this->assertStringContainsString('ملف صرح', $this->messages($mapped, 'warning')[0]);
+    }
+
+    public function test_an_unreadable_kobo_id_leaves_the_row_without_a_key(): void
+    {
+        $mapped = $this->map($this->row(['ID_Sarah' => new CellError('#REF!')]));
+
+        $this->assertNull($mapped->sourceKey);
+        $this->assertTrue($mapped->hasErrors());
+    }
+
+    public function test_sarh_records_are_keyed_by_the_digits_of_their_id_and_cut_to_the_allow_list(): void
+    {
+        $byId = EmployeeRowMapper::sarhById([
+            2 => $this->sarh(['_id' => 582974643.0]),
+            3 => $this->sarh(['_id' => null]),
+        ]);
+
+        $this->assertSame(['582974643'], array_map('strval', array_keys($byId)));
+        $this->assertArrayNotHasKey('الديانة', $byId['582974643']);
+        $this->assertSame('نور', $byId['582974643']['الاسم الأول']);
     }
 }
