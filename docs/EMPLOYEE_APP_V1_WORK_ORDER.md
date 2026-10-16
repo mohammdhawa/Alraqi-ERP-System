@@ -828,3 +828,35 @@ were each verified to fail with their code disabled.
    agreed. A one-line guard if you want it.
 
 Both are listed in [`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §4.
+
+### 2026-10-16 — §4.5 attendance, slice 2a built: oversight of records
+
+Committed before it: the decision round (`39b323d`) and slice 1 (`eb8ac35`).
+
+**Built** ([`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §5):
+
+| Piece | What | Tests |
+|---|---|---|
+| `GET /api/attendance/records` | Legacy's list and filters, plus who (employees, units **with their subtree**, a name or staff number), the refusal reason and the receipt window; row-scoped by the employee's current unit (D6); the person and the acting accounts embedded (C31), no per-row queries | `Attendance/AttendanceRecordsOversightTest` (15) |
+| `PATCH …/{record}/checkout` | The forgotten check-out: the check-in untouched, a corrected check-out with hours, the missing flag cleared, no gap guard | `Attendance/AttendanceCheckoutCorrectionTest` (10) |
+| `PATCH` / `DELETE …/{record}/reject` | Legacy's refusal and undo: one batch per decision, the day's check-out refused with its check-in, the undo restoring exactly that decision and refusing to collide with a re-recorded day; the employee notified of a refusal in the same transaction | `Attendance/AttendanceRejectionTest` (17) |
+| the selfie endpoints | `/api/me/attendance/{record}/selfie` (own only, a colleague's id is 404) and `/api/attendance/records/{record}/selfie` (in reach) — streamed, `private, no-store` | `Attendance/AttendanceSelfieTest` (6) |
+| `AttendanceRecordPolicy` + permissions | `attendance.records.view` / `.correct` / `.reject`, each its own grant, all three now row-scoped | `PermissionSeederTest`, `PermissionReachTest` |
+
+**751 tests passing, Pint clean, 56 routes.** The list's scope filter and the
+policy were each verified to fail their tests when disabled.
+
+**Kept from legacy, deliberately:** the list defaults to today; refusing a
+check-in takes the day's check-out with it; undoing a refusal sends nothing.
+**Different from legacy, by the house standard:** 15 rows a page, not 25; the
+`working_day` flag beside the list is gone (every day is a working day, Q8);
+`type` / `reason` are ints. **Hardened, behaviour otherwise unchanged:**
+correcting a check-out now takes the employee lock, as recording does, and a
+refused check-in "needs no correction".
+
+**One question for the project owner:** undoing a refusal notifies nobody, as
+legacy — though the 2026-10-05 mapping planned a notification for it
+([`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §4).
+
+**Next: slice 2b** — the daily, monthly and per-employee reports and
+absent-today.

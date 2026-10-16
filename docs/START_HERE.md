@@ -605,10 +605,10 @@ system, so an index here is paid for on every authenticated request.
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **50 routes**
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **56 routes**
 today (`route:list`, 2026-10-16) — the 41 below, the sessions and device-token
-routes of work order §4.3 (six), and the self-service attendance routes (three).
-The last two groups are rows 42–50 at the end of the table.
+routes of work order §4.3 (six), and nine attendance routes. The last two groups
+are rows 42–56 at the end of the table.
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -641,6 +641,11 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 46–47 | POST/DELETE | `/api/me/device-tokens` | bearer | self-scoped |
 | 48–49 | GET/POST | `/api/me/attendance` | bearer | self-scoped — no permission (Q7) |
 | 50 | POST | `/api/me/attendance/sync` | bearer | self-scoped |
+| 51 | GET | `/api/me/attendance/{record}/selfie` | bearer | self-scoped |
+| 52 | GET | `/api/attendance/records` | bearer | `attendance.records.view`, row-scoped |
+| 53 | GET | `/api/attendance/records/{record}/selfie` | bearer | `attendance.records.view`, row-scoped |
+| 54 | PATCH | `/api/attendance/records/{record}/checkout` | bearer | `attendance.records.correct`, row-scoped |
+| 55–56 | PATCH/DELETE | `/api/attendance/records/{record}/reject` | bearer | `attendance.records.reject`, row-scoped |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.

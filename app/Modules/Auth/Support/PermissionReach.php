@@ -63,6 +63,11 @@ final class PermissionReach
         'hr.warnings.update',
         'hr.warnings.delete',
         'auth.roles.assign',
+        // Attendance (2026-10-16): AttendanceRecordPolicy per row, through the
+        // employee's current unit; the records list filtered on the builder.
+        'attendance.records.view',
+        'attendance.records.correct',
+        'attendance.records.reject',
     ];
 
     /**

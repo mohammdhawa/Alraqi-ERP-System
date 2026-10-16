@@ -48,4 +48,10 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     Route::post('/attendance/sync', [MyAttendanceController::class, 'sync'])
         ->name('me.attendance.sync');
+
+    // The caller's own selfie — streamed, never a URL (Q11). The id is looked
+    // up among the caller's own records only: a colleague's is a 404.
+    Route::get('/attendance/{record}/selfie', [MyAttendanceController::class, 'selfie'])
+        ->whereNumber('record')
+        ->name('me.attendance.selfie');
 });

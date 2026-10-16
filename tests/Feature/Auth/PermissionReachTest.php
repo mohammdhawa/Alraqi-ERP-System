@@ -346,9 +346,6 @@ class PermissionReachTest extends TestCase
         sort($companyOnly);
 
         $this->assertSame([
-            // Row-scoped by design; joins PermissionReach::ROW_SCOPED when the
-            // oversight endpoints enforce its scope (attendance slice 2).
-            'attendance.records.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',

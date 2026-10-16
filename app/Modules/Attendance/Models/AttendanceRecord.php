@@ -8,10 +8,12 @@ use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\AttendanceSource;
 use App\Modules\Attendance\Enums\RejectionReason;
+use App\Modules\Attendance\Policies\AttendanceRecordPolicy;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\AttendanceRecordFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -39,6 +41,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $recorded_at
  * @property float|null $work_hours
  */
+#[UsePolicy(AttendanceRecordPolicy::class)]
 class AttendanceRecord extends Model
 {
     use HasAuditLog;
@@ -99,9 +102,13 @@ class AttendanceRecord extends Model
         return AttendanceRecordFactory::new();
     }
 
+    /**
+     * Whose day this is — trashed employees included: a departed person's
+     * attendance is still payroll history, and still reviewable.
+     */
     public function employee(): BelongsTo
     {
-        return $this->belongsTo(Employee::class);
+        return $this->belongsTo(Employee::class)->withTrashed();
     }
 
     public function correctedBy(): BelongsTo

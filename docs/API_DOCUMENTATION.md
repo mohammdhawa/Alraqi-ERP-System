@@ -1964,6 +1964,11 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18c| GET        | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
 | 18d| POST       | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
 | 18e| POST       | `/api/me/attendance/sync`                    | bearer   | — (self-scoped, §12)   |
+| 18f| GET        | `/api/me/attendance/{record}/selfie`         | bearer   | — (self-scoped, §12.4) |
+| 18g| GET        | `/api/attendance/records`                    | bearer   | `attendance.records.view` (§13) |
+| 18h| GET        | `/api/attendance/records/{record}/selfie`    | bearer   | `attendance.records.view` |
+| 18i| PATCH      | `/api/attendance/records/{record}/checkout`  | bearer   | `attendance.records.correct` |
+| 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -1988,9 +1993,9 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **50 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
-device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and the
-three attendance routes (18c–18e). The count below is the one from before them.
+⚙️ **56 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
+device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and nine
+attendance routes (18c–18j). The count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2015,7 +2020,7 @@ above, both reads: there is no third, because the table is append-only.
 6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
 8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval. It is one of exactly **two** endpoints meant to be polled — the other is the notification list itself, and both are excluded from the audit trail for that reason. **Never poll anything else**, and least of all `/api/auth/audit-logs`, which records every read of itself (§9).
-9. **Lists:** **all ten** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+9. **Lists:** **all eleven** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
 10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.
 
 ---
@@ -2172,3 +2177,134 @@ legacy does.
 
 Date filters apply in that order of precedence: `date`, then `from`/`to`, then
 `month`, then `year`.
+
+### 12.4 My selfie
+
+```
+GET /api/me/attendance/{record}/selfie
+```
+
+Streams the image of one of the caller's **own** records (`Cache-Control:
+private, no-store`). A colleague's record id is a **404** — whether it exists
+is not the caller's to learn. **404** «لا توجد صورة لهذا السجل.» when the record
+has no selfie (an HR-corrected check-out) or its file was deleted after three
+months.
+
+---
+
+## 13. Attendance — oversight (HR and managers)
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 2a). Legacy's `/attendance/records`,
+`/records/{record}/checkout`, `/records/{record}/reject`.
+
+**Scope.** Every route is row-scoped through the employee's **current** unit
+(GAP-3, decision D6): a company-wide grant reaches everyone, a unit grant that
+unit and everything under it, a «الوحدات التي أديرها» grant the units its holder
+manages. After a transfer the new unit's reach covers the person's whole
+history and the old unit's none of it. An out-of-reach record is **403**
+`out_of_scope`, before any body is read; an unknown id is **404**.
+
+| Permission | Allows |
+|---|---|
+| `attendance.records.view` | the list and the selfie |
+| `attendance.records.correct` | recording a forgotten check-out |
+| `attendance.records.reject` | refusing a record and undoing a refusal |
+
+Rows are the record object of §12.1, plus:
+
+```json
+"employee": { "id": 7, "full_name": "نور أحمد الشامي", "employee_number": "EMP-00007" },
+"corrected_by": null,
+"rejected_by": { "id": 4, "name": "سامر خالد الحلبي" }
+```
+
+`corrected_by` / `rejected_by` are the **accounts** that acted — `name` is their
+employee's name, or the account's email for an account with no employee.
+
+### 13.1 The records list
+
+```
+GET /api/attendance/records        (attendance.records.view)
+```
+
+Paginated (15 by default, as everywhere in this API — legacy paged by 25).
+**Without a date filter it lists today.** Every filter of §12.3, plus:
+
+| Query | |
+|---|---|
+| `employee_id`, `employee_ids` | one or several employees (`employee_ids=3,7` or an array) |
+| `department_id`, `department_ids` | one or several units — **each with every unit under it**, as legacy's department filter covered its sections |
+| `search` | a name part or the staff number; `%` and `_` match themselves |
+| `rejection_reason` | `1` location · `2` selfie · `3` other |
+| `created_from`, `created_to` | when the server received the record |
+| `sort` | §12.3's keys plus `employee_name`, `employee_number` |
+
+A filter naming a unit outside the caller's reach returns nothing — it never
+widens the reach.
+
+### 13.2 A record's selfie
+
+```
+GET /api/attendance/records/{record}/selfie        (attendance.records.view)
+```
+
+As §12.4, for a record in reach.
+
+### 13.3 Record a forgotten check-out
+
+```
+PATCH /api/attendance/records/{record}/checkout    (attendance.records.correct)
+```
+
+| Field | Rules |
+|---|---|
+| `checked_out_at` | required, date-time |
+| `note` | optional, ≤ 500 |
+
+`{record}` is the day's **check-in**. A check-out row is written — `source: 3`,
+`is_corrected: true`, the corrector, the note, no selfie, the day's hours — and
+the check-in's missing-check-out flag is cleared. The 60-minute guard does not
+apply.
+
+**200** → `{ data: { check_in: <record>, check_out: <record> }, message: "تم تصحيح الانصراف بنجاح." }`
+
+**422:** «يجب اختيار سجل دخول لتصحيح الانصراف.» (not a check-in) · «هذا السجل لا
+يحتاج إلى تصحيح انصراف.» (the day has its check-out, or the check-in was
+refused) · «وقت الانصراف يجب أن يكون بعد وقت الحضور.»
+
+### 13.4 Refuse a record
+
+```
+PATCH /api/attendance/records/{record}/reject      (attendance.records.reject)
+```
+
+| Field | Rules |
+|---|---|
+| `reason` | required: `1` الموقع المسجَّل لا يطابق موقع العمل · `2` الصورة الشخصية غير صحيحة أو غير واضحة · `3` مخالفة تعليمات تسجيل الحضور |
+| `note` | ≤ 500; **required** with reason `3` |
+
+The record is kept as evidence and stops counting everywhere; the employee may
+record the day again. **Refusing a check-in refuses that day's check-out with
+it** — one decision. The employee is notified (`attendance.record_rejected`,
+referencing the record): «لم يتم قبول تسجيل حضورك بتاريخ …: <the reason>.», plus
+the note.
+
+**200** → `{ data: { record: <record>, rejected_records: [<record>, ...] }, message: "تم رفض التسجيل وإشعار الموظف." }`
+— every row the decision took down, so the day can be redrawn.
+
+**422** «تم رفض هذا السجل مسبقاً.»
+
+### 13.5 Undo a refusal
+
+```
+DELETE /api/attendance/records/{record}/reject     (attendance.records.reject)
+```
+
+Brings back **the whole decision, and only it** — from either of its rows.
+No notification is sent (as legacy).
+
+**200** → `{ data: { record: <the decision's first row>, restored_records: [...] }, message: "تم التراجع عن رفض التسجيل." }`
+
+**422:** «هذا السجل غير مرفوض.» · «لا يمكن التراجع عن الرفض: يوجد تسجيل حضور قائم
+لهذا اليوم بالفعل.» · «… يوجد تسجيل انصراف قائم لهذا اليوم بالفعل.» — the day
+was recorded again after the refusal, and restoring it would leave two.

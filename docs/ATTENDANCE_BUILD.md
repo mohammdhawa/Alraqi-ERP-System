@@ -113,6 +113,11 @@ un-reject, selfie — with the permission names from mapping §9, scoped.
 
 ## 4. For the project owner
 
+- **Undoing a refusal notifies nobody**, as legacy. The 2026-10-05 mapping
+  (§8) had planned an `attendance.record_unrejected` notification, and the
+  event exists in the catalogue unused. Kept as legacy, because no change was
+  agreed; one line to turn on if you want the employee told.
+
 - **A future `recorded_at` is accepted.** Legacy validates the time's format and
   nothing else, so a phone with a wrong clock can check in for tomorrow. Kept as
   legacy (no change without agreement).
@@ -127,5 +132,13 @@ un-reject, selfie — with the permission names from mapping §9, scoped.
   from §2 above: `attendance.records.view` is seeded **now**, not in slice 2,
   because the audit trail must gate every audited type (`AuditTargetStubTest`);
   it is company-only until slice 2 enforces its row scope.
-- Slice 2 — oversight — next.
+- Slice 2 — oversight — in two parts:
+  - ✅ **2a built 2026-10-16**: the scoped records list, the selfie endpoints
+    (the employee's own and the reviewer's), correcting a check-out, refusing
+    and un-refusing. The three `attendance.records.*` permissions are now
+    row-scoped (`PermissionReach::ROW_SCOPED`) through `AttendanceRecordPolicy`.
+  - **2b next**: the daily, monthly and per-employee reports and absent-today,
+    with the report half of legacy's rejection tests and
+    `AttendanceFilterAndReportTest`, `AttendanceMonthlyReportTest`,
+    `AttendanceEmployeeBreakdownTest`.
 - Slice 3 — schedules.

@@ -82,14 +82,15 @@ class PermissionSeeder extends Seeder
         // employee with an account records (Q7) through the self-scoped
         // /api/me/attendance. These are the oversight permissions.
         //
-        // ⚙️ COMPANY-ONLY FOR NOW: attendance.records.view is row-scoped by
-        // design (mapping §9), but nothing enforces its scope until slice 2's
-        // oversight endpoints do — and a permission is honoured from a scoped
-        // grant only once something enforces it (GAP-15, PermissionReach). It
-        // joins PermissionReach::ROW_SCOPED with those endpoints. Today it
-        // gates the attendance history in the audit trail.
+        // All three are ROW-SCOPED through the employee's CURRENT unit (D6):
+        // AttendanceRecordPolicy per row, the list filtered on the builder
+        // (slice 2). Correcting and refusing are separate grants, as legacy's
+        // were — a manager may see their units' attendance without being able
+        // to refuse it.
         'attendance' => [
             'attendance.records.view',
+            'attendance.records.correct',
+            'attendance.records.reject',
         ],
     ];
 
@@ -131,7 +132,9 @@ class PermissionSeeder extends Seeder
         'auth.roles.assign'         => 'إسناد الأدوار للمستخدمين',
         'auth.audit.view'           => 'عرض سجل التدقيق',
         'auth.audit.viewValues'     => 'عرض تفاصيل التغييرات',
-        'attendance.records.view'   => 'عرض سجلات الحضور',
+        'attendance.records.view'    => 'عرض سجلات الحضور',
+        'attendance.records.correct' => 'تصحيح انصراف منسي',
+        'attendance.records.reject'  => 'رفض سجل حضور',
     ];
 
     public function run(): void

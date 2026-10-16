@@ -11,9 +11,15 @@ use App\Modules\Attendance\Resources\AttendanceRecordResource;
 use App\Modules\Attendance\Services\AttendanceRecordQuery;
 use App\Modules\Attendance\Services\AttendanceService;
 use App\Modules\Attendance\Services\AttendanceSyncService;
+use App\Modules\Attendance\Services\SelfieAccess;
+use App\Modules\Attendance\Services\SelfieStore;
 use App\Shared\Traits\ApiRespond;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * The caller's own attendance, under /api/me/attendance (work order §4.5,
@@ -41,10 +47,11 @@ class MyAttendanceController extends Controller
     public function store(RecordAttendanceRequest $request, AttendanceService $attendance): JsonResponse
     {
         $result = $attendance->recordFor($request->user(), $request->validated(), $request->file('selfie'));
+        $record = new AttendanceRecordResource($result->record->load(AttendanceRecordQuery::RENDER_RELATIONS));
 
         return $result->created
-            ? $this->created(new AttendanceRecordResource($result->record), 'تم تسجيل الحضور بنجاح.')
-            : $this->success(new AttendanceRecordResource($result->record), 'هذا السجل محفوظ مسبقاً.');
+            ? $this->created($record, 'تم تسجيل الحضور بنجاح.')
+            : $this->success($record, 'هذا السجل محفوظ مسبقاً.');
     }
 
     /**
@@ -55,8 +62,19 @@ class MyAttendanceController extends Controller
         $outcome = $sync->sync($request->user(), $request->validated('records'), $request->file('selfies', []));
 
         return $this->success([
-            'succeeded' => AttendanceRecordResource::collection($outcome->succeeded),
+            'succeeded' => AttendanceRecordResource::collection((new Collection($outcome->succeeded))->load(AttendanceRecordQuery::RENDER_RELATIONS)),
             'failed'    => $outcome->failed,
         ], 'تمت مزامنة السجلات.');
+    }
+
+    /**
+     * GET /api/me/attendance/{record}/selfie — the caller's own selfie, never
+     * a colleague's (Q11). Not cached by anything between.
+     */
+    public function selfie(Request $request, int $record, SelfieAccess $selfies): StreamedResponse
+    {
+        return Storage::disk(SelfieStore::DISK)->response($selfies->own($request->user(), $record), headers: [
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 }
