@@ -521,7 +521,9 @@ counts trashed rows, so a deleted name stays reserved.
 
 `employee_id`, `department_id`, `job_title_id`, `organizational_grade`,
 `from_date`, `to_date` (NULL = current), `reason`, `legacy_workplace`,
-`legacy_manager_name`, `notes`, timestamps + soft deletes.
+`legacy_manager_name`, `legacy_job_title` ⚙️ (2026-10-15), `notes`, timestamps +
+soft deletes. The three `legacy_*` columns are import-only free text from the
+workbook's `بداية التعيين` columns; no endpoint writes them.
 
 Replaces the workbook's three frozen `بداية التعيين` columns *and* its separate
 `ملف النقل` transfer sheet. `employees.department_id` survives as the

@@ -75,7 +75,7 @@ both an active sheet and `إنهاء عمل` no longer matter: leavers are not i
 | `مكان الراتب` | most | `payroll_location` | ✅ Column added 2026-10-14 (needed in v1). The payroll cost centre (`الآليات الثقيلة`, `مكتب رئيسي - هندسي`, project sites); free text, pay-gated |
 | `مكان العمل بداية التعيين` | 118/237 | opening posting `legacy_workplace` | |
 | `المدير المباشر بداية التعيين` | 156/237 | opening posting `legacy_manager_name` | |
-| `المسمى الوظيفي بداية التعيين` | 125/237 | opening posting `job_title_id` | ✅ **The opening posting carries the title they started with** (2026-10-14), deduped into `job_titles` like the current one; blank → today's title. The model hook writes the opening posting from today's title, so the importer corrects it afterwards |
+| `المسمى الوظيفي بداية التعيين` | 125/237 | opening posting `legacy_job_title` | ✅ ⚙️ **Option B (project owner, 2026-10-15):** one opening posting with **today's** title; the starting title is kept beside it as text, like the two columns above — not a second posting, because the workbook never says when the title changed. Not deduped into `job_titles`. (Supersedes the 2026-10-14 reading, which put it in `job_title_id`.) |
 | `تاريخ الإنذار` · `رقم الإنذار` | 2 rows | `employee_warnings` | `نوع الإنذار` is empty everywhere |
 | `ملاحظات` | 67 leavers | — | Report only |
 

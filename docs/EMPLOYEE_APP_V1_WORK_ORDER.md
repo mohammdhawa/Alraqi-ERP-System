@@ -500,10 +500,13 @@ is HR's to confirm (the review file), and an empty division costs nothing.
 |---|---|---|---|
 | 1 | 207 national IDs have 10 digits — restore the leading `0` Excel dropped? | Yes | The importer pads them to 11; the shorter ones and the 2 duplicates are reported |
 | 2 | A KoboToolbox API token to download the photos in the صرح file? | No | **No photo is imported.** ⚠️ **The app needs a photo upload from day one** — §4.8 gains `POST /api/me/photo` into `employee_documents` (personal photo), and §4.10 a picker on the profile screen; home shows initials until one is uploaded |
-| 3 | The opening posting's title: the one they started with, or today's? | The one they started with | The importer sets the opening `تعيين` posting's `job_title_id` from `المسمى الوظيفي بداية التعيين` (today's when blank) |
+| 3 | The opening posting's title: the one they started with, or today's? | The one they started with | ⚙️ **Superseded 2026-10-15 by option B** (the entry below the handoff): one posting with today's title, the starting one kept as text in `legacy_job_title` |
 | 4 | `اللقب` and `مكان الراتب` — needed in v1? | Yes | **Built:** `employees.nickname` (identity, ungated) and `employees.payroll_location` (pay-gated, read and write). `EmployeeNicknameAndPayrollLocationTest` |
 
 ### 2026-10-15 — HANDOFF: §4.4 importer, core built; reader, command and one decision left
+
+⚙️ **Done the same day** — the reader, the command, option B and the dry run
+are in the next entry. This one is kept for the record.
 
 **Read this first in a new session.** State of the tree: branch `phase_1`,
 **618 tests passing, Pint clean**, everything below committed —
@@ -557,3 +560,69 @@ Until answered, the importer writes the current title and ignores
 **Still owed by HR, not blocking:** what `التمييز بحسب التقييم` holds (not
 imported until answered); confirmation of the tree changes in the review file
 (quality division, Supply's sections).
+
+### 2026-10-15 — §4.4 reader and command built; option B; the first dry run
+
+**The starting title: option B** (project owner, 2026-10-15). One opening
+posting with today's title; `المسمى الوظيفي بداية التعيين` is kept beside it as
+text in a new `employee_assignments.legacy_job_title` — import-only, like
+`legacy_workplace` and `legacy_manager_name`, returned by the posting resource,
+written by no endpoint, not deduped into `job_titles`. No boundary date is
+invented.
+
+**Built** (all under `app/Modules/HR/Import/` unless named):
+
+| Piece | What it does | Tests |
+|---|---|---|
+| `WorkbookReader` → `OpenSpoutWorkbookReader` | One sheet as *sheet row number → header → value*; header row given; trimmed headers; headerless columns skipped; **a formula reads as the value Excel saved** (see below); an Excel error is a `CellError`, not a blank; with a column list, only those columns are read and a missing one fails the read | `Import/OpenSpoutWorkbookReaderTest` (9), on a real xlsx |
+| `EmployeeRowMapper::WORKBOOK_COLUMNS` | The 37 workbook headers the mapper reads and nothing else — not the pay values, not the warnings. The reader refuses a sheet missing one, so a column HR renames fails the run rather than importing blank | via the mapper tests |
+| `EmployeeRowMapper::sarhById()` | The صرح records keyed by the digits of `_id`, cut to `SARH_COLUMNS` on the way in | `Import/EmployeeRowMapperTest` (+5) |
+| `ImportReportWriter` | The report (sheet الملخص + one row per source row in السطور: row, name, outcome, employee number, Kobo id, issues — RTL, filterable) and the credentials file. On a dry run a new employee's number is left blank: the rollback takes it back | via the command test |
+| `hr:import-employees` (`app/Console/Commands/ImportEmployees.php`) | `{workbook} --sarh= --dry-run --report= --credentials= --force` (+ `--sheet`, `--sarh-sheet`). Report defaults to `storage/app/private/hr-import/` (git-ignored) | `Import/ImportEmployeesCommandTest` (8) |
+
+**The passwords.** A real run **refuses to start** without `--credentials`, and
+refuses a path that already exists (an earlier run's file may hold passwords HR
+has not handed out). It asks before writing unless `--force`. The passwords go
+to that file only: the command test reads them back and checks they are absent
+from the report and from the console output.
+
+⚠️ **Found while building — the workbook's key columns are formulas.**
+`السوية التنظيمية`, `نوع النشاط`, `الخبرة` and `الخطورة` are `XLOOKUP`/`IFS`
+formulas into another table. openspout returns the formula *text* from
+`getValue()`; the reader takes the saved result instead. Read naively, every
+row would have imported with no grade, no activity and no hazard pay — and
+reported it only as "unknown value". Both October files hold **no** error cells
+today.
+
+**The dry run** — `Program_HR_10_2026.xlsx` → `قاعدة البيانات` with `مستقبل صرح
+9-2026.xlsx`, against the development database, which it left unchanged.
+Counts only; the report itself has names and ID numbers and stays out of git.
+
+| Outcome | Rows |
+|---|---|
+| would be created | 184 |
+| skipped | 1 — the 2026-10-03 hire with no `ID_Sarah` |
+
+| Issue | Rows | Whose to fix |
+|---|---|---|
+| **error** — division `إدارة الجودة والسلامة والمهنية` not in the tree; imported **with no unit** | 1 | HR's tree confirmation (the review file) → `DepartmentSeeder`, then a re-run corrects it |
+| section not in the tree → placed on the division: `قسم المشتريات والمبيعات` ×2, `قسم المحاسبة` ×1 (Supply), `القسم التقني` ×1 | 4 | same |
+| office not in the tree → placed on the section: `مكتب العقود والمعاملات`, `قسم الصيانة` under `رحبة الصيانة` | 2 | same |
+| governorate not recognised (a town or a foreign address) — the address is kept as written | 16 | HR, or leave |
+| national ID not 11 digits after the leading-0 rule — not recorded | 12 | HR |
+| a wives count on someone not married — dropped | 7 | HR |
+| birth date (صرح) disagrees with the workbook's birth year | 6 | HR |
+| **the same national ID on two rows** / **the same Sham Cash on two rows** — the second row's is dropped; the message names the first row | 2 / 2 | HR |
+| not in the صرح file (new hires) — no national ID, mother's name or children yet | 3 | the next صرح export |
+| name not three words — split, please check | 4 | HR |
+| contact column holds something that is not a phone number | 2 | HR |
+| *for the record:* an equipment class in `المكتب` → `قسم السائقين` (the August drop rule) | 51 | nobody |
+
+**Before the real run:** the project owner reviews the report
+(`storage/app/private/hr-import/employee-import-20261015-dry-run.xlsx` on the
+developer's machine); HR confirms the tree changes, which go into
+`DepartmentSeeder` and its exact-count test first; HR fixes what it chooses to
+in the workbook; then a fresh dry run, then the real one with `--credentials`
+pointing outside the repository.
+
+⚙️ The development database has `legacy_job_title` (migrated 2026-10-15).

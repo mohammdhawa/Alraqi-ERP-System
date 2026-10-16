@@ -1571,6 +1571,7 @@ one; the earliest row is their initial posting.
   "reason_label": "ترقية",
   "legacy_workplace": null,
   "legacy_manager_name": null,
+  "legacy_job_title": null,
   "notes": "قرار رقم 41",
   "created_at": "2026-09-13T10:00:00+03:00"
 }
