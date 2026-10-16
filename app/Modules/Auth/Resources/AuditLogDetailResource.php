@@ -137,6 +137,8 @@ class AuditLogDetailResource extends AuditLogResource
         'user'                => ['auth.users.view'],
         'role'                => ['auth.roles.view'],
         'permission'          => ['auth.roles.view'],
+        // A check-in row carries a GPS position, a time and a selfie path.
+        'attendance_record'   => ['attendance.records.view'],
     ];
 
     /**

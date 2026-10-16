@@ -786,3 +786,45 @@ again when the same leave is re-filed. The rules:
 attendance module (§4.5) — there is no working calendar to build first, since
 D5 is no — then the approvals engine (§4.6, written design reviewed before
 code), then leave (§4.7), then `/api/me` (§4.8).
+
+### 2026-10-16 — §4.5 attendance, slice 1 built: recording
+
+The design is [`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md): three slices, each
+green on its own. **Slice 1 — recording — is built**; slices 2 (oversight) and
+3 (schedules) are next.
+
+**Built**, in `app/Modules/Attendance/` with the routes in `Me/routes.php`:
+
+| Piece | What | Tests |
+|---|---|---|
+| `attendance_records` | The event log, on `employee_id` (restrict), no unit snapshot (D6), `client_uuid` unique per employee (D9), `source`, `selfie_purged_at` (D7), soft deletes, legacy's indexes | — |
+| `config/attendance.php` + `Support\AttendanceCalendar` | Legacy's keys and values; the fallbacks equal the shipped values, so 23:59 everywhere (Q10); `isChargeableDay()` kept as the hook a holiday calendar would use | `Attendance/AttendanceCalendarTest` (10) |
+| `Services\AttendanceService` | Legacy's check-in / check-out rules and messages under a lock on the **employee** row; the retried `client_uuid` returns the saved row (Q12); the selfie stored privately only after the rules pass (Q11) | `Attendance/AttendanceCheckInOutTest` (28) |
+| `Services\AttendanceSyncService` | The offline queue, entry by entry; only an `AttendanceException`'s message is echoed, everything else is logged and reported generically | `Attendance/AttendanceSyncTest` (12) |
+| `Services\AttendanceRecordQuery` | The employee's own list with legacy's filters and its "today by default" | `Attendance/MyAttendanceRecordsTest` (8) |
+| `Contracts\ApprovedLeave` → `NoApprovedLeave` | Attendance asks about leave through a contract it owns; the Leave module will bind its own, so the dependency runs Leave → Attendance only | via the check-in tests, with a fake |
+| `attendance.records.view` | Seeded now because the audit trail needs a gate for the new type; **company-only** until slice 2 enforces its row scope (GAP-15) | `PermissionSeederTest`, `PermissionReachTest` |
+
+**703 tests passing, Pint clean.** The idempotent retry and the leave guard
+were each verified to fail with their code disabled.
+
+**Found while porting:**
+
+- **Carbon 3's time difference is signed**; legacy (Carbon 2) relied on it being
+  absolute. Ported naively, every check-out would have carried negative hours.
+  The order is now explicit, and the hours tests pin it.
+- **Legacy's code fallbacks disagreed with its config** (22:00 vs 23:59 for the
+  close, 06:00–17:00 vs open for the window). The ERP's fallbacks are the
+  shipped values.
+- **`START_HERE.md` §7 and `API_DOCUMENTATION.md` §10 had stale endpoint counts**
+  since §4.3; both now say 50 routes, checked against `route:list`.
+
+**For the project owner — read from the decisions, not decided by them:**
+
+1. **A suspended employee cannot record attendance** (422) but can read their
+   history. Q7 says "all active employees"; a suspension is not active.
+2. **A `recorded_at` in the future is accepted**, as in legacy — a phone with a
+   wrong clock can check in for tomorrow. Kept unchanged, because no change was
+   agreed. A one-line guard if you want it.
+
+Both are listed in [`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md) §4.

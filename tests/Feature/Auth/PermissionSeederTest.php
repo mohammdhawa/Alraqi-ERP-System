@@ -41,8 +41,10 @@ class PermissionSeederTest extends TestCase
      * GAP-15 added one: `auth.roles.assign`, split out of `auth.roles.update`
      * so that assigning (bounded by the assigner's reach) and editing a role's
      * definition (company-wide by nature) are two grants, not one.
+     *
+     * Attendance added one (2026-10-16): `attendance.records.view`.
      */
-    private const TOTAL = 31;
+    private const TOTAL = 32;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -51,6 +53,7 @@ class PermissionSeederTest extends TestCase
         $this->assertSame(self::TOTAL, Permission::count());
 
         $expected = [
+            'attendance.records.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.assign', 'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',

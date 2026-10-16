@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Attendance\Controllers\MyAttendanceController;
 use App\Modules\Me\Controllers\DeviceTokenController;
 use Illuminate\Support\Facades\Route;
 
@@ -35,4 +36,16 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy'])
         ->name('me.device-tokens.destroy');
+
+    // Attendance (work order §4.5). The logic is the Attendance module's; the
+    // routes are here because they are the caller's own. No permission and no
+    // flag: every active employee with an account records (Q7, 2026-10-16).
+    Route::get('/attendance', [MyAttendanceController::class, 'index'])
+        ->name('me.attendance.index');
+
+    Route::post('/attendance', [MyAttendanceController::class, 'store'])
+        ->name('me.attendance.store');
+
+    Route::post('/attendance/sync', [MyAttendanceController::class, 'sync'])
+        ->name('me.attendance.sync');
 });

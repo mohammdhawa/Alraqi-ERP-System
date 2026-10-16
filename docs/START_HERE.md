@@ -605,9 +605,10 @@ system, so an index here is paid for on every authenticated request.
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **41 endpoints**
-today — Batch 2 added eleven, سجل التدقيق two (both reads), and the account model
-one (`POST /api/auth/password`). Verified against `route:list`.
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **50 routes**
+today (`route:list`, 2026-10-16) — the 41 below, the sessions and device-token
+routes of work order §4.3 (six), and the self-service attendance routes (three).
+The last two groups are rows 42–50 at the end of the table.
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -634,6 +635,12 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 36–37 | GET/POST | `/api/hr/employees/{employee}/assignments` | bearer | `hr.assignments.{view,create}` |
 | 38–39 | GET/POST | `/api/hr/employees/{employee}/warnings` | bearer | `hr.warnings.{view,create}` |
 | 40–41 | PUT/DELETE | `/api/hr/warnings/{warning}` | bearer | `hr.warnings.{update,delete}` |
+| 42 | POST | `/api/auth/logout-all` | bearer | — (every session) |
+| 43–44 | GET/DELETE | `/api/auth/sessions` (+ `/{id}`) | bearer | self-scoped |
+| 45 | POST | `/api/auth/notifications/read-all` | bearer | owner-scoped |
+| 46–47 | POST/DELETE | `/api/me/device-tokens` | bearer | self-scoped |
+| 48–49 | GET/POST | `/api/me/attendance` | bearer | self-scoped — no permission (Q7) |
+| 50 | POST | `/api/me/attendance/sync` | bearer | self-scoped |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.

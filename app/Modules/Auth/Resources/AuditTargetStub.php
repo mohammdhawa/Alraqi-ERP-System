@@ -70,6 +70,7 @@ final class AuditTargetStub
         'user'                => 'مستخدم',
         'role'                => 'دور',
         'permission'          => 'صلاحية',
+        'attendance_record'   => 'سجل حضور',
     ];
 
     /**

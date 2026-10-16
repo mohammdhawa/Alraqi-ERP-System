@@ -1961,6 +1961,9 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
 | 18a| POST       | `/api/auth/notifications/read-all`           | bearer   | — (owner‑scoped)       |
 | 18b| POST/DELETE| `/api/me/device-tokens`                      | bearer   | — (self-scoped)        |
+| 18c| GET        | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
+| 18d| POST       | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
+| 18e| POST       | `/api/me/attendance/sync`                    | bearer   | — (self-scoped, §12)   |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -1985,6 +1988,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
+⚙️ **50 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
+device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and the
+three attendance routes (18c–18e). The count below is the one from before them.
+
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
 above, both reads: there is no third, because the table is append-only.
@@ -2008,5 +2015,160 @@ above, both reads: there is no third, because the table is append-only.
 6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
 8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval. It is one of exactly **two** endpoints meant to be polled — the other is the notification list itself, and both are excluded from the audit trail for that reason. **Never poll anything else**, and least of all `/api/auth/audit-logs`, which records every read of itself (§9).
-9. **Lists:** **all nine** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+9. **Lists:** **all ten** list endpoints are paginated and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
 10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.
+
+---
+
+## 12. Attendance — الحضور (self-service)
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 1). The employee's own
+attendance, ported from legacy's `/api/attendance/record`, `/sync` and
+`/my-records` with legacy's rules and Arabic messages. Build notes:
+[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md).
+
+**Who may call them:** any authenticated account **linked to an employee**. No
+permission — the routes are self-scoped and always act on the caller's own
+employee. An account with no employee gets **403**. Recording also needs the
+employee to be **active**: a suspended employee gets **422** on record and
+sync, but can still read their history.
+
+**Differences from legacy a client must know:**
+
+- `type` is an **int**: `1` حضور (check-in), `2` انصراف (check-out) — not the
+  strings `check_in` / `check_out`. Every enum ships as `{field}` +
+  `{field}_label`.
+- Responses use the standard envelope.
+- **There is no selfie URL.** Selfies are private; `has_selfie` says whether one
+  exists. (An authorised endpoint to view one comes with the HR side.)
+- **`client_uuid`** — optional, a UUID the phone generates per record. Send it:
+  a retry of a submission that did save comes back as **success with the saved
+  record** instead of "already checked in". Without it, behaviour is legacy's.
+
+### 12.1 Record a check-in or check-out
+
+```
+POST /api/me/attendance        multipart/form-data
+```
+
+| Field | Rules |
+|---|---|
+| `type` | required, `1` (check-in) or `2` (check-out) |
+| `latitude` | required, number, −90…90 |
+| `longitude` | required, number, −180…180 |
+| `selfie` | required, image, ≤ 10 MB |
+| `recorded_at` | required, date-time — the moment on the phone; an offset is honoured and normalised to Asia/Damascus |
+| `client_uuid` | optional, UUID |
+
+**201** → `{ success, message: "تم تسجيل الحضور بنجاح.", data: <record> }`.
+**200** → `{ success, message: "هذا السجل محفوظ مسبقاً.", data: <the saved record> }`
+when that `client_uuid` was already saved.
+
+**422 — the business rules** (legacy's, unchanged; `message` is display-ready):
+
+| Rule | `message` |
+|---|---|
+| a second check-in the same day — even after checking out | لديك تسجيل حضور قائم بالفعل لهذا اليوم. |
+| check-in on approved leave | لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم. |
+| check-out with no check-in that day, or a second check-out | لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم. |
+| check-out at or before the check-in | وقت الانصراف يجب أن يكون بعد وقت الحضور. |
+| check-out within 60 minutes of the check-in | لا يمكن تسجيل الانصراف قبل مرور 60 دقيقة على الحضور. |
+| a non-working day / outside the check-in window — **not reachable as configured**: every day is a working day and the window is open (decisions Q8, Q9) | لا يمكن تسجيل الحضور في يوم عطلة. / … قبل الساعة … / … بعد الساعة … |
+| a suspended employee | لا يمكن تسجيل الحضور لموظف ليس على رأس عمله. |
+
+A refused event stores no selfie.
+
+**The record object:**
+
+```json
+{
+  "id": 41,
+  "employee_id": 7,
+  "type": 2,
+  "type_label": "انصراف",
+  "status": null,
+  "status_label": null,
+  "source": 1,
+  "source_label": "تسجيل مباشر",
+  "recorded_at": "2026-06-21T16:00:00+03:00",
+  "work_hours": 8,
+  "work_hours_formatted": "8h 0m",
+  "latitude": 33.5,
+  "longitude": 36.3,
+  "has_selfie": true,
+  "client_uuid": "7d0f6f2e-3b1a-4c5e-9a8b-1f2e3d4c5b6a",
+  "is_corrected": false,
+  "corrected_at": null,
+  "correction_note": null,
+  "is_rejected": false,
+  "rejected_at": null,
+  "rejection_reason": null,
+  "rejection_reason_label": null,
+  "rejection_note": null,
+  "created_at": "2026-06-21T16:00:02+03:00"
+}
+```
+
+- `work_hours` is on the **check-out** row only; `null` on a check-in.
+- `status` is `1` («انصراف مفقود») on a check-in the day closed on without a
+  check-out, `null` otherwise.
+- `source`: `1` تسجيل مباشر · `2` مزامنة بعد انقطاع · `3` تصحيح من الموارد البشرية.
+- A **rejected** row (`is_rejected: true`) was refused by HR: it no longer
+  counts, and the employee may record that day again.
+
+### 12.2 Sync the offline queue
+
+```
+POST /api/me/attendance/sync   multipart/form-data
+```
+
+`records[]` — each with `type`, `latitude`, `longitude`, `recorded_at` and
+optional `client_uuid`, as above — and `selfies[]`, matched to `records[]` **by
+index**.
+
+Each entry is recorded **on its own**: one refusal does not stop the others.
+
+**200** →
+
+```json
+{
+  "success": true,
+  "message": "تمت مزامنة السجلات.",
+  "data": {
+    "succeeded": [ <record>, ... ],
+    "failed": [ { "index": 1, "entry": { ...as sent... }, "error": "لديك تسجيل حضور قائم بالفعل لهذا اليوم." } ]
+  }
+}
+```
+
+- A missing selfie fails **that entry** with «الصورة الشخصية مطلوبة لكل سجل.».
+- An entry whose `client_uuid` is already saved is in `succeeded`, as the saved
+  record — so a queue re-sent after a dropped connection empties cleanly.
+- `error` is display-ready. An unexpected server failure reads «تعذر حفظ هذا
+  السجل، يرجى المحاولة لاحقاً.» and is logged server-side; nothing about the
+  server leaks into it.
+- A malformed request (a missing field in an entry) is a **422** for the whole
+  request, naming the field as `records.N.field`.
+
+### 12.3 My records
+
+```
+GET /api/me/attendance
+```
+
+Paginated (the standard `meta`). **Without a date filter it lists today**, as
+legacy does.
+
+| Query | |
+|---|---|
+| `date` | one day, `Y-m-d` |
+| `from`, `to` | a range (`to` ≥ `from`) |
+| `month` (+ `year`) | a month; `year` defaults to this year |
+| `year` | a year |
+| `type` | `1` or `2` |
+| `missing_checkout`, `is_corrected`, `rejected` | `0`/`1`/`true`/`false` |
+| `work_hours_min`, `work_hours_max` | an hours range (max ≥ min) |
+| `sort` | `recorded_at`, `date`, `type`, `status`, `work_hours`, `created_at`, `rejected_at`, `id`; `-` prefix for descending. Default newest first. An unknown key is a **422** |
+
+Date filters apply in that order of precedence: `date`, then `from`/`to`, then
+`month`, then `year`.

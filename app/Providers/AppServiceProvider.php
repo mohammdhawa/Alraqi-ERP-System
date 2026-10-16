@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Modules\Attendance\Contracts\ApprovedLeave;
+use App\Modules\Attendance\Models\AttendanceRecord;
+use App\Modules\Attendance\Support\NoApprovedLeave;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
@@ -48,6 +51,12 @@ class AppServiceProvider extends ServiceProvider
 
         // The employee importer reads HR's workbooks through this (§4.4).
         $this->app->bind(WorkbookReader::class, OpenSpoutWorkbookReader::class);
+
+        // Attendance asks "is this person on approved leave today?" through a
+        // contract it owns (§4.5). Until the Leave module exists nobody is;
+        // the Leave module replaces this binding with its own (§4.7), so the
+        // dependency runs Leave → Attendance only.
+        $this->app->bind(ApprovedLeave::class, NoApprovedLeave::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
@@ -106,6 +115,7 @@ class AppServiceProvider extends ServiceProvider
             'user'                => User::class,
             'role'                => Role::class,
             'permission'          => Permission::class,
+            'attendance_record'   => AttendanceRecord::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check
