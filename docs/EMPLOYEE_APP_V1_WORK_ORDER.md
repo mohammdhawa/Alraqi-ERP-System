@@ -91,6 +91,15 @@ because its date passed. Each decision is put to the project owner and
 answered before the piece that rests on it is built. The "blocks" dates are
 kept for the record only.
 
+✅ **Answered 2026-10-16** — D2, D3, D4, D5, D6, D7, D9, D12, D13 through
+[`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md); the
+answers and what each changes are §8's entry of that date. In short: **D2**
+collapse / skip with a reason · **D3** no flag, every active employee with an
+account · **D4** no "late" · **D5** no holiday calendar, and no weekly day off ·
+**D6** current unit · **D7** selfie files three months, records forever, legacy's
+cleanup left alone · **D9** yes · **D12** as planned · **D13** 15 days, per-person
+allocations by HR. **Still open:** D8, D10, D11 — before §4.10.
+
 | # | Question | Recommended | Blocks |
 |---|---|---|---|
 | **D1** | Fresh ERP accounts for everyone, legacy passwords not carried? | **Yes** — legacy has no employee number to match on, and the identifier is new anyway (`EMPLOYEE_APP_REQUIREMENTS.md` §7.1) | Oct 14 (importer) |
@@ -159,7 +168,10 @@ inserting beside them; a dry-run mode.
 
 Mapping §4. The table on `employee_id`, selfies on a private disk, `client_uuid`
 and `source`, `config/attendance.php` ported, `checkout-reminder` and
-`auto-close` ported, `cleanup` **not** ported. `public_holidays` if D5 holds.
+`auto-close` ported, `cleanup` **not** ported. ⚙️ **2026-10-16:** no
+`public_holidays` and no `attendance_check` flag (D5, D3); a new selfie-file
+retention command (three months, the record stays — D7); `auto_close_at` 23:59
+everywhere.
 
 Self-service: `POST /api/me/attendance`, `POST /api/me/attendance/sync` (legacy
 payload shape accepted), `GET /api/me/attendance`. HR/manager: records, daily,
@@ -193,7 +205,9 @@ and a request screen to act from.
 ### 4.7 Leave — `app/Modules/Leave`, on the engine
 
 Mapping §5. Types (+ `requires_attachment`), balances, requests, HR excuses,
-cancel, return-to-work; attachments through a shared polymorphic `attachments`
+cancel, return-to-work; ⚙️ **2026-10-16:** the nine live types, sick leave
+**not** deducting and requiring a medical report, the chain resolved (direct
+manager → مدير الموارد) — §8; attachments through a shared polymorphic `attachments`
 table on the private disk, which documents reuse in November.
 
 Tests to port: `LeaveTypeTest`, `LeaveBalanceManagementTest`,
@@ -659,7 +673,8 @@ pointing outside the repository.
    session (`API_BUILD_STANDARD.md` §12). Closed 2026-10-16.
 2. **A decision round** on what attendance, leave and approvals rest on —
    D2–D7, D9, D12, D13 — asked with the legacy behaviour in front of the
-   project owner. D7 (stop legacy's monthly `attendance:cleanup`) first, because
+   project owner: [`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md),
+   14 questions, opened 2026-10-16. D7 (stop legacy's monthly `attendance:cleanup`) first, because
    every month it runs deletes history the cutover reconciliation needs.
 3. **Working calendar and attendance (§4.5)** — the holiday calendar first,
    because attendance and leave both count working days through it.
@@ -668,3 +683,106 @@ pointing outside the repository.
 5. **Leave (§4.7)**, then **`/api/me` (§4.8)**.
 6. **The real import (§4.9)** whenever HR's review rounds finish; nothing above
    waits on it.
+
+### 2026-10-16 — no data moves from legacy
+
+**Decided by the project owner.** No legacy record is imported — not leave
+history, balances, attendance, approvals, notifications or the audit trail.
+Legacy is the foundation for how the modules **work** (the entry above), not a
+source of data. The ERP's people come from HR's workbook (§4.4); everything else
+starts empty.
+
+What it changes:
+
+- `legacy_user_links` (mapping §2) is not built, and mapping §12's table of
+  what moves is superseded.
+- Leave balances at the switch, and leave already approved in legacy for later
+  dates, become questions for the project owner — Q6 of
+  [`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md).
+  Q4 (allocations) and Q11 (legacy's cleanup) were reworded to match; the
+  question about legacy requests with no leave type is gone.
+- The merge plan's open question on the legacy audit trail is answered: not
+  migrated.
+- The parallel run's comparison of one month in both systems stays a check, not
+  an import.
+
+### 2026-10-16 — the decision round, answered
+
+All 14 questions of
+[`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md) were
+answered by the project owner; that file is closed. **Legacy stays the reference
+for every rule not named below.** No workflow change or default beyond these is
+introduced without agreement.
+
+**The answers, and what each means for the build:**
+
+| Q | Answer | Built as |
+|---|---|---|
+| 1 | **B** | Approvers are **resolved**, never chosen: step 1 the direct manager (`ManagementChain`), step 2 the manager of the unit coded `HR`. The app's approver picker goes; `approver_ids` / `manager_id` are not accepted |
+| 2 | **A / A** (D2) | A step resolving to the same person as the step before it is recorded `skipped` with its reason; a step resolving to the **requester** is `skipped` with its reason. So مدير الموارد's own leave is approved by المدير العام alone. Checked at submission, in the engine, for every consumer |
+| 3 | nine types; sick **not** deducting; medical report required | Seed the live nine (`attendent_execused` → `attendance_excused`, Arabic name kept), each with its live flags **except** `sick.deducts_balance = false`. `requires_attachment` true for `sick` only |
+| 4 | **A** (D13) | `config('leave.annual_days') = 15`; a `leave_balances` row per person and year carries HR's own allocation and adjustment |
+| 5 | keep | HR excuses as legacy: approved at once, no approval, cancellable when filed in error, only for `for_excuses` types |
+| 6 | **B / B** | No import. HR enters an **opening adjustment** per person; future leave is **re-filed** and approved again — see the procedure below |
+| 7 | **B** (D3) | No eligibility flag. Every active employee with an active account may record attendance and is expected to |
+| 8 | no weekly day off; **no** holiday calendar (D5) | `working_days` all seven, as legacy. No `public_holidays` table |
+| 9 | **A** (D4) | No "late". The check-in window stays open, as legacy |
+| 10 | keep all four | Reminder 17:00; auto-close **23:59** as both the config value **and** the code fallback (legacy's code fell back to 22:00); check-out refused within 60 minutes; no check-in during approved leave |
+| 11 | files 3 months; legacy untouched (D7) | Records are never deleted. Selfie **files** on a private disk, served only through an authorised endpoint, deleted after three months by a scheduled command that keeps the row and records that the file was purged. Legacy's `attendance:cleanup` is not touched |
+| 12 | approved (D9) | `client_uuid`, nullable, `unique(employee_id, client_uuid)`; a repeat returns the saved record with success; a submission without one behaves as legacy |
+| 13 | **A** (D6) | Attendance and leave rows carry no unit snapshot; visibility follows the employee's current unit through GAP-3 scope |
+| 14 | as planned (D12) | Pilot: attendance in both apps, leave only in the ERP, HR mirrors approved ERP leave into legacy as excuses |
+
+**Where the ERP now deliberately differs from legacy** — each one agreed, each
+one a test that names it:
+
+1. Approvers resolved, not chosen (Q1), with the collapse and self-skip rules (Q2).
+2. Sick leave does not deduct, and needs a medical report (Q3).
+3. `attendent_execused` is `attendance_excused` (Q3).
+4. No `attendance_check` flag (Q7).
+5. Records kept forever; selfie files private and kept three months (Q11).
+6. A retried offline submission succeeds instead of erroring (Q12).
+7. No unit snapshot on rows; scope follows the current unit (Q13).
+8. One closing time, 23:59, with no 22:00 fallback (Q10).
+9. No data imported (the entry above).
+
+**Consequences accepted with these answers** — written down so they are not
+rediscovered as bugs:
+
+- **An Eid, or any holiday, is an ordinary working day.** No check-in that day
+  counts as absent, and a leave spanning it consumes a day of balance — exactly
+  as legacy does today. `EMPLOYEE_APP_REQUIREMENTS.md` §5.5 notes payroll will
+  read absences, so the holiday calendar is **deferred, not dropped**: it comes
+  back as a change request before Stage 4 payroll, behind the
+  `isChargeableDay()` hook legacy already provides.
+- **The app's day states in v1** are حاضر / غياب / إجازة, plus missing
+  check-out. متأخر and عطلة from the spec (requirements §1) are not shown.
+- **Every leave request reaches مدير الموارد** — about 60 a month at legacy's
+  rate.
+
+**The transition procedure (Q6, Q14 — implementation clarifications E2, E6).**
+The risk is one leave counted twice: once in the opening balance HR enters, and
+again when the same leave is re-filed. The rules:
+
+1. **Each employee has a switch date**: the day they start filing leave in the
+   ERP — the pilot's start for pilot users, the company cutover for everyone
+   else. Nobody has two.
+2. **The opening adjustment is taken from leave already TAKEN**, not from
+   legacy's remaining balance: *allocation − days of approved leave dated before
+   the switch date*. Legacy-approved leave dated **on or after** the switch date
+   is **not** subtracted — it is re-filed in the ERP and deducted there. (Read
+   from legacy: remaining balance **plus** the days of its approved leave from
+   the switch date on.)
+3. **Pending legacy requests** are decided or withdrawn in legacy before the
+   switch date, then re-filed in the ERP if still wanted.
+4. **For pilot users only, while legacy is still the record of pay:** when a
+   re-filed leave is approved in the ERP and HR mirrors it into legacy as an
+   excuse (Q14), HR first **cancels the legacy original** — otherwise legacy
+   counts it twice.
+5. **The cutover date itself** is an operational decision still owed by the
+   project owner; nothing in the build waits on it.
+
+**Next, in dependency order** (the 2026-10-16 entry above, adjusted): the
+attendance module (§4.5) — there is no working calendar to build first, since
+D5 is no — then the approvals engine (§4.6, written design reviewed before
+code), then leave (§4.7), then `/api/me` (§4.8).

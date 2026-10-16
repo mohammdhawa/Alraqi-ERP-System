@@ -170,6 +170,11 @@ the ERP lacks, has a worked reference implementation next door.
 
 ### 4.2 The leave approval chain is two steps, and the second is HR
 
+✅ ⚙️ **Confirmed 2026-10-16** ([`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md) Q1–Q2): resolved by the
+system — employees no longer choose approvers, as they do in legacy. A step
+that resolves to the same person as the one before it, or to the requester, is
+recorded as skipped with its reason.
+
 Area 4 states it plainly: **موافقة المدير المباشر + موافقة مدير الموارد**.
 
 This is the first concrete operational rule for the escalation chain that
@@ -287,6 +292,11 @@ Whether it is a legal signature or an informational receipt is a question — §
 
 ### 5.5 عطلة — there is no holiday calendar
 
+⚙️ **Decided 2026-10-16: not at this stage** ([`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md) Q8). No weekly
+day off and no holiday calendar, as legacy — so عطلة and متأخر (Q9) are not day
+states in v1. **Deferred, not dropped:** the paragraph below still holds for
+payroll, so the calendar returns as a change request before Stage 4.
+
 Area 3's day states are حاضر / متأخر / إجازة / غياب / **عطلة**. The legacy
 `AttendanceService` models a `working_days` list only, shipped with **no weekend
 at all**, and its own docblock names the public holiday calendar as *"the single
@@ -296,6 +306,9 @@ So عطلة has no data source in either system. Stage 3 owes it, and so does St
 — an absence deduction that counts عيد as غياب is a wrong payslip.
 
 ### 5.6 مرفقات الإجازة — the legacy leave request has no attachment
+
+✅ **Confirmed 2026-10-16** (Q3): a medical report is **mandatory** for sick
+leave; sick leave does not deduct from the annual balance.
 
 `leave_requests` carries `reason` as text and nothing else. Area 4 requires
 **إرفاق ملف أو صورة** — which is the whole point of a sick leave (التقرير الطبي).
@@ -576,8 +589,8 @@ their own classification axes** — yes, in full (§6.1). Six are left.
 4. **Is there a company directory?** Can an employee look up a colleague's unit
    and extension, or does the app show only their own profile? It is a privacy
    decision, and it changes what §6.2 exposes.
-5. **Holidays:** who maintains the عطل رسمية calendar, and does it vary by
-   worksite? (§5.5)
+5. ✅ ~~**Holidays:** who maintains the عطل رسمية calendar, and does it vary by
+   worksite? (§5.5)~~ **No calendar at this stage** (2026-10-16, §5.5).
 6. **The legacy accounts:** fresh credentials for everyone, or carry the existing
    app users over? §7.1 recommends fresh — the legacy `users` table holds no
    employee number, so the match is by name, and the new identifier is one that

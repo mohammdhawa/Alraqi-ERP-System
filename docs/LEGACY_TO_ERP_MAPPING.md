@@ -12,6 +12,16 @@
 > **⚠️ DECIDE** and points at the work order's §3, where the decision is listed
 > with a recommended default.
 >
+> ✅ **2026-10-16 — every "⚠️ DECIDE" below is answered** ([`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md),
+> closed). The answers are written into the rows they settle, marked ⚙️; the
+> full table is the work order's §8 entry "the decision round, answered".
+>
+> ⚙️ **2026-10-16 — no data moves from legacy** (project owner). This file
+> still says what each legacy *behaviour* becomes — that is the foundation —
+> but no legacy *record* is imported: §2's link table is not built, and §12's
+> table is replaced. Open questions this raises are in
+> [`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md) Q6.
+>
 > **Out of scope here:** documents, templates, numbering, stamps and the document
 > workflow. They move in November, onto the approvals engine this file defines,
 > and get their own mapping then.
@@ -111,11 +121,14 @@ one bucket or the other below.
 | `department_id`, `section_id` | match hint only | The ERP tree is the authority (§3) |
 | `role` (`admin`/`manager`/`chief`/`employee`) | ERP role grants | See §9. `manager` and `chief` do not become roles: what they meant is now the tree (`departments.manager_id`) plus a scoped grant |
 | `fcm_token` | **not carried** | The app re-registers on first ERP login, into `device_tokens` (§7) |
-| `attendance_check` | ⚠️ DECIDE — D3 | "This person checks in." Recommended: every active employee with an account may record their own attendance, no flag. An exemption, if HR needs one, is a fact about the employee, not the account |
+| `attendance_check` | ⚙️ **dropped** (D3, 2026-10-16) | "This person checks in." **Decided: no flag** — every active employee with an active account records attendance and is expected to. No exemption column, on the account or the employee |
 | `can_view_attendance` | `attendance.records.view`, **scoped** | Becomes a GAP-3 grant: company, a unit, or «الوحدات التي أديرها». Strictly better than the legacy boolean, which is all-or-nothing |
 | `deleted_at` | — | Soft-deleted legacy users are not linked |
 
 ### The link table — `legacy_user_links`
+
+⚙️ **Not built** (2026-10-16): it existed only to carry leave balances and
+history across, and no data moves from legacy. Kept below for the record.
 
 Leave balances and leave history must move (§12), and they are keyed on legacy
 `users.id`. Legacy `users` has **no employee number** — only a name — so the
@@ -142,7 +155,7 @@ name before trying the full name.
 | `departments` (flat, `code`, `stamp`) | `departments` tree, levels 1–5 | **No data moves.** The ERP tree is seeded from the org chart (Batch 1) and is the authority |
 | `sections` (`department_id`, `stamp`) | `departments` rows at the section tier | Same |
 | `stamp` (moved from departments to sections in legacy) | Documents, November | A stamp is a document-rendering concern |
-| `leave_requests.department_id/section_id`, `attendance_records.department_id/section_id` (ownership snapshots, `2026_08_31_000003`) | **dropped** — ⚠️ DECIDE D6 | Legacy stamps the requester's unit on each row so authorization survives a transfer. The ERP's GAP-3 scope reads the employee's **current** unit. Recommended: follow the current unit, as GAP-3 already does for employees — a new manager inherits the whole history, the old one loses it. If a snapshot is ever needed, `employee_assignments` already answers "where was this person on date X" without a copy on every row |
+| `leave_requests.department_id/section_id`, `attendance_records.department_id/section_id` (ownership snapshots, `2026_08_31_000003`) | ⚙️ **dropped** (D6, 2026-10-16: current unit) | Legacy stamps the requester's unit on each row so authorization survives a transfer. The ERP's GAP-3 scope reads the employee's **current** unit. Recommended: follow the current unit, as GAP-3 already does for employees — a new manager inherits the whole history, the old one loses it. If a snapshot is ever needed, `employee_assignments` already answers "where was this person on date X" without a copy on every row |
 
 The legacy two-tier picture (department → section) is used **only** as a hint
 when building `legacy_user_links`.
@@ -163,7 +176,7 @@ New module: `app/Modules/Attendance`.
 | `status` string | `status` tinyint, `AttendanceStatus` | Legacy values: `checked_in`, `checked_out`, `present`, `on_leave`, `missing_checkout`, `excused`, `absent`, `off`, `rejected`. ⚠️ Only some are **stored** row states; `absent`, `off`, `on_leave` are **derived** day states the reports compute. The port keeps that split — store event states, derive day states — and the enum says which is which |
 | `work_hours` decimal(5,2) | `work_hours` decimal(5,2) | Derived from the pair, written on the check-out row. Kept because every report sums it; the service that writes it is the one place it is computed, and a test pins it to the pair |
 | `latitude`, `longitude` decimal(10,7) | same | |
-| `selfie_path` (public disk, nullable) | `selfie_path` (**private** disk, nullable) | Finding 5. Null only on an HR-corrected check-out |
+| `selfie_path` (public disk, nullable) | `selfie_path` (**private** disk, nullable) + ⚙️ `selfie_purged_at` | Finding 5. Null only on an HR-corrected check-out. ⚙️ **D7, 2026-10-16:** the file is kept **three months**, then deleted by `attendance:purge-selfies`; the row stays forever and `selfie_purged_at` says the file is gone on purpose, so a missing file is never mistaken for a lost one |
 | `recorded_at` (client time) | `recorded_at` | The moment the employee tapped, as the phone saw it. Parsed in the attendance timezone |
 | `created_at` | `created_at` | Server receipt time. The gap between the two is how an offline submission is recognised |
 | — | `client_uuid` uuid, nullable, `unique(employee_id, client_uuid)` | **New.** Legacy dedups by business rule only ("already checked in today"), so a sync retried after a network timeout comes back as an error for a record that did save. With a client id the retry answers success with the existing row. Nullable so legacy-format submissions still land (work order §3, D9) |
@@ -177,11 +190,11 @@ New module: `app/Modules/Attendance`.
 | Key | Legacy value | Note |
 |---|---|---|
 | `timezone` | app timezone | Single timezone, as legacy |
-| `working_days` | all seven | No weekend today. Kept as config; holidays are a table (D5) |
+| `working_days` | all seven | ⚙️ **Kept** (2026-10-16): no weekly day off. **No holiday table** (D5: not at this stage) — deferred to before Stage 4 payroll |
 | `check_in.start` / `.end` | empty (open 24h) | Also where "late" would hang — D4 |
 | `min_checkout_gap_minutes` | 60 | Fat-finger guard; HR corrections exempt |
 | `reminder_at` | 17:00 | |
-| `auto_close_at` | 23:59 | ⚠️ `Kernel.php` falls back to `22:00` when the key is missing and the config file says `23:59`. Pick one default in the port |
+| `auto_close_at` | 23:59 | ⚙️ **23:59 everywhere** (2026-10-16) — config value and code fallback alike; legacy's code fell back to `22:00` |
 | `allow_attendance_during_leave` | false | |
 
 ### Scheduled commands
@@ -190,16 +203,19 @@ New module: `app/Modules/Attendance`.
 |---|---|---|
 | `attendance:checkout-reminder` | ported | Pushes to everyone still checked in at `reminder_at` |
 | `attendance:auto-close` | ported | Flags open check-ins `missing_checkout`; writes no fake check-out and no hours |
-| `attendance:cleanup` | **not ported** | Finding 1 |
+| `attendance:cleanup` | **not ported** | Finding 1. ⚙️ And **left running in legacy** — the project owner's decision (D7, 2026-10-16) |
+| — | ⚙️ `attendance:purge-selfies` | **New** (D7): deletes selfie **files** older than three months, keeps every row |
 | `attendance:seed-demo` | not ported | Dev tool |
 
 ### New, not in legacy
 
-- **`public_holidays`** (`date` unique, `name`, `created_by`) — if D5 says yes.
-  `isChargeableDay()` already names itself as the hook; port it with the table
-  behind it, and both attendance expectations and leave deduction inherit it.
-- **Shift start** for `متأخر` — only if D4 gives a time. Otherwise the app's
-  day states for v1 are حاضر / غياب / إجازة / (عطلة).
+- ⚙️ **`client_uuid`** (D9, approved) and **`source`** — in the table above.
+- ⚙️ **`attendance:purge-selfies`** (D7) — above.
+- ~~**`public_holidays`**~~ — ⚙️ **not built** (D5, 2026-10-16). `isChargeableDay()`
+  is still ported as the single hook, so the calendar can arrive later without
+  touching attendance or leave.
+- ~~**Shift start** for `متأخر`~~ — ⚙️ **not built** (D4). The app's day states
+  for v1 are حاضر / غياب / إجازة, plus missing check-out.
 
 ---
 
@@ -207,16 +223,30 @@ New module: `app/Modules/Attendance`.
 
 New module: `app/Modules/Leave`.
 
-### `leave_types` — ported as is
+### `leave_types` — ported, seeded from the LIVE table
 
 `code` (unique), `name_ar` (unique), `name_en` (nullable unique),
 `deducts_balance`, `for_requests`, `for_excuses`, `requires_reason`,
-`is_active`, timestamps. Seeded with the same six rows legacy seeds:
-`annual`, `emergency`, `sick`, `official_mission`, `bereavement`, `unpaid`.
+`is_active`, timestamps, **+ `requires_attachment`**.
 
-**New:** `requires_attachment` boolean — `true` for `sick`
-(`EMPLOYEE_APP_REQUIREMENTS.md` §5.6: a sick leave without the medical report
-is not a sick leave).
+⚙️ **Seeded with the nine types legacy's database holds** (Q3, 2026-10-16), not
+the six its code seeds, with their live flags — **except** that `sick` does
+**not** deduct (the live table says it does; the project owner overruled it):
+
+| Code | `name_ar` | Deducts | Requests | Excuses | Reason | Attachment |
+|---|---|---|---|---|---|---|
+| `annual` | إجازة سنوية | ✓ | ✓ | ✓ | | |
+| `emergency` | إجازة طارئة | ✓ | ✓ | ✓ | | |
+| `sick` | إجازة مرضية | **—** | ✓ | ✓ | ✓ | **✓** |
+| `unpaid` | إجازة بدون راتب | | ✓ | ✓ | ✓ | |
+| `official_mission` | مأمورية رسمية | | | ✓ | ✓ | |
+| `bereavement` | إجازة وفاة | | | ✓ | ✓ | |
+| `attendance_excused` *(legacy code `attendent_execused`)* | حضور مبرر | | | ✓ | ✓ | |
+| `external_task` | مهمة خارجية | | | ✓ | ✓ | |
+| `study_leave` | إجازة دراسة | | | ✓ | | |
+
+`requires_attachment` is new: a sick leave needs its medical report
+(`EMPLOYEE_APP_REQUIREMENTS.md` §5.6).
 
 ### `leave_balances`
 
@@ -225,7 +255,7 @@ is not a sick leave).
 | `user_id` | `employee_id` | `unique(employee_id, year)` |
 | `year`, `allocated_days`, `adjustment_days`, `note` | same | Adjustment stays separate from allocation, as legacy argues |
 | `updated_by` | `updated_by` → `users` | Actor |
-| `config('leave.annual_days')` = 15 | same config key | The default allocation when no row exists for the year. ⚠️ Confirm 15 with HR — the workbook may say otherwise |
+| `config('leave.annual_days')` = 15 | same config key | The default allocation when no row exists for the year. ⚙️ **15 confirmed** (D13, 2026-10-16); HR sets a per-person allocation on the row. With no import, HR also enters each person's **opening adjustment** at their switch date (work order §8, the transition procedure) |
 
 Remaining balance = allocation + adjustment − approved, balance-deducting,
 non-cancelled working days in the year. Computed, never stored (legacy does the
@@ -319,11 +349,16 @@ Decided (`EMPLOYEE_APP_REQUIREMENTS.md` §4.2): **the direct manager, then مد�
 - **Step 2** — the manager of the unit coded `HR` (إدارة الموارد البشرية), as a
   named post. Configured by department code, not by employee id, so a change of
   HR manager needs no deploy.
-- ⚠️ **DECIDE — D2: when the two steps resolve to the same person.** An HR
-  employee's direct manager may well *be* مدير الموارد, and the HR manager's own
-  leave climbs to someone above HR. Recommended: consecutive steps that resolve
-  to the same person collapse into one, recorded as `skipped` with a reason, so
-  nobody approves their own request and nobody approves twice.
+- ⚙️ **D2, decided 2026-10-16 (Q2, A / A).** At submission the engine checks
+  each resolved step: one resolving to the **same person as the step before
+  it** is recorded `skipped` with its reason (an HR staff member whose direct
+  manager is مدير الموارد gets one approval from them); one resolving to the
+  **requester** is recorded `skipped` with its reason (مدير الموارد's own leave
+  is approved by المدير العام alone). Nobody approves their own request, nobody
+  approves twice. A rule of the engine, not of leave, so every later consumer
+  inherits it.
+- ⚙️ **Q1, decided 2026-10-16: resolved, never chosen.** Legacy's
+  `approver_ids` / `manager_id` are not accepted; the picker leaves the app.
 
 ### The surface
 
@@ -475,6 +510,13 @@ fails without it.
 ---
 
 ## 12. What data actually moves
+
+⚙️ **Superseded 2026-10-16 — nothing moves from legacy.** Employees, the tree
+and job titles come from HR's workbook and the org chart (the importer);
+accounts are new; everything else starts empty in the ERP and is re-created by
+use. How leave balances and already-approved future leave are handled at the
+switch is Q6 of [`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md).
+The table below is the earlier plan, kept for the record.
 
 | Data | Moves? | Why |
 |---|---|---|

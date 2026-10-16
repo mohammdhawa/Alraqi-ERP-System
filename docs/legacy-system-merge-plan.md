@@ -1,6 +1,12 @@
 # Merging the Legacy System into the ERP
 
 > **Status:** plan, drafted 2026-07-30. Decision ratified; stages not started.
+>
+> ⚙️ **2026-10-16 — no data moves from legacy** (project owner). Legacy is the
+> foundation for how attendance, leave and approvals *work*; none of its records
+> are imported. Wherever this plan says a legacy table migrates, read "is
+> re-created by use in the ERP". The parallel run's month-to-month comparison is
+> a check, not an import.
 > **Depends on:** [phase-1.5-foundation-truth-up.md](phase-1.5-foundation-truth-up.md)
 > **Supersedes:** the phase ordering in [al-raqi-erp-design.md](al-raqi-erp-design.md)
 > for phases 2 and 3 — see §3.
@@ -270,9 +276,9 @@ before the merge.
 2. **FCM project.** Reuse the legacy Firebase project and its registered device
    tokens, or issue a new one? Reuse avoids re-registering every phone; a new
    project cleanly separates the systems. Reuse is the lower-risk default.
-3. **Legacy audit trail.** Does the legacy `audit_logs` history migrate into the
-   ERP's table, or stay in the archived snapshot? Migrating it means reconciling
-   two `user_id` spaces.
+3. ✅ **Legacy audit trail — answered 2026-10-16: it does not migrate.** No
+   data moves from legacy at all (project owner; `EMPLOYEE_APP_V1_WORK_ORDER.md`
+   §8). It stays in the archived snapshot.
 4. **Document numbering continuity.** Do import/export sequence numbers continue
    unbroken across the cutover, or restart? Almost certainly continue — confirm
    with `إدارة الديوان والأرشيف`.

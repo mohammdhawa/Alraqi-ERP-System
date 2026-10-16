@@ -1386,8 +1386,8 @@ decisions 7–10 in §9. What is left:
    employee with the app.
 2. **FCM project** — reuse the legacy Firebase project and its registered device
    tokens, or issue a new one? Reuse is the lower-risk default.
-3. **Legacy audit trail** — migrate the history into the ERP's table, or leave it
-   in the archived snapshot? Migrating means reconciling two `user_id` spaces.
+3. ✅ **Legacy audit trail — not migrated** (2026-10-16): no data moves from
+   legacy at all; it stays in the archived snapshot.
 4. **Document numbering continuity** — continue the sequence unbroken across the
    cutover, or restart? Almost certainly continue; confirm with
    `إدارة الديوان والأرشيف`.
