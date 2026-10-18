@@ -7,8 +7,10 @@ namespace App\Modules\Approvals\Models;
 use App\Modules\Approvals\Enums\ApprovalStatus;
 use App\Modules\Approvals\Enums\RejectionPolicy;
 use App\Modules\Approvals\Enums\StepStatus;
+use App\Modules\Approvals\Policies\ApprovalPolicy;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -28,6 +30,7 @@ use Illuminate\Support\Carbon;
  * @property RejectionPolicy $rejection_policy
  * @property Carbon|null $decided_at
  */
+#[UsePolicy(ApprovalPolicy::class)]
 class Approval extends Model
 {
     use HasAuditLog;

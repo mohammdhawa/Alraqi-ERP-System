@@ -1021,7 +1021,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
-- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
 - **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
 
 **What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
@@ -1029,6 +1029,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `type` | Sent to | `reference` | Dashboard opens | App opens |
 |---|---|---|---|---|
 | `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1) | the approval screen for that request | the same, under الطلبات |
+| `approval.step_assigned` | someone a **later** step was reassigned to — on the chain, not yet their turn (2026-10-16) | the request being approved | the approval screen for that request | the same |
 | `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled` | the requester | their leave request | that leave request | that leave request |
 | `leave.excuse_filed`, `leave.excuse_cancelled` | the employee | the excuse | the full text | the employee's leave history |
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
@@ -1980,6 +1981,12 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
 | 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
 | 18n| GET        | `/api/attendance/absent-today`               | bearer   | `attendance.records.view` |
+| 18o| GET        | `/api/me/approvals`                          | bearer   | — (self-scoped, §15.2) |
+| 18p| GET        | `/api/approvals/{approval}`                  | bearer   | — (on the chain, or `approvals.view`; §15.3) |
+| 18q| POST       | `/api/approvals/{approval}/steps/{step}/approve` | bearer | — (the step's approver; §15.4) |
+| 18r| POST       | `/api/approvals/{approval}/steps/{step}/reject`  | bearer | — (the step's approver; §15.4) |
+| 18s| PATCH      | `/api/approvals/{approval}/steps/{step}/assignee` | bearer | `approvals.reassign` (§15.5) |
+| 18t| POST       | `/api/approvals/{approval}/withdraw`         | bearer   | — (the requester; §15.6) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2004,9 +2011,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **60 routes** in `route:list` (2026-10-16): the 41 above, the sessions and
-device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes), and
-thirteen attendance routes (18c–18n). The count below is the one from before them.
+⚙️ **66 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
+device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes),
+thirteen attendance routes (18c–18n) and six approvals routes (18o–18t). The
+count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2476,3 +2484,187 @@ attendance during leave). A day off lists nobody. `sort`: `employee_name`,
 ```json
 { "success": true, "data": [ { "employee": { … }, "department": { "id": 2, "name": "إدارة أ" } } ], "meta": { … } }
 ```
+
+---
+
+## 15. Approvals — الاعتمادات
+
+⚙️ **New 2026-10-18** (work order §4.6, `APPROVALS_ENGINE_DESIGN.md` §7). One
+engine approves every kind of request — leave from §4.7, documents in
+November. A request carries its approval (the leave request will embed it);
+these routes are the approver's inbox and the request screen, shared by the
+app and the dashboard.
+
+**Approving is not a permission.** You approve or reject a step because **you
+are its approver** — the step names your employee. Being an administrator does
+not make it your turn (legacy's rule). The two permissions are for people
+**not** on the chain, both scoped through the requester's **current** unit
+(as §13):
+
+| Permission | Allows |
+|---|---|
+| `approvals.view` | reading a chain you are not on (HR seeing where a request is stuck) |
+| `approvals.reassign` | handing a pending step to someone else (§15.5) |
+
+**Who reads an approval:** the requester, anyone holding a step on it
+(decided and skipped steps included), and `approvals.view` within reach.
+Everyone else is **403** on every route below, before any body is read; a
+holder of `approvals.view` whose grant does not reach the requester is **403
+`out_of_scope`** «طلب الاعتماد هذا لموظف خارج نطاق صلاحياتك.». An unknown
+approval, or a step that belongs to another approval, is **404**.
+
+### 15.1 The approval object — the live state
+
+Every route except the inbox answers with it, read fresh **after** the action:
+redraw the screen from it, never from a cached copy.
+
+```json
+{
+  "id": 17,
+  "status": 1, "status_label": "قيد الاعتماد",
+  "rejection_policy": 1,
+  "subject": { "type": "leave_request", "id": 9, "title": "إجازة سنوية", "summary": "3 أيام · 2026-10-20 → 2026-10-22" },
+  "requested_by": 5,
+  "requester": { "id": 5, "full_name": "نور أحمد الشامي", "employee_number": "EMP-00005" },
+  "submitted_at": "2026-10-18T09:12:00+03:00",
+  "decided_at": null,
+  "current_order": 1,
+  "current_step_id": 41,
+  "can_act": true,
+  "can_withdraw": false,
+  "can_reassign": false,
+  "steps": [
+    {
+      "id": 41, "step_order": 1,
+      "resolver": 1, "resolver_label": "المدير المباشر", "resolver_ref": null,
+      "approver_id": 12, "approver": { "id": 12, "full_name": "…", "employee_number": "…" },
+      "decisive": false,
+      "status": 1, "status_label": "بانتظار القرار", "is_current": true,
+      "skip_reason": null, "skip_reason_label": null,
+      "acted_by": null, "acted_at": null, "note": null
+    }
+  ],
+  "reassignments": [
+    { "id": 3, "step_id": 41, "step_order": 1, "from": { … }, "to": { … },
+      "performed_by": { "id": 4, "name": "…" }, "reason": "المدير في إجازة",
+      "created_at": "…" }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `status` | `1` قيد الاعتماد · `2` موافق عليه · `3` مرفوض · `4` مسحوب |
+| `rejection_policy` | `1` any rejection ends it (leave) · `2` a rejection is recorded and the approval goes on; only the `decisive` step's decision ends it (documents) |
+| `subject` | what is being approved: `type` + `id` open it (the same pair a notification's `reference` carries); `title` / `summary` are its own words, `null` if it no longer exists |
+| `current_order` | the stage whose steps may act now; `null` once decided. Steps sharing a `step_order` are parallel |
+| `can_act`, `current_step_id` | **the caller's** step that is theirs to decide now — show approve / reject only when `can_act` |
+| `can_withdraw` | the caller is the requester and nobody has decided yet |
+| `can_reassign` | the caller's `approvals.reassign` reaches this request, and it is pending |
+| `steps[].resolver` | how the approver was found: `1` المدير المباشر · `2` مدير وحدة محددة (`resolver_ref` is its code) · `3` موظف محدد |
+| `steps[].status` | `1` بانتظار القرار · `2` موافقة · `3` رفض · `4` لم تُطلب |
+| `steps[].skip_reason` | with status `4`: `1` the same approver as the step before · `2` the approver is the requester · `3` closed by a rejection · `4` closed by a withdrawal |
+| `steps[].acted_by` | the **account** that decided — `name` is its employee's name, or its email |
+
+### 15.2 My inbox
+
+```
+GET /api/me/approvals                    — what waits on me now
+GET /api/me/approvals?status=decided     — what I decided, most recent first
+```
+
+Self-scoped: your steps, found from your account's employee. Paginated (15 by
+default). Only steps you can decide **now** are listed — a later step of a
+chain arrives when its turn comes (with an `approval.step_pending`
+notification). An account with no employee gets an empty list. Any other
+`status` is **422**.
+
+```json
+{
+  "step_id": 41, "approval_id": 17, "step_order": 1,
+  "status": 1, "status_label": "بانتظار القرار",
+  "acted_at": null, "note": null,
+  "approval_status": 1, "approval_status_label": "قيد الاعتماد",
+  "subject": { "type": "leave_request", "id": 9, "title": "إجازة سنوية", "summary": "3 أيام · 2026-10-20 → 2026-10-22" },
+  "requester": { "id": 5, "full_name": "…", "employee_number": "…" },
+  "submitted_at": "2026-10-18T09:12:00+03:00"
+}
+```
+
+A row opens the request screen: `GET /api/approvals/{approval_id}`.
+
+### 15.3 The request screen
+
+```
+GET /api/approvals/{approval}
+```
+
+**200** → the approval object (§15.1).
+
+### 15.4 Approve, reject
+
+```
+POST /api/approvals/{approval}/steps/{step}/approve
+POST /api/approvals/{approval}/steps/{step}/reject
+```
+
+| Field | Rules |
+|---|---|
+| `note` | optional on both, ≤ 500 |
+
+`{step}` is `current_step_id`. Approving the last pending step approves the
+request; under policy `1` a rejection ends it at once and closes the steps
+behind it. The next approver(s) are notified (`approval.step_pending`); the
+requester's outcome notification is the request's own (`leave.approved`, …).
+
+**200** → `{ data: <approval>, message: "تمت الموافقة." }` / `"تم الرفض."`
+
+**422:** «ليس دورك في اعتماد هذا الطلب.» (not your step, or not its turn yet —
+also for an HR reader) · «يمكن اتخاذ القرار في الطلبات قيد الاعتماد فقط.» · the
+request's own refusal of its final approval, in its words (leave: the balance
+re-check).
+
+### 15.5 Reassign a step
+
+```
+PATCH /api/approvals/{approval}/steps/{step}/assignee      (approvals.reassign)
+```
+
+| Field | Rules |
+|---|---|
+| `employee_id` | required — an employee who has not left |
+| `reason` | required, 3–500 |
+
+For an approver who can no longer act. It moves the step and never decides.
+The new approver must be an **active employee with an active account**, not the
+requester and not already on the chain. Every hop is logged in
+`reassignments`; the new approver is notified — `approval.step_pending` if the
+step is current, `approval.step_assigned` («أصبحت ضمن مسار اعتماد») if it is a
+later one.
+
+**200** → `{ data: <approval>, message: "تمت إعادة إسناد الخطوة." }`
+
+**403:** without the permission, the plain refusal; with it but out of reach,
+`out_of_scope`. **422:** «يمكن إعادة إسناد خطوة بانتظار القرار فقط.» · «هذه
+الخطوة مسندة إلى هذا الموظف أصلاً.» · «لا يمكن إسناد الاعتماد إلى مُقدِّم الطلب
+نفسه.» · «هذا الموظف يحمل خطوة أخرى في مسار اعتماد هذا الطلب.» · «لا يمكن الإسناد
+إلا إلى موظف نشط لديه حساب فعّال.» · «يمكن إعادة إسناد الطلبات قيد الاعتماد فقط.»
+
+The employee picker reads `GET /api/hr/employees`, which needs
+`hr.employees.view` — grant it beside `approvals.reassign`.
+
+### 15.6 Withdraw a request
+
+```
+POST /api/approvals/{approval}/withdraw
+```
+
+The **requester**, while no step has been decided. The request becomes
+`4` مسحوب and its pending steps close. Show it only when `can_withdraw`. (The
+leave request will offer the same as its own cancel.)
+
+**200** → `{ data: <approval>, message: "تم سحب الطلب." }`
+
+**403** «لا يمكن سحب طلب لم تقدّمه.» (on the chain, but not the requester) ·
+**422** «لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب طلب ليس قيد
+الاعتماد.»

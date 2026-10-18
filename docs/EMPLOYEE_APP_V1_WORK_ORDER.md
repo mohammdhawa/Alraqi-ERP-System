@@ -1006,3 +1006,33 @@ entirely; an advisory route ends with exactly one decisive step.
 decisive step is skipped (the chief filing a document themselves).
 
 **Next: step 2** — the endpoints of the design's §7, then leave (§4.7).
+
+### 2026-10-18 — §4.6 approvals engine, step 2 built: the endpoints
+
+Committed before it: engine step 1 (`dddf970`). This step is not committed.
+
+**Built** ([`APPROVALS_ENGINE_DESIGN.md`](APPROVALS_ENGINE_DESIGN.md) §10, step 2;
+[`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) §15): the approver's inbox
+`GET /api/me/approvals` (`?status=decided` for what they decided), the live
+request screen `GET /api/approvals/{approval}`, approve and reject with an
+optional note, reassign, and withdraw. `ApprovalPolicy` scopes them: the
+requester, anyone holding a step, or `approvals.view` within reach of the
+requester's current unit; reassigning is `approvals.reassign`, seeded now. Both
+are row-scoped in `PermissionReach`.
+
+**Decided by the project owner:** an inbox row carries the request's own
+summary («إجازة سنوية» · «3 أيام · …»), as legacy's queue did — `Approvable`
+gains `approvalSummary()`, eager-loaded per subject type, so a page of the
+inbox costs the same queries at any length.
+
+**41 endpoint tests; 894 passing, Pint clean, 66 routes (six added).** Each
+route guard and rule — the scoped step binding, `can:view` on every verb,
+`permission:` and reach on reassign, who is a party, the summaries' eager
+load, the four `can_*` flags, the departed-target and status validation —
+was verified to fail its tests when disabled.
+
+**For the dashboard's reassign screen:** its employee picker reads
+`GET /api/hr/employees`, so HR needs `hr.employees.view` beside
+`approvals.reassign`.
+
+**Next:** §4.7, leave on the engine — the design's step 3.

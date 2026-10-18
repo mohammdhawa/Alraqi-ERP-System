@@ -414,5 +414,56 @@ document themselves), nothing is left to decide the outcome; the engine
 currently approves once the other steps have acted. Documents must say what
 legacy's chief-files-own-document case should do before it relies on this.
 
-**Next: step 2** — the endpoints of §7, scoped, with the live-state read and
-`approvals.reassign`.
+### ✅ Step 2 — the endpoints, built 2026-10-18
+
+The six routes of §7, in `app/Modules/Approvals/` (`routes.php`, `Controllers/`,
+`Policies/`, `Requests/`, `Resources/`); the inbox under `/api/me/approvals`.
+Documented in `API_DOCUMENTATION.md` §15.
+
+| Piece | What | Tests |
+|---|---|---|
+| `GET /api/me/approvals` | `pendingFor` / `?status=decided`, paginated; each row carries the subject's summary and the requester | `MyApprovalsEndpointTest` (7) |
+| `GET /api/approvals/{approval}` | The live state: every step, skips with reasons, decisions with notes, reassignments, and `can_act` / `current_step_id` / `can_withdraw` / `can_reassign` for the caller | `ApprovalReadEndpointTest` (10) |
+| `…/steps/{step}/approve`, `/reject` | `act()`, `{ note? }` ≤ 500 | `ApprovalDecisionEndpointTest` (11) |
+| `…/steps/{step}/assignee` | `reassign()`, `{ employee_id, reason }` | `ApprovalReassignEndpointTest` (8) |
+| `…/withdraw` | `withdraw()` | `ApprovalWithdrawEndpointTest` (5) |
+| `ApprovalPolicy` | `view`: the requester, anyone holding a step, or `approvals.view` in reach; `reassign`: `approvals.reassign` in reach — both through the requester's **current** unit (D6) | the read and reassign tests |
+| `approvals.reassign` | Seeded; it and `approvals.view` are now row-scoped in `PermissionReach` | `PermissionSeederTest`, `PermissionReachTest` |
+
+**Decided by the project owner (2026-10-18):** an inbox row carries the
+subject's own summary, as legacy's queue listed whole leave requests — not a
+bare reference the client must open row by row. `Approvable` gains
+`approvalSummary()` (a title and a line, in the consumer's words) and a
+static `approvalSummaryRelations()`, the relations it reads; every list
+eager-loads them per subject type through `morphWith` (`ApprovalRelations`),
+so a page costs the same queries whatever its length (tested).
+
+**Settled while building** — none changes a workflow:
+
+1. **Every route sits behind `can:view`.** Someone who may not read an
+   approval gets a 403 before their body is read, on every verb — never the
+   engine's 422 «ليس دورك…» or «… ليس قيد الاعتماد», which would tell an
+   outsider that the request exists and where it stands. A reader whose turn
+   it is not (HR with `approvals.view`) gets the engine's 422: reading does not
+   make it your turn.
+2. **"On the chain" is holding a step now** — decided and skipped steps
+   included, so a manager passed over by Q2 still reads the outcome. Someone
+   whose step was reassigned away no longer holds it, and reads it only
+   through `approvals.view`.
+3. **Two refusals, as everywhere since decision 19:** no `approvals.view` at
+   all is the plain 403; a grant that stops short of the requester's unit is
+   `out_of_scope` «طلب الاعتماد هذا لموظف خارج نطاق صلاحياتك.».
+4. **A step is bound scoped to its approval**: a step id from another request
+   is a 404.
+5. **A reassignment target is validated as an employee who has not left**
+   (422 on `employee_id`); whether they may take the step stays the engine's
+   rule (Q7).
+6. **Every response is the live state read after the action**, so a client
+   redraws from the server, never from what it sent (2026-10-14).
+7. **`Actor`** — the `{ id, name }` of an account that acted — moved from
+   Attendance to `app/Shared/Support`, now that two modules embed it.
+
+**For the reassign screen:** the employee picker reads `GET /api/hr/employees`,
+so whoever holds `approvals.reassign` needs `hr.employees.view` beside it.
+
+**Next: step 3** — leave on the engine (work order §4.7).

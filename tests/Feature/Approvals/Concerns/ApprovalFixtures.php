@@ -19,6 +19,7 @@ use App\Modules\HR\Models\Employee;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Approvals\Fakes\FakeApprovable;
 
 /**
@@ -130,9 +131,20 @@ trait ApprovalFixtures
         ));
     }
 
-    protected function submit(Employee $requester, ?ApprovalRoute $route = null): Approval
+    protected function submit(Employee $requester, ?ApprovalRoute $route = null, array $subject = []): Approval
     {
-        return $this->engine()->submit($this->subjectFor($requester), $route ?? $this->leaveRoute());
+        return $this->engine()->submit($this->subjectFor($requester, $subject), $route ?? $this->leaveRoute());
+    }
+
+    /**
+     * Authenticate as this person's own account.
+     */
+    protected function actingAsPerson(Employee $employee): User
+    {
+        $user = $this->accountOf($employee);
+        Sanctum::actingAs($user);
+
+        return $user;
     }
 
     protected function stepOf(Approval $approval, Employee $approver): ApprovalStep

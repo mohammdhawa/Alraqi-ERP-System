@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Approvals\Controllers\MyApprovalsController;
 use App\Modules\Attendance\Controllers\MyAttendanceController;
 use App\Modules\Me\Controllers\DeviceTokenController;
 use Illuminate\Support\Facades\Route;
@@ -54,4 +55,10 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::get('/attendance/{record}/selfie', [MyAttendanceController::class, 'selfie'])
         ->whereNumber('record')
         ->name('me.attendance.selfie');
+
+    // The approver's inbox (work order §4.6, design §7): the steps waiting
+    // on the caller's employee now, or with ?status=decided what they
+    // decided. The app's and the dashboard's (2026-10-14).
+    Route::get('/approvals', [MyApprovalsController::class, 'index'])
+        ->name('me.approvals.index');
 });

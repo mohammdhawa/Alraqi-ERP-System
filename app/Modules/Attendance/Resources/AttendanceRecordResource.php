@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Attendance\Resources;
 
 use App\Modules\Attendance\Models\AttendanceRecord;
-use App\Modules\Attendance\Support\Actor;
 use App\Modules\HR\Resources\EmployeeStub;
+use App\Shared\Support\Actor;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 

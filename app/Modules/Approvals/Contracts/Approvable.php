@@ -6,6 +6,7 @@ namespace App\Modules\Approvals\Contracts;
 
 use App\Modules\Approvals\Enums\ApproverNotice;
 use App\Modules\Approvals\Models\Approval;
+use App\Modules\Approvals\Support\ApprovalSummary;
 use App\Modules\Approvals\Support\ApproverMessage;
 use App\Modules\HR\Models\Employee;
 
@@ -46,4 +47,21 @@ interface Approvable
      * notifies one.
      */
     public function describeForApprover(ApproverNotice $notice): ApproverMessage;
+
+    /**
+     * What this request is, for the inbox row and the request screen
+     * (2026-10-18) — legacy's queue listed whole leave requests.
+     *
+     * Rendered inside a Resource, so it must not query: it reads only the
+     * relations `approvalSummaryRelations()` names, which every list eager-
+     * loads for a page of subjects at once.
+     */
+    public function approvalSummary(): ApprovalSummary;
+
+    /**
+     * The relations `approvalSummary()` reads.
+     *
+     * @return array<int, string>
+     */
+    public static function approvalSummaryRelations(): array;
 }

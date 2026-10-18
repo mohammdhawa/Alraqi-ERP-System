@@ -346,8 +346,6 @@ class PermissionReachTest extends TestCase
         sort($companyOnly);
 
         $this->assertSame([
-            // Company-only until the approvals endpoints enforce its row scope.
-            'approvals.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
