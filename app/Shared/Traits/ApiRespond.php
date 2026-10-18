@@ -111,12 +111,26 @@ trait ApiRespond
      *
      * Pass the result of `SomeResource::collection($paginator)`; the underlying
      * LengthAwarePaginator is read off the collection's `resource`.
+     *
+     * `$extra` (2026-10-18) carries facts about the WHOLE result beside `meta`
+     * — the year a balances list is for, a register's window and summary — so
+     * they stay inside this one envelope (C16) instead of a hand-built one.
+     * It may not replace the envelope's own keys.
+     *
+     * @param  array<string, mixed>  $extra
      */
     protected function paginated(
         ResourceCollection $data,
         string $message = 'تمت العملية بنجاح.',
         int $statusCode = Response::HTTP_OK,
+        array $extra = [],
     ): JsonResponse {
+        $reserved = array_intersect(array_keys($extra), ['success', 'message', 'data', 'meta']);
+
+        if ($reserved !== []) {
+            throw new \InvalidArgumentException('paginated() extra may not replace the envelope key(s): '.implode(', ', $reserved));
+        }
+
         $paginator = $data->resource;
 
         return response()->json([
@@ -131,6 +145,6 @@ trait ApiRespond
                 'from'         => $paginator->firstItem(),
                 'to'           => $paginator->lastItem(),
             ],
-        ], $statusCode);
+        ] + $extra, $statusCode);
     }
 }

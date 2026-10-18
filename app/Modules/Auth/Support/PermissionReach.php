@@ -72,6 +72,11 @@ final class PermissionReach
         // requester's current unit.
         'approvals.view',
         'approvals.reassign',
+        // Leave balances (2026-10-18): the list filtered on the builder, the
+        // update refused by LeaveReach, both through the employee's current
+        // unit.
+        'leave.balances.view',
+        'leave.balances.update',
     ];
 
     /**

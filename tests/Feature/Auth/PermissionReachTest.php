@@ -351,6 +351,10 @@ class PermissionReachTest extends TestCase
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update',
             'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update',
+            // Company-only until its endpoints enforce a row scope.
+            'leave.requests.view',
+            // A catalogue's writes (LEAVE_BUILD.md §7).
+            'leave.types.create', 'leave.types.delete', 'leave.types.update',
         ], $companyOnly);
     }
 

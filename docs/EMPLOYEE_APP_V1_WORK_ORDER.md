@@ -1036,3 +1036,35 @@ was verified to fail its tests when disabled.
 `approvals.reassign`.
 
 **Next:** §4.7, leave on the engine — the design's step 3.
+
+### 2026-10-18 — §4.7 leave: the design, agreed, and slice 1 built
+
+Committed before it: approvals engine step 2 (`2680679`). This slice is not
+committed.
+
+[`LEAVE_BUILD.md`](LEAVE_BUILD.md) — the leave build design, legacy's rules on
+the engine — is **agreed**, with three answers by the project owner:
+
+| | Answer |
+|---|---|
+| Attachments on a request | Up to **5** files, PDF / JPG / PNG, 10 MB each; **required for sick leave**, optional on other types |
+| Attachments on an HR excuse | **Optional** for HR |
+| A receipt to the requester on filing | **None, as legacy**; `leave.submitted` stays catalogued and unsent |
+
+Its implementation plan is
+[`superpowers/plans/2026-10-18-leave.md`](superpowers/plans/2026-10-18-leave.md):
+twelve tasks in three slices.
+
+**Slice 1 built** (`LEAVE_BUILD.md` §10): the type catalogue seeded with the
+live nine and its CRUD; `leave_requests` and `leave_balances`; the balance
+calculator; the employee's own balance and HR's balances list and update —
+where each person's opening adjustment is entered (Q6). Six permissions.
+
+**38 tests; 932 passing, Pint clean, 73 routes (seven added).** Every guard —
+the retired-types gate, the form filters, each write's permission, the code
+rule, the in-use deactivation, the calculator's approved / deducting / year /
+floor rules, the scope on the list and the update, the floor below used days
+— was verified to fail its tests when disabled.
+
+**Next:** slice 2 — requests on the engine, with attachments.
+

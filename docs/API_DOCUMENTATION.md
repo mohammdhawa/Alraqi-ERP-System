@@ -1987,6 +1987,12 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18r| POST       | `/api/approvals/{approval}/steps/{step}/reject`  | bearer | — (the step's approver; §15.4) |
 | 18s| PATCH      | `/api/approvals/{approval}/steps/{step}/assignee` | bearer | `approvals.reassign` (§15.5) |
 | 18t| POST       | `/api/approvals/{approval}/withdraw`         | bearer   | — (the requester; §15.6) |
+| 18u| GET        | `/api/leave/types`                           | bearer   | — (any account; §16.1) |
+| 18v| POST       | `/api/leave/types`                           | bearer   | `leave.types.create` |
+| 18w| PATCH/DELETE| `/api/leave/types/{type}`                   | bearer   | `leave.types.update` / `.delete` |
+| 18x| GET        | `/api/me/leave-balance`                      | bearer   | — (self-scoped, §16.2) |
+| 18y| GET        | `/api/leave/balances`                        | bearer   | `leave.balances.view` |
+| 18z| PUT        | `/api/leave/balances/{employee}/{year}`      | bearer   | `leave.balances.update` |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2011,10 +2017,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **66 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
+⚙️ **73 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
 device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes),
-thirteen attendance routes (18c–18n) and six approvals routes (18o–18t). The
-count below is the one from before them.
+thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and seven
+leave routes so far (18u–18z). The count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2668,3 +2674,115 @@ leave request will offer the same as its own cancel.)
 **403** «لا يمكن سحب طلب لم تقدّمه.» (on the chain, but not the requester) ·
 **422** «لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب طلب ليس قيد
 الاعتماد.»
+
+---
+
+## 16. Leave — الإجازات
+
+⚙️ **New 2026-10-18** (work order §4.7, `LEAVE_BUILD.md`). Legacy's leave
+module on ERP employees. Built in three slices; **slice 1 — types and
+balances — is below.** Requests (on the approvals engine, §15), HR's excuses,
+return to work and the register follow.
+
+Every HR route is row-scoped through the employee's **current** unit, as
+attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف خارج نطاق
+صلاحياتك.».
+
+| Permission | Allows | Reach |
+|---|---|---|
+| `leave.types.create`, `.update`, `.delete` | the type catalogue | company-wide only |
+| `leave.balances.view` | HR's balances list | row-scoped |
+| `leave.balances.update` | setting an employee's allocation and adjustment | row-scoped |
+| `leave.requests.view` | reading other people's leave (arrives with slice 2) | company-wide only until then |
+
+### 16.1 Leave types
+
+```
+GET    /api/leave/types                 any authenticated caller
+POST   /api/leave/types                 leave.types.create
+PATCH  /api/leave/types/{type}          leave.types.update
+DELETE /api/leave/types/{type}          leave.types.delete
+```
+
+The nine the system ships with, in this order (the order is the id — new
+types land last):
+
+| `code` | `name_ar` | Deducts | Requests | Excuses | Reason | Attachment |
+|---|---|---|---|---|---|---|
+| `annual` | إجازة سنوية | ✓ | ✓ | ✓ | | |
+| `emergency` | إجازة طارئة | ✓ | ✓ | ✓ | | |
+| `sick` | إجازة مرضية | | ✓ | ✓ | ✓ | ✓ |
+| `unpaid` | إجازة بدون راتب | | ✓ | ✓ | ✓ | |
+| `official_mission` | مأمورية رسمية | | | ✓ | ✓ | |
+| `bereavement` | إجازة وفاة | | | ✓ | ✓ | |
+| `attendance_excused` | حضور مبرر | | | ✓ | ✓ | |
+| `external_task` | مهمة خارجية | | | ✓ | ✓ | |
+| `study_leave` | إجازة دراسة | | | ✓ | | |
+
+**List** — active types, not paginated. `?for=requests` (the employee's form)
+or `?for=excuses` (HR's), `?deducts_balance=1|0`. `?active=0` lists the
+**retired** ones and needs `leave.types.update`.
+
+```json
+{ "id": 1, "code": "annual", "name_ar": "إجازة سنوية", "name_en": "Annual leave",
+  "deducts_balance": true, "for_requests": true, "for_excuses": true,
+  "requires_reason": false, "requires_attachment": false, "is_active": true,
+  "created_at": "…", "updated_at": "…" }
+```
+
+**Create** — `code` (required, `a-z`, `0-9`, `_`, ≤ 50, unique), `name_ar`
+(required, ≤ 100, unique), `name_en` (≤ 100, unique), `deducts_balance`
+(required), `for_requests`, `for_excuses`, `requires_reason`,
+`requires_attachment`, `is_active` (booleans). **201** «تم إنشاء نوع الإجازة.»
+
+**Update** — any of those; a type keeps its own code and names. Changing
+`deducts_balance` never changes leave already filed: each leave keeps the
+policy it was filed under. **200** «تم تعديل نوع الإجازة.»
+
+**Delete** — **200** «تم حذف نوع الإجازة.»; a type any leave was filed under
+is **deactivated** instead: **200** «نوع الإجازة مستخدم، فتم إيقافه بدلاً من
+حذفه.» with the type (`is_active: false`).
+
+### 16.2 Balances
+
+A balance is **computed, never stored**: the allocation for the year (HR's,
+or **15** by default) plus HR's adjustment, minus the **approved,
+balance-deducting** days of leave that **start** in that year — a leave from 30
+December to 2 January counts wholly in the first year. Pending requests reserve
+nothing: the balance is checked when a request is filed and again at its final
+approval.
+
+```json
+{ "year": 2026, "allocated_days": 22, "adjustment_days": 2, "used_days": 4,
+  "remaining_days": 18, "over_balance_days": 0, "non_deducting_days": 2,
+  "is_custom": true, "note": "رصيد افتتاحي" }
+```
+
+| Field | |
+|---|---|
+| `allocated_days` | allocation + adjustment (never below 0) |
+| `remaining_days` | never below 0; `over_balance_days` is non-zero only after HR forced an excuse past the balance |
+| `non_deducting_days` | approved days under a type that costs nothing (sick, a mission) — shown, never subtracted |
+| `is_custom` | `false`: no allocation set, the default applies |
+
+```
+GET /api/me/leave-balance?year=2026                         self
+GET /api/leave/balances?year=2026                           leave.balances.view
+PUT /api/leave/balances/{employee}/{year}                   leave.balances.update
+```
+
+**Mine** — the caller's own (this year by default). An account with no
+employee: **403** «لا يوجد موظف مرتبط بهذا الحساب.»
+
+**HR's list** — paginated, every employee in reach, each row
+`{ employee, department: {id, name}, …the figures above }`, and beside `meta`:
+`year` and `default_days`. Filters as attendance's lists: `employee_id(s)`,
+`department_id(s)` (each with every unit under it), `search` (a name part or
+the staff number). `sort`: `employee_name` (default), `employee_number`, with
+`-` for descending.
+
+**Set** — `allocated_days` (required, 0–365), `adjustment_days` (−365…365, 0
+when omitted), `note` (≤ 255). One row per person and year, updated in place.
+This is where HR enters each person's **opening balance** at their switch
+date. **200** «تم تحديث رصيد الإجازات.» with the row. **422** «لا يمكن أن يقل
+الرصيد عن الأيام المعتمدة لهذه السنة (N يوم).»

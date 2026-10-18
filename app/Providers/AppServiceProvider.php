@@ -19,6 +19,9 @@ use App\Modules\HR\Models\EmployeeAssignment;
 use App\Modules\HR\Models\EmployeeDocument;
 use App\Modules\HR\Models\EmployeeWarning;
 use App\Modules\HR\Models\JobTitle;
+use App\Modules\Leave\Models\LeaveBalance;
+use App\Modules\Leave\Models\LeaveRequest;
+use App\Modules\Leave\Models\LeaveType;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
 use App\Shared\Push\PushTransport;
@@ -122,6 +125,9 @@ class AppServiceProvider extends ServiceProvider
             'approval'              => Approval::class,
             'approval_step'         => ApprovalStep::class,
             'approval_reassignment' => ApprovalReassignment::class,
+            'leave_type'            => LeaveType::class,
+            'leave_request'         => LeaveRequest::class,
+            'leave_balance'         => LeaveBalance::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

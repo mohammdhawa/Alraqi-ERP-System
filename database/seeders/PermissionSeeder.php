@@ -103,6 +103,20 @@ class PermissionSeeder extends Seeder
             'approvals.view',
             'approvals.reassign',
         ],
+        // Leave (work order §4.7; LEAVE_BUILD.md §7). Filing, reading and
+        // withdrawing your own leave need none — /api/me. The type catalogue's
+        // writes are company-only grants, as departments and job titles.
+        // The two reads are seeded with their tables because the audit trail
+        // must gate the new types, and are company-only until their endpoints
+        // enforce a row scope — as `approvals.view` was.
+        'leave' => [
+            'leave.types.create',
+            'leave.types.update',
+            'leave.types.delete',
+            'leave.balances.view',
+            'leave.balances.update',
+            'leave.requests.view',
+        ],
     ];
 
     /**
@@ -148,6 +162,12 @@ class PermissionSeeder extends Seeder
         'attendance.records.reject'  => 'رفض سجل حضور',
         'approvals.view'             => 'عرض مسارات الاعتماد',
         'approvals.reassign'         => 'إعادة إسناد خطوة اعتماد',
+        'leave.types.create'         => 'إضافة نوع إجازة',
+        'leave.types.update'         => 'تعديل نوع إجازة',
+        'leave.types.delete'         => 'حذف نوع إجازة',
+        'leave.balances.view'        => 'عرض أرصدة الإجازات',
+        'leave.balances.update'      => 'تعديل أرصدة الإجازات',
+        'leave.requests.view'        => 'عرض طلبات الإجازات',
     ];
 
     public function run(): void

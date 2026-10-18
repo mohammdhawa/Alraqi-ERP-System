@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Modules\Approvals\Controllers\MyApprovalsController;
 use App\Modules\Attendance\Controllers\MyAttendanceController;
+use App\Modules\Leave\Controllers\LeaveBalanceController;
 use App\Modules\Me\Controllers\DeviceTokenController;
 use Illuminate\Support\Facades\Route;
 
@@ -61,4 +62,8 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     // decided. The app's and the dashboard's (2026-10-14).
     Route::get('/approvals', [MyApprovalsController::class, 'index'])
         ->name('me.approvals.index');
+
+    // Leave (work order §4.7). The caller's own balance for a year.
+    Route::get('/leave-balance', [LeaveBalanceController::class, 'mine'])
+        ->name('me.leave-balance');
 });

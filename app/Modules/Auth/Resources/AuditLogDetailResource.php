@@ -144,6 +144,13 @@ class AuditLogDetailResource extends AuditLogResource
         'approval'              => ['approvals.view'],
         'approval_step'         => ['approvals.view'],
         'approval_reassignment' => ['approvals.view'],
+        // A catalogue row with no personal data, readable by every account
+        // (the leave form needs it), so no module read permission exists to
+        // gate it on: reading the trail is enough (LEAVE_BUILD.md §3).
+        'leave_type'            => ['auth.audit.view'],
+        // A person's leave: dates, the reason, who decided (LEAVE_BUILD.md §7).
+        'leave_request'         => ['leave.requests.view'],
+        'leave_balance'         => ['leave.balances.view'],
     ];
 
     /**

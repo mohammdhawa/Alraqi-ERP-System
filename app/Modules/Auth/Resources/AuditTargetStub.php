@@ -74,6 +74,9 @@ final class AuditTargetStub
         'approval'              => 'طلب اعتماد',
         'approval_step'         => 'خطوة اعتماد',
         'approval_reassignment' => 'إعادة إسناد اعتماد',
+        'leave_type'            => 'نوع إجازة',
+        'leave_request'         => 'طلب إجازة',
+        'leave_balance'         => 'رصيد إجازات',
     ];
 
     /**
