@@ -47,6 +47,10 @@ final class NotificationEventCatalogue
     // Approvals — to the approver whose step just became current.
     public const APPROVAL_STEP_PENDING = 'approval.step_pending';
 
+    // Approvals — to someone a LATER step was reassigned to: on the chain,
+    // not yet their turn (legacy's «أصبحت ضمن مسار اعتماد…»).
+    public const APPROVAL_STEP_ASSIGNED = 'approval.step_assigned';
+
     // Attendance — to the employee.
     public const ATTENDANCE_CHECKOUT_REMINDER = 'attendance.checkout_reminder';
 
@@ -69,6 +73,7 @@ final class NotificationEventCatalogue
         self::LEAVE_EXCUSE_FILED           => 'تم تسجيل عذر',
         self::LEAVE_EXCUSE_CANCELLED       => 'تم إلغاء العذر',
         self::APPROVAL_STEP_PENDING        => 'طلب بانتظار موافقتك',
+        self::APPROVAL_STEP_ASSIGNED       => 'أصبحت ضمن مسار اعتماد',
         self::ATTENDANCE_CHECKOUT_REMINDER => 'تذكير بتسجيل الانصراف',
         self::ATTENDANCE_MISSING_CHECKOUT  => 'لم يُسجَّل الانصراف',
         self::ATTENDANCE_RECORD_REJECTED   => 'تم رفض سجل الحضور',

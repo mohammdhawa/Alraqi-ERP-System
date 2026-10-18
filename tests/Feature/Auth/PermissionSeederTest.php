@@ -44,8 +44,10 @@ class PermissionSeederTest extends TestCase
      *
      * Attendance added three (2026-10-16): `attendance.records.view`,
      * `.correct` and `.reject`.
+     *
+     * The approvals engine added one (2026-10-16): `approvals.view`.
      */
-    private const TOTAL = 34;
+    private const TOTAL = 35;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -54,6 +56,7 @@ class PermissionSeederTest extends TestCase
         $this->assertSame(self::TOTAL, Permission::count());
 
         $expected = [
+            'approvals.view',
             'attendance.records.correct', 'attendance.records.reject', 'attendance.records.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.assign', 'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',

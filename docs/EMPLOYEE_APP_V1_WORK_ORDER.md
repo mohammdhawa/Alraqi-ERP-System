@@ -926,3 +926,83 @@ notifies nobody, as legacy, though the mapping planned it
 
 **§4.5 attendance is complete.** Next in dependency order: **§4.6, the
 approvals engine** — a written design, reviewed before any code.
+
+### 2026-10-16 — §4.6 approvals engine: the design, for review
+
+Committed before it: attendance slice 3 (`8dec138`) — §4.5 is complete.
+
+[`APPROVALS_ENGINE_DESIGN.md`](APPROVALS_ENGINE_DESIGN.md) is written and
+waits for review; **no engine code until it is agreed.** It sets legacy's two
+approval implementations side by side (leave: sequential, a rejection ends it;
+documents: sequential or parallel, a manager's rejection advisory, the chief
+decisive), and designs one engine that runs both — a `rejection_policy` per
+approval, `step_order` for sequence and parallel, approvers resolved at
+submission with Q2's skip rules, a final-approval guard and a completion hook
+on the subject, legacy's reassignment, and the inbox and live request screen
+both clients use.
+
+**Seven questions for the project owner** are in its §9 — withdrawing a pending
+request (legacy has none), a step that resolves to nobody, a chart change while
+pending, who reassigns, who reads a chain, a note on a decision, and who a step
+may be reassigned to.
+
+### 2026-10-16 — §4.6 approvals engine: the seven questions, answered
+
+The project owner answered all seven questions of
+[`APPROVALS_ENGINE_DESIGN.md` §9](APPROVALS_ENGINE_DESIGN.md), each with the
+recommended option; the design is **agreed** and amended where an answer
+settled it.
+
+| Q | Answer |
+|---|---|
+| 1 | **B** — the requester may **withdraw** a pending request while no step has been decided; it becomes cancelled |
+| 2 | **A** — a step that resolves to nobody **refuses the submission**, naming the missing post |
+| 3 | **A** — approvers are **frozen at submission**; a chart change is handled by reassignment |
+| 4 | **A** — reassigning is the row-scoped **`approvals.reassign`**, granted to HR company-wide at first |
+| 5 | **A** — besides the requester and the chain, holders of row-scoped **`approvals.view`** read a chain |
+| 6 | **A** — a **note is optional** on approve and on reject, for every consumer |
+| 7 | **A** — a step may be reassigned to **any active employee with an active account**, not the requester, not already on the chain |
+| 8 | **A** — *asked while building:* a step resolving to a person **with no active account** refuses the submission, as Q2 |
+
+**Where the engine deliberately differs from legacy** — added to the list in
+"the decision round, answered":
+
+10. A pending request can be withdrawn before any decision (Q1).
+11. Reassignment is a scoped grant, not admin-only (Q4), and its target is any
+    active account, not a manager or chief role (Q7).
+12. Leave decisions may carry a note (Q6).
+
+**Next:** engine step 1 of the design's §8 — tables, enums, models, `submit` /
+`act` / `withdraw` / `reassign`, `pendingFor`, the resolvers and the skip rules,
+tested against a fake subject.
+
+### 2026-10-16 — §4.6 approvals engine, step 1 built: the engine
+
+Not committed; on top of `8dec138`.
+
+**Built** in `app/Modules/Approvals/` ([`APPROVALS_ENGINE_DESIGN.md`](APPROVALS_ENGINE_DESIGN.md)
+§10), against a fake subject, no routes yet: the three tables, the enums and
+models, `ApprovalService` (`submit`, `act`, `withdraw`, `reassign`),
+`ApproverResolver`, `ApprovalInbox`. Legacy's leave rules (sequential, a
+rejection ends it, the final-approval guard, reassignment and its log) and
+document rules (parallel managers, an advisory rejection, a decisive chief)
+are each a test, as are the eight answers above. `approvals.view` is seeded,
+company-only until step 2; `approval.step_assigned` joins the notification
+catalogue.
+
+**52 engine tests; 853 passing, Pint clean, 60 routes (none added).** Seven
+rules — the same-approver skip, the final-approval guard, Q8's account check,
+withdrawal after a decision, the `ends` policy, Q7's eligible assignee and the
+inbox's current-order filter — were each verified to fail their tests when
+disabled.
+
+**Settled while building** (design §10, none a workflow change): the
+completion hook runs inside the engine's transaction, so the subject's status
+and the approval commit together; the approver's notification text comes from
+the subject per moment; "the step before it" looks past a stage skipped
+entirely; an advisory route ends with exactly one decisive step.
+
+**Open for November, with Documents:** what happens when an advisory route's
+decisive step is skipped (the chief filing a document themselves).
+
+**Next: step 2** — the endpoints of the design's §7, then leave (§4.7).

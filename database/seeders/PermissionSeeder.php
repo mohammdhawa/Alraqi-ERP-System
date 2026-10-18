@@ -92,6 +92,16 @@ class PermissionSeeder extends Seeder
             'attendance.records.correct',
             'attendance.records.reject',
         ],
+        // Approvals engine (work order §4.6; APPROVALS_ENGINE_DESIGN.md §7).
+        //
+        // APPROVING IS NOT A PERMISSION: you act on a step because you are its
+        // approver. `approvals.view` is reading a chain you are not on (§9 Q5)
+        // — seeded with the engine because the audit trail must gate the new
+        // types, and company-only until the endpoints enforce its row scope.
+        // `approvals.reassign` (§9 Q4) arrives with its endpoint.
+        'approvals' => [
+            'approvals.view',
+        ],
     ];
 
     /**
@@ -135,6 +145,7 @@ class PermissionSeeder extends Seeder
         'attendance.records.view'    => 'عرض سجلات الحضور',
         'attendance.records.correct' => 'تصحيح انصراف منسي',
         'attendance.records.reject'  => 'رفض سجل حضور',
+        'approvals.view'             => 'عرض مسارات الاعتماد',
     ];
 
     public function run(): void

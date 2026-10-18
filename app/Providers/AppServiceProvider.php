@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Modules\Approvals\Models\Approval;
+use App\Modules\Approvals\Models\ApprovalReassignment;
+use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Attendance\Contracts\ApprovedLeave;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\NoApprovedLeave;
@@ -116,6 +119,9 @@ class AppServiceProvider extends ServiceProvider
             'role'                => Role::class,
             'permission'          => Permission::class,
             'attendance_record'   => AttendanceRecord::class,
+            'approval'              => Approval::class,
+            'approval_step'         => ApprovalStep::class,
+            'approval_reassignment' => ApprovalReassignment::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

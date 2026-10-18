@@ -71,6 +71,9 @@ final class AuditTargetStub
         'role'                => 'دور',
         'permission'          => 'صلاحية',
         'attendance_record'   => 'سجل حضور',
+        'approval'              => 'طلب اعتماد',
+        'approval_step'         => 'خطوة اعتماد',
+        'approval_reassignment' => 'إعادة إسناد اعتماد',
     ];
 
     /**
