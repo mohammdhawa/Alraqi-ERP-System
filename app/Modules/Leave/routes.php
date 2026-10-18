@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Leave\Controllers\LeaveBalanceController;
+use App\Modules\Leave\Controllers\LeaveRequestController;
 use App\Modules\Leave\Controllers\LeaveTypeController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,6 +24,10 @@ use Illuminate\Support\Facades\Route;
 | Balances are `leave.balances.view` / `.update`, row-scoped through the
 | employee's CURRENT unit (D6): the list on the builder, the update by
 | LeaveReach before anything is written.
+|
+| Reading one leave and its files is `can:view` (LeaveRequestPolicy): the
+| employee, anyone on its chain, or `leave.requests.view` within reach. A file
+| is bound scoped to its leave.
 |
 */
 
@@ -60,4 +65,19 @@ Route::middleware(['auth:sanctum', 'audit'])
             ->whereNumber('employee')
             ->where('year', '20[0-9]{2}|2100')
             ->name('update');
+    });
+
+Route::middleware(['auth:sanctum', 'audit'])
+    ->prefix('requests/{leaveRequest}')
+    ->whereNumber(['leaveRequest', 'attachment'])
+    ->scopeBindings()
+    ->name('leave.requests.')
+    ->group(function () {
+        Route::get('/', [LeaveRequestController::class, 'show'])
+            ->middleware('can:view,leaveRequest')
+            ->name('show');
+
+        Route::get('/attachments/{attachment}', [LeaveRequestController::class, 'attachment'])
+            ->middleware('can:view,leaveRequest')
+            ->name('attachment');
     });

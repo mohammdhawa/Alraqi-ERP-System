@@ -151,6 +151,9 @@ class AuditLogDetailResource extends AuditLogResource
         // A person's leave: dates, the reason, who decided (LEAVE_BUILD.md §7).
         'leave_request'         => ['leave.requests.view'],
         'leave_balance'         => ['leave.balances.view'],
+        // A file's name and its subject. Leave is its only consumer today;
+        // documents (November) will make this the subject's own read.
+        'attachment'            => ['leave.requests.view'],
     ];
 
     /**

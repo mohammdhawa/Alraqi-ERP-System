@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Modules\Approvals\Controllers\MyApprovalsController;
 use App\Modules\Attendance\Controllers\MyAttendanceController;
 use App\Modules\Leave\Controllers\LeaveBalanceController;
+use App\Modules\Leave\Controllers\MyLeaveController;
 use App\Modules\Me\Controllers\DeviceTokenController;
 use Illuminate\Support\Facades\Route;
 
@@ -66,4 +67,19 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     // Leave (work order §4.7). The caller's own balance for a year.
     Route::get('/leave-balance', [LeaveBalanceController::class, 'mine'])
         ->name('me.leave-balance');
+
+    // The caller's own leave, with HR's excuses for them.
+    Route::get('/leave-requests', [MyLeaveController::class, 'index'])
+        ->name('me.leave-requests.index');
+
+    // Filing — the chain is resolved, never chosen (Q1). Multipart, for the
+    // files a sick leave needs.
+    Route::post('/leave-requests', [MyLeaveController::class, 'store'])
+        ->name('me.leave-requests.store');
+
+    // Withdrawing — the engine's, before any decision (§9 Q1 = B). Looked up
+    // among the caller's own leave only.
+    Route::post('/leave-requests/{leaveRequest}/cancel', [MyLeaveController::class, 'cancel'])
+        ->whereNumber('leaveRequest')
+        ->name('me.leave-requests.cancel');
 });

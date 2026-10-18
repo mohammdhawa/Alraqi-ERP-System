@@ -7,7 +7,6 @@ use App\Modules\Approvals\Models\ApprovalReassignment;
 use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Attendance\Contracts\ApprovedLeave;
 use App\Modules\Attendance\Models\AttendanceRecord;
-use App\Modules\Attendance\Support\NoApprovedLeave;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
@@ -22,6 +21,8 @@ use App\Modules\HR\Models\JobTitle;
 use App\Modules\Leave\Models\LeaveBalance;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Models\LeaveType;
+use App\Modules\Leave\Services\ApprovedLeaveFromRequests;
+use App\Shared\Models\Attachment;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
 use App\Shared\Push\PushTransport;
@@ -59,10 +60,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(WorkbookReader::class, OpenSpoutWorkbookReader::class);
 
         // Attendance asks "is this person on approved leave today?" through a
-        // contract it owns (§4.5). Until the Leave module exists nobody is;
-        // the Leave module replaces this binding with its own (§4.7), so the
-        // dependency runs Leave → Attendance only.
-        $this->app->bind(ApprovedLeave::class, NoApprovedLeave::class);
+        // contract it owns (§4.5), answered by the Leave module from approved
+        // requests and excuses (§4.7) — so the dependency runs Leave →
+        // Attendance only. NoApprovedLeave stays for a test that wants none.
+        $this->app->bind(ApprovedLeave::class, ApprovedLeaveFromRequests::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
@@ -128,6 +129,7 @@ class AppServiceProvider extends ServiceProvider
             'leave_type'            => LeaveType::class,
             'leave_request'         => LeaveRequest::class,
             'leave_balance'         => LeaveBalance::class,
+            'attachment'            => Attachment::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

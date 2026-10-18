@@ -106,9 +106,6 @@ class PermissionSeeder extends Seeder
         // Leave (work order §4.7; LEAVE_BUILD.md §7). Filing, reading and
         // withdrawing your own leave need none — /api/me. The type catalogue's
         // writes are company-only grants, as departments and job titles.
-        // The two reads are seeded with their tables because the audit trail
-        // must gate the new types, and are company-only until their endpoints
-        // enforce a row scope — as `approvals.view` was.
         'leave' => [
             'leave.types.create',
             'leave.types.update',

@@ -77,6 +77,8 @@ final class PermissionReach
         // unit.
         'leave.balances.view',
         'leave.balances.update',
+        // Reading others' leave: LeaveRequestPolicy per row.
+        'leave.requests.view',
     ];
 
     /**

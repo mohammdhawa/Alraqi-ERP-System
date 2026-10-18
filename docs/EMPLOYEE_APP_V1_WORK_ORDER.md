@@ -1068,3 +1068,27 @@ floor rules, the scope on the list and the update, the floor below used days
 
 **Next:** slice 2 — requests on the engine, with attachments.
 
+### 2026-10-18 — §4.7 leave, slice 2 built: requests on the engine
+
+Committed before it: slice 1 (`f756b73`). This slice is not committed.
+
+**Built** ([`LEAVE_BUILD.md`](LEAVE_BUILD.md) §10;
+[`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) §16.3–16.4): the shared
+`attachments` table on the private disk; a leave request as the engine's
+subject on the resolved chain (direct manager → مدير الموارد), with legacy's
+balance re-check at the final approval and legacy's words in every
+notification; filing with up to five files (a sick leave's report required);
+the employee's list and withdrawal; the request read and its files for the
+employee, the chain and `leave.requests.view` in reach. Attendance now sees
+real leave — the check-in guard and every report.
+
+**63 tests; 995 passing, Pint clean, 78 routes (five added).** Every rule —
+the type's availability, reason and report, the file limits, working days,
+the balance, overlap, files removed after a refused chain, the snapshot, the
+re-check at the final approval, the hook's statuses and notifications, the
+policy's three readers and its reach, the scoped file binding, the list's
+filters, withdrawal of one's own only, and the attendance binding — was
+verified to fail its tests when disabled.
+
+**Next:** slice 3 — HR's excuses, return to work, the register.
+

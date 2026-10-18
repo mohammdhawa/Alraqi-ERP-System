@@ -4,17 +4,31 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Models;
 
+use App\Modules\Approvals\Contracts\Approvable;
+use App\Modules\Approvals\Enums\ApprovalStatus;
+use App\Modules\Approvals\Enums\ApproverNotice;
+use App\Modules\Approvals\Models\Approval;
+use App\Modules\Approvals\Support\ApprovalSummary;
+use App\Modules\Approvals\Support\ApproverMessage;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Services\NotificationService;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Leave\Enums\LeaveOrigin;
 use App\Modules\Leave\Enums\LeaveStatus;
+use App\Modules\Leave\Policies\LeaveRequestPolicy;
+use App\Modules\Leave\Services\LeaveBalances;
+use App\Shared\Models\Attachment;
+use App\Shared\Support\NotificationEventCatalogue;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\LeaveRequestFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -25,6 +39,11 @@ use Illuminate\Support\Carbon;
  * The scopes are the vocabulary every rule shares, as legacy's: the balance
  * sums approved deducting rows, the overlap guard reads blocking ones.
  *
+ * THE ENGINE'S SUBJECT. An employee's request is approved by the approvals
+ * engine on LeaveApprovalRoute; the methods under "Approvable" are leave's
+ * answers to it, in legacy's words. `onApprovalDecided()` is the only writer
+ * of a request's outcome. An HR excuse has no approval.
+ *
  * @property LeaveOrigin $origin
  * @property LeaveStatus $status
  * @property bool $deducts_balance
@@ -32,7 +51,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon $end_date
  * @property Carbon|null $decided_at
  */
-class LeaveRequest extends Model
+#[UsePolicy(LeaveRequestPolicy::class)]
+class LeaveRequest extends Model implements Approvable
 {
     use HasAuditLog;
 
@@ -121,9 +141,103 @@ class LeaveRequest extends Model
         return $this->belongsTo(User::class, 'shortened_by');
     }
 
+    /** The request's approval; null for an HR excuse. */
+    public function approval(): MorphOne
+    {
+        return $this->morphOne(Approval::class, 'approvable');
+    }
+
+    public function attachments(): MorphMany
+    {
+        return $this->morphMany(Attachment::class, 'attachable')->orderBy('id');
+    }
+
     public function isExcuse(): bool
     {
         return $this->origin === LeaveOrigin::HrExcuse;
+    }
+
+    // ── Approvable ───────────────────────────────────────────────────────
+
+    public function approvalRequester(): Employee
+    {
+        return $this->employee;
+    }
+
+    /**
+     * Legacy's re-check at the final approval: a deducting request still fits
+     * what is left of the balance. Pending requests reserve nothing, so this
+     * is what stops two of them from overdrawing it together.
+     */
+    public function canBeApproved(): ?string
+    {
+        if (! $this->deducts_balance) {
+            return null;
+        }
+
+        $remaining = app(LeaveBalances::class)->remaining((int) $this->employee_id, $this->start_date->year);
+
+        return $this->requested_days > $remaining ? 'طلب الإجازة يتجاوز رصيد الإجازات المتبقي للموظف.' : null;
+    }
+
+    /**
+     * The request mirrors its approval's outcome, and the employee is told an
+     * approval or a rejection in legacy's words. A withdrawal was their own
+     * act: nothing to tell.
+     */
+    public function onApprovalDecided(Approval $approval): void
+    {
+        $this->update([
+            'status' => match ($approval->status) {
+                ApprovalStatus::Approved  => LeaveStatus::Approved,
+                ApprovalStatus::Rejected  => LeaveStatus::Rejected,
+                ApprovalStatus::Cancelled => LeaveStatus::Cancelled,
+                ApprovalStatus::Pending   => LeaveStatus::Pending,
+            },
+            'decided_at' => $approval->decided_at,
+        ]);
+
+        $span = "من {$this->start_date->toDateString()} إلى {$this->end_date->toDateString()}";
+
+        [$type, $title, $body] = match ($approval->status) {
+            ApprovalStatus::Approved => [NotificationEventCatalogue::LEAVE_APPROVED, 'تمت الموافقة على طلب الإجازة', "تمت الموافقة على طلب إجازتك {$span}."],
+            ApprovalStatus::Rejected => [NotificationEventCatalogue::LEAVE_REJECTED, 'تم رفض طلب الإجازة', "تم رفض طلب إجازتك {$span}."],
+            default                  => [null, '', null],
+        };
+
+        $account = User::query()->where('employee_id', $this->employee_id)->value('id');
+
+        if ($type !== null && $account !== null) {
+            app(NotificationService::class)->sendToUser((int) $account, $title, $body, type: $type, reference: $this);
+        }
+    }
+
+    public function describeForApprover(ApproverNotice $notice): ApproverMessage
+    {
+        $name = $this->employee->full_name;
+
+        return match ($notice) {
+            ApproverNotice::Submitted       => new ApproverMessage('طلب إجازة جديد', "{$name} قدّم طلب إجازة."),
+            ApproverNotice::YourTurn        => new ApproverMessage('دورك لمراجعة طلب إجازة', "يرجى مراجعة طلب إجازة {$name}."),
+            ApproverNotice::ReassignedNow   => new ApproverMessage('تم إسنادك لاعتماد طلب إجازة', "طلب إجازة {$name} بانتظار مراجعتك الآن."),
+            ApproverNotice::ReassignedAhead => new ApproverMessage('تم إسنادك لاعتماد طلب إجازة', "أصبحت ضمن مسار اعتماد طلب إجازة {$name}."),
+        };
+    }
+
+    public function approvalSummary(): ApprovalSummary
+    {
+        return new ApprovalSummary(
+            $this->type->name_ar,
+            "{$this->requested_days} أيام · {$this->start_date->toDateString()} → {$this->end_date->toDateString()}",
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function approvalSummaryRelations(): array
+    {
+        return ['type', 'employee'];
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────

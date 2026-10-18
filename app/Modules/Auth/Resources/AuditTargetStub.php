@@ -77,6 +77,7 @@ final class AuditTargetStub
         'leave_type'            => 'نوع إجازة',
         'leave_request'         => 'طلب إجازة',
         'leave_balance'         => 'رصيد إجازات',
+        'attachment'            => 'مرفق',
     ];
 
     /**

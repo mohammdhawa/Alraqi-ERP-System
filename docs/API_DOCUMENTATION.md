@@ -1993,6 +1993,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18x| GET        | `/api/me/leave-balance`                      | bearer   | — (self-scoped, §16.2) |
 | 18y| GET        | `/api/leave/balances`                        | bearer   | `leave.balances.view` |
 | 18z| PUT        | `/api/leave/balances/{employee}/{year}`      | bearer   | `leave.balances.update` |
+| 18za| GET/POST  | `/api/me/leave-requests`                     | bearer   | — (self-scoped, §16.3) |
+| 18zb| POST      | `/api/me/leave-requests/{id}/cancel`         | bearer   | — (self-scoped, §16.3) |
+| 18zc| GET       | `/api/leave/requests/{leaveRequest}`         | bearer   | — (the employee, the chain) or `leave.requests.view` (§16.4) |
+| 18zd| GET       | `/api/leave/requests/{leaveRequest}/attachments/{attachment}` | bearer | as 18zc |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2017,10 +2021,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **73 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
+⚙️ **78 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
 device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes),
-thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and seven
-leave routes so far (18u–18z). The count below is the one from before them.
+thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and twelve
+leave routes so far (18u–18zd). The count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2680,8 +2684,8 @@ leave request will offer the same as its own cancel.)
 ## 16. Leave — الإجازات
 
 ⚙️ **New 2026-10-18** (work order §4.7, `LEAVE_BUILD.md`). Legacy's leave
-module on ERP employees. Built in three slices; **slice 1 — types and
-balances — is below.** Requests (on the approvals engine, §15), HR's excuses,
+module on ERP employees. Built in three slices: **types and balances
+(16.1–16.2), requests on the approvals engine (16.3–16.4)**; HR's excuses,
 return to work and the register follow.
 
 Every HR route is row-scoped through the employee's **current** unit, as
@@ -2693,7 +2697,7 @@ attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف 
 | `leave.types.create`, `.update`, `.delete` | the type catalogue | company-wide only |
 | `leave.balances.view` | HR's balances list | row-scoped |
 | `leave.balances.update` | setting an employee's allocation and adjustment | row-scoped |
-| `leave.requests.view` | reading other people's leave (arrives with slice 2) | company-wide only until then |
+| `leave.requests.view` | reading other people's leave (§16.4) | row-scoped |
 
 ### 16.1 Leave types
 
@@ -2786,3 +2790,102 @@ when omitted), `note` (≤ 255). One row per person and year, updated in place.
 This is where HR enters each person's **opening balance** at their switch
 date. **200** «تم تحديث رصيد الإجازات.» with the row. **422** «لا يمكن أن يقل
 الرصيد عن الأيام المعتمدة لهذه السنة (N يوم).»
+
+### 16.3 Leave requests — filing, my list, withdrawing
+
+⚙️ **Slice 2, 2026-10-18.** An employee's request goes through the approvals
+engine (§15) on a **resolved** chain: their direct manager, then مدير الموارد
+(the manager of the unit coded `HR`). **Approvers are never sent** —
+`approver_ids` / `manager_id` are ignored. A step that resolves to the
+requester, or repeats the step before it, is skipped (§15.1 `skip_reason`).
+
+```
+POST /api/me/leave-requests                       self (multipart/form-data)
+GET  /api/me/leave-requests                       self
+POST /api/me/leave-requests/{id}/cancel           self
+```
+
+**File** — `leave_type_id` (required: an active type `for_requests`),
+`start_date`, `end_date` (≥ start), `reason` (≤ 2000; required where the
+type says), `attachments[]` (up to **5** files, PDF / JPG / PNG, ≤ 10 MB each;
+**at least one where the type requires it — sick leave**). Then, in order:
+
+| Refusal (422) | When |
+|---|---|
+| «نوع الإجازة (…) غير متاح لطلبات الموظفين.» (on `leave_type_id`) | an HR-only type (a mission) or a retired one |
+| «نوع الإجازة (…) يتطلب ذكر السبب.» (on `reason`) | |
+| «نوع الإجازة (…) يتطلب إرفاق مستند.» (on `attachments`) | sick leave with no file |
+| «الفترة المحددة لا تتضمن أيام عمل.» | |
+| «طلب الإجازة يتجاوز رصيد الإجازات المتبقي (المتبقي N يوم).» | a deducting type over the balance — sick and unpaid are never blocked |
+| «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | a pending or approved leave over any of the days |
+| «لا يمكن تقديم الطلب: منصب مدير «…» شاغر.» and the engine's other chain refusals (§15) | the chain cannot resolve — **nothing is saved, no file kept** |
+
+`requested_days` is the **working** days in the span (every day today). The
+first approver is notified («طلب إجازة جديد»); **the requester gets no
+receipt** — the request is in their list at once.
+
+**201** «تم تقديم طلب الإجازة.» → `{ leave_request, balance }` (§16.2's
+figures for the start year; a pending request reserves nothing).
+
+**The leave request object:**
+
+```json
+{
+  "id": 9, "employee_id": 5, "employee": { "id": 5, "full_name": "…", "employee_number": "…" },
+  "leave_type_id": 3, "leave_type": { "id": 3, "code": "sick", "name_ar": "إجازة مرضية", "deducts_balance": false },
+  "origin": 1, "origin_label": "طلب موظف", "is_excuse": false,
+  "deducts_balance": false, "reason": "زكام",
+  "start_date": "2026-06-21", "end_date": "2026-06-22", "requested_days": 2,
+  "status": 1, "status_label": "قيد الاعتماد", "decided_at": null,
+  "created_by": null,
+  "cancelled_at": null, "cancelled_by": null, "cancellation_reason": null,
+  "returned_to_work_on": null, "original_end_date": null,
+  "shortened_at": null, "shortened_by": null, "shortening_reason": null,
+  "attachments": [ { "id": 4, "name": "تقرير.pdf", "mime_type": "application/pdf", "size": 102400, "created_at": "…" } ],
+  "approval": { …§15.1, the live state… },
+  "created_at": "…"
+}
+```
+
+`status`: `1` قيد الاعتماد · `2` معتمدة · `3` مرفوضة · `4` ملغاة. `origin`: `1`
+the employee's request · `2` an HR excuse (`approval: null`). `deducts_balance`
+is the type's policy **when the leave was filed** — editing the type later
+does not change it.
+
+**My list** — paginated, newest first; HR's excuses for the caller included.
+Filters (legacy's): `status` or `statuses` (CSV or array), `leave_type_id(s)`,
+`year` (the start year), `month` (with `year`, or this year), `date_from` /
+`date_to` (leave **overlapping** the window), `is_excuse`. `sort`:
+`created_at`, `start_date`, `end_date`, `requested_days`, `status`,
+`decided_at`, `id`, with `-` for descending.
+
+**Cancel** — the engine's withdrawal (§15.6), while **no step has been
+decided**: the request and its approval become cancelled, and the days are free
+to file again. **200** «تم سحب طلب الإجازة.» with the request. **422**
+«لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب عذر سجّلته الموارد
+البشرية.» A colleague's id is **404**.
+
+The outcome reaches the employee as `leave.approved` («تمت الموافقة على طلب
+إجازتك من … إلى …») or `leave.rejected`, referencing the request.
+
+### 16.4 One leave, and its files
+
+```
+GET /api/leave/requests/{leaveRequest}
+GET /api/leave/requests/{leaveRequest}/attachments/{attachment}
+```
+
+Readable by the **employee**, **anyone holding a step on its chain**, and
+`leave.requests.view` within reach of the employee's current unit — what an
+approver opens from the inbox (§15.2: `subject.type` `leave_request`,
+`subject.id`). Anyone else: **403**; a holder of `leave.requests.view` for
+other units: **403 `out_of_scope`** «طلب الإجازة هذا لموظف خارج نطاق صلاحياتك.».
+
+A file is **streamed** (`Cache-Control: private, no-store`, under its original
+name) to exactly those readers — never a URL. A file of another request under
+this one's path is **404**.
+
+**Attendance now sees leave**: an approved leave refuses a check-in that day
+(§12.1), and the daily board, the monthly report and the day grid (§14) count
+it, with who approved it (the last approver) or, for an excuse, who recorded
+it.

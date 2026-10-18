@@ -315,5 +315,28 @@ by disabling it and watching its test fail, as in the earlier slices.
 5. **English names** for the three live types legacy recorded none for:
    *Excused attendance*, *External task*, *Study leave*.
 
-**Next: slice 2** — requests on the engine, with attachments.
+### ✅ Slice 2 — requests on the engine, built 2026-10-18
+
+Documented in `API_DOCUMENTATION.md` §16.3–16.4.
+
+| Piece | Tests |
+|---|---|
+| `attachments` in `app/Shared` — private disk, a server-chosen name, streamed | `AttachmentStoreTest` (5) |
+| `LeaveRequest` as the engine's `Approvable`: the leave route, the balance re-check, the outcome and legacy's words for every notification, the inbox summary | `LeaveApprovalSubjectTest` (10) |
+| Filing — `POST /api/me/leave-requests`, legacy's rules, files, nothing left behind by a refused chain | `LeaveRequestSubmissionTest` (19) |
+| The chain over HTTP | `LeaveRequestSequentialApprovalTest` (6) |
+| My list, withdrawing | `MyLeaveRequestsTest` (9) |
+| The request read and its files — `LeaveRequestPolicy`; `leave.requests.view` now row-scoped | `LeaveRequestReadTest` (8) |
+| `ApprovedLeaveFromRequests` replaces `NoApprovedLeave`: attendance sees real leave | `LeaveInAttendanceTest` (6) |
+
+**Settled while building:**
+
+6. **The filters are one form request** (`LeaveRequestsFilterRequest`) that
+   the register will reuse — legacy's own list and register share them.
+7. **"Who approved"** on attendance's board is the account that took the
+   **last** approved step — مدير الموارد on a full chain.
+8. **A self-filed request has no `created_by`**, as legacy: only HR's excuses
+   record a filer.
+
+**Next: slice 3** — HR's excuses, return to work, the register.
 
