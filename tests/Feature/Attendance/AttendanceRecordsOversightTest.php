@@ -153,6 +153,11 @@ class AttendanceRecordsOversightTest extends TestCase
 
     public function test_search_matches_a_name_part_or_the_employee_number(): void
     {
+        // The tree's names come from faker's ar_SA list, which holds زهير too —
+        // pin the neighbours' names so only b can match it.
+        foreach (['a', 'a1'] as $key) {
+            $this->people[$key]->update(['first_name' => 'سالم', 'middle_name' => 'سالم', 'last_name' => 'العتيبي']);
+        }
         $this->people['b']->update(['first_name' => 'زهير']);
         $this->actingAsScopedUser(self::VIEW, ScopeType::Company);
 
