@@ -27,6 +27,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * production. Building a second file pipeline here and unifying it later is the
  * duplication the stage ordering exists to prevent.
  *
+ * ⚙️ ONE EXCEPTION, 2026-10-19: the employee's own personal photo
+ * (`/api/me/photo`, work order §4.8) — no photo is imported, so the app needs
+ * an upload from day one. `App\Modules\Me\Services\ProfilePhotos` handles that
+ * one type only; every other type still waits for the Documents module.
+ *
  * ⚠️ WHOEVER WRITES THOSE ENDPOINTS OWES ONE GATE. `ShamCash` is a photograph
  * of a payment account, which is the account number. It must read through
  * hr.employees.viewSalary exactly as the `sham_cash_account` column does, or a

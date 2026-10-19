@@ -9,6 +9,7 @@ use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Enums\ActivityType;
 use App\Modules\HR\Enums\AssignmentReason;
 use App\Modules\HR\Enums\EducationLevel;
+use App\Modules\HR\Enums\EmployeeDocumentType;
 use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Enums\EmploymentType;
 use App\Modules\HR\Enums\EngineeringRank;
@@ -614,6 +615,19 @@ class Employee extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(EmployeeDocument::class);
+    }
+
+    /**
+     * The personal photo (الصورة الشخصية) — the newest live one. An upload
+     * replaces the previous one (work order §4.8, 2026-10-19), so there is
+     * normally one; the newest wins if two ever coexist.
+     */
+    public function personalPhoto(): HasOne
+    {
+        return $this->hasOne(EmployeeDocument::class)->ofMany(
+            ['id' => 'max'],
+            static fn (Builder $query) => $query->where('type', EmployeeDocumentType::PersonalPhoto->value),
+        );
     }
 
     /**

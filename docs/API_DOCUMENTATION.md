@@ -386,6 +386,12 @@ key exists, or gate your UI on the permission array you already receive from
 login and `/me`. A `null` would be a claim about the employee; an absent key is a
 statement about the reader.
 
+> ⚙️ **2026-10-19 — your own record is the exception, on `/api/me` only.**
+> `GET /api/me/profile` shows the caller **their own** pay block and national
+> id without either permission (§17.1). Nothing is granted: on
+> `/api/hr/employees/*` every row — the caller's own included — is still
+> decided by the permissions above.
+
 They are separate on purpose: payroll needs pay and not identity documents, HR
 administration often needs the reverse. Previously both fields were visible to
 anyone holding plain `hr.employees.view`.
@@ -2001,6 +2007,9 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zf| DELETE    | `/api/leave/excuses/{leaveRequest}`          | bearer   | `leave.excuses.delete` (§16.6) |
 | 18zg| POST      | `/api/leave/requests/{leaveRequest}/return-to-work` | bearer | `leave.requests.returnToWork` (§16.7) |
 | 18zh| GET       | `/api/leave/requests`                        | bearer   | `leave.requests.view` (§16.8) |
+| 18zi| GET       | `/api/me/profile`                            | bearer   | — (self-scoped, §17.1) |
+| 18zj| POST/GET  | `/api/me/photo`                              | bearer   | — (self-scoped, §17.2) |
+| 18zk| GET       | `/api/me/summary`                            | bearer   | — (self-scoped, §17.3) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -3000,3 +3009,105 @@ June counts 3 days in June's register. Beside `meta`: `from`, `to`, and a
 ```
 
 `by_type` is ordered by days, most first.
+
+---
+
+## 17. Me — profile, photo and the home screen
+
+⚙️ **New 2026-10-19** (work order §4.8; requirements §6). The rest of the
+employee app's self-service surface: who I am, my photo, and the home screen.
+
+**Who may call them:** any authenticated account **linked to an employee**. No
+permission — the routes are self-scoped and always act on the caller's own
+employee; no id is read from the request. An account with no employee gets
+**403** «لا يوجد موظف مرتبط بهذا الحساب.»
+
+### 17.1 My profile
+
+```
+GET /api/me/profile
+```
+
+The employee object of §8.1 — `department`, `job_title` and the resolved
+`manager` embedded — **with the caller's own pay block and national id**
+(decision 17; D10 = B, 2026-10-19): every key `hr.employees.viewSalary` and
+`hr.employees.viewIdentity` unlock in §2, present for the owner without either
+permission. Plus:
+
+| Key | |
+|---|---|
+| `photo` | `{ "uploaded_at": "…" }`, or `null` when there is none — never omitted. The image is §17.2's `GET`, never a URL |
+
+No documents list in v1 (documents move onto the engine in November).
+
+### 17.2 My photo
+
+```
+POST /api/me/photo     multipart/form-data
+GET  /api/me/photo
+```
+
+**Upload** — `photo`: **JPG or PNG, at most 5 MB**. Kept on the private disk.
+**A new upload replaces the old one** (the old one is kept in the trail, its
+file removed); nobody approves it. **201**:
+
+```json
+{ "success": true, "message": "تم حفظ الصورة الشخصية.", "data": { "uploaded_at": "2026-10-19T09:00:00+03:00" } }
+```
+
+**422** «الصورة مطلوبة.» · «الصورة يجب أن تكون JPG أو PNG.» · «حجم الصورة يجب ألا
+يتجاوز 5 ميغابايت.»
+
+**Read** — streams the image (`Cache-Control: private, no-store`). **404**
+«لا توجد صورة شخصية.» when there is none: show initials.
+
+### 17.3 The home screen
+
+```
+GET /api/me/summary
+```
+
+One object of **cards, each `null` until its module can answer** (requirements
+§6.2). Today only `salary` is null — there is no payroll before Stage 4.
+
+```json
+{
+  "employee": {
+    "id": 12, "full_name": "…", "employee_number": "EMP-00012",
+    "job_title": { "id": 3, "name": "محاسب" },
+    "department": { "id": 4, "name": "قسم أ-1" },
+    "workplace": "…",
+    "manager": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+    "has_photo": true
+  },
+  "attendance_today": {
+    "date": "2026-10-19", "status": 1, "status_label": "حاضر (لم ينصرف بعد)",
+    "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": null,
+    "work_hours": null, "work_hours_formatted": null, "leave_type": null
+  },
+  "attendance_month": {
+    "from": "2026-10-01", "to": "2026-10-19",
+    "expected_days": 19, "present_days": 15, "on_leave_days": 2, "excused_days": 0,
+    "absent_days": 2, "total_work_hours": 118.5, "total_work_hours_formatted": "118:30"
+  },
+  "leave_balance": { "year": 2026, "allocated_days": 15, "remaining_days": 11, "…": "§16.2" },
+  "notifications": { "unread_count": 3 },
+  "approvals": { "pending_count": 1 },
+  "leave_requests": { "pending_count": 1 },
+  "salary": null
+}
+```
+
+- `employee` — `job_title`, `department` and `manager` are `null` when there
+  is none. No pay key here: the pay block is §17.1's.
+- `attendance_today` — today's day from the day grid (§14.3's states).
+  ⚠️ **Before anything is recorded today, `status` is `null`** with
+  «لم يُسجَّل بعد», not غائب: the day is not over and check-in is open all day
+  (the owner's answer of 2026-10-19).
+- `attendance_month` — the 1st of this month to today, the grid's figures. A
+  today with nothing recorded yet is left out of `expected_days` and
+  `absent_days` alike, so the two cards agree.
+- `leave_balance` — this year's, exactly `GET /api/me/leave-balance` (§16.2).
+- `approvals.pending_count` — the steps waiting on me now (`GET
+  /api/me/approvals`, §15.2).
+- `leave_requests.pending_count` — my own leave still in the chain.

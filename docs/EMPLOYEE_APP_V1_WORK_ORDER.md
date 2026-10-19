@@ -98,7 +98,11 @@ collapse / skip with a reason · **D3** no flag, every active employee with an
 account · **D4** no "late" · **D5** no holiday calendar, and no weekly day off ·
 **D6** current unit · **D7** selfie files three months, records forever, legacy's
 cleanup left alone · **D9** yes · **D12** as planned · **D13** 15 days, per-person
-allocations by HR. **Still open:** D8, D10, D11 — before §4.10.
+allocations by HR. **Still open:** D8, D11 — before §4.10.
+
+✅ **D10 answered 2026-10-19** by the project owner: **shown** — the employee
+sees their own full pay block from day one (decision 17), against the
+recommended default below. See §8, "§4.8 built".
 
 | # | Question | Recommended | Blocks |
 |---|---|---|---|
@@ -310,7 +314,7 @@ the other 5 %).
 | Concurrent refresh kills sessions (replay detection) | Single-flight interceptor + an on-device test (§4.10) |
 | Legacy deletes the month the reconciliation needs | D7: stop `attendance:cleanup` in legacy now — a one-line schedule change, not a schema change, so the Stage 0 freeze allows it |
 | Pilot users' pay goes wrong because legacy missed a leave | D12: HR mirrors approved ERP leaves into legacy as excuses for the pilot month |
-| The pay block reaches 242 people before HR has checked it | D10: hidden in v1 |
+| The pay block reaches 242 people before HR has checked it | ~~D10: hidden in v1~~ ⚙️ D10 = shown (2026-10-19): every axis must be HR-checked per person **before Batch 4 runs** (requirements §6.1) — the import's review rounds carry this now |
 | Selfies leak | Private disk, authorized endpoint (mapping finding 5) |
 | Two apps confuse the pilot | Different app name and icon on the ERP build; a one-page note for the pilot group |
 
@@ -1116,3 +1120,51 @@ the register's dates now required in full (`LEAVE_BUILD.md` §10).
 **§4.7 is complete.** Next in dependency order: **§4.8, the `/api/me`
 surface** — profile, summary and the rest of the self-service contract.
 
+
+### 2026-10-19 — §4.8 the `/api/me` surface built
+
+Committed before it: leave slice 3 (`4a1a692`). This is not committed.
+
+**The owner's answers, asked before any code** (legacy has no profile, photo
+or home screen — its `/me` is the user row — so there was nothing to port):
+
+| | Answer |
+|---|---|
+| **D10** — does v1 show the employee their pay block? | **B: shown from day one** — the whole block (decision 17), no switch |
+| The employee's own national id on the self path | **Shown to its owner**; `viewIdentity` stays the gate for anyone else's |
+| The photo | **JPG / PNG up to 5 MB**, private disk; a new upload **replaces** the old one; **no HR approval** |
+| Today's card before anything is recorded | **`status: null`** («لم يُسجَّل بعد»), not absent — the day is not over and check-in is open all day (Q9) |
+
+**Built** ([`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) §17), all in
+`app/Modules/Me`, self-scoped, no `permission:` middleware:
+
+- **The gate conflict (requirements §6.1), solved without a grant.**
+  `EmployeeResource::forSelf()` opens the pay block and the national id for
+  ONE row — the one whose id is the caller's own `employee_id`. Only `/api/me`
+  calls it; `/api/hr/employees/*` stays decided by the permissions alone, for
+  the caller's own row too.
+- **`GET /api/me/profile`** — that rendering of the caller's employee, plus
+  `photo` (`{uploaded_at}` or `null`).
+- **`POST` / `GET /api/me/photo`** — a `PersonalPhoto` row in
+  `employee_documents` (the 2026-10-14 decision), the old one soft-deleted and
+  its file removed; streamed, never a URL.
+- **`GET /api/me/summary`** — the home screen: `employee`,
+  `attendance_today`, `attendance_month`, `leave_balance`, `notifications`,
+  `approvals`, `leave_requests`, and `salary: null` until Stage 4. Attendance
+  is read through the day grid, whose scope check moved into `grid()` so the
+  self path reuses `days()` for the caller alone. A today with nothing
+  recorded yet is left out of the month's expected **and** absent days, so
+  the two cards agree.
+
+**30 tests; 1086 passing, Pint clean, 86 routes (four added).** Every guard —
+the self flag, the row-identity check and the self rule itself; the photo's
+type and size rules, the replacement, the old-file removal, the new-file
+cleanup on a failed write, the employee and type filters; the summary's
+today rule and both month adjustments, the pending-requests filters, and the
+grid's moved scope check — was verified to fail its tests when disabled.
+
+⚠️ **What D10 = B moves onto the import (§4.9):** every axis is now
+employee-visible the day the app ships, so HR's review rounds must check each
+person's pay block before Batch 4 (requirements §6.1). §7's risk row says so.
+
+**Next in dependency order: §4.9, the real import.**

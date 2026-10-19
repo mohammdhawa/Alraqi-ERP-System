@@ -65,9 +65,37 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * employee's unit?" — resolved once per request by `RequestRowScopes` and read
  * here per row. Whoever renders this Resource should `warm()` those scopes
  * first (see `FIELD_PERMISSIONS`) so the Resource itself runs no query.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * ⚙️ THE SELF RULE (work order §4.8, requirements §6.1 — 2026-10-19)
+ * ───────────────────────────────────────────────────────────────────────────
+ * An employee sees their OWN pay block and national id (decision 17; D10 = B
+ * and the national id, answered by the project owner 2026-10-19). Granting
+ * them viewSalary would grant them everyone's, so self-access is not a
+ * permission: it is `forSelf()`, which only `/api/me` calls, and it opens both
+ * gates for ONE row — the one whose id is the caller's own `employee_id`.
+ * Rendered any other way, or about anybody else, the gates are the
+ * permissions' alone; `/api/hr/employees` never says `forSelf()`, so a caller
+ * reading their own row there sees what their grants allow, as before.
  */
 class EmployeeResource extends JsonResource
 {
+    /**
+     * Rendered through the self path — see the class docblock.
+     */
+    private bool $self = false;
+
+    /**
+     * The caller's own record, as `/api/me` renders it.
+     */
+    public static function forSelf(mixed $resource): static
+    {
+        $rendered = new static($resource);
+        $rendered->self = true;
+
+        return $rendered;
+    }
+
     /**
      * Permission gating the pay block and its inputs.
      */
@@ -250,10 +278,27 @@ class EmployeeResource extends JsonResource
      * FAILS CLOSED: no authenticated user — a console render, a queued job —
      * reaches nothing, and an employee with no unit is reached only by a
      * company-wide grant. A super admin reaches everything via AccessScope.
+     *
+     * The self rule answers first, and only for the caller's own row.
      */
     private function requesterHolds(Request $request, string $permission): bool
     {
+        if ($this->isTheCallersOwn($request)) {
+            return true;
+        }
+
         return RequestRowScopes::for($request, $permission)
             ->covers($this->department_id === null ? null : (int) $this->department_id);
+    }
+
+    /**
+     * Rendered through `forSelf()` AND about the caller. Both, because the
+     * flag alone would open the gates on whatever row it was handed.
+     */
+    private function isTheCallersOwn(Request $request): bool
+    {
+        $employeeId = $request->user()?->employee_id;
+
+        return $this->self && $employeeId !== null && (int) $employeeId === (int) $this->id;
     }
 }

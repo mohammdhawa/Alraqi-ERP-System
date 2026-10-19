@@ -7,6 +7,9 @@ use App\Modules\Attendance\Controllers\MyAttendanceController;
 use App\Modules\Leave\Controllers\LeaveBalanceController;
 use App\Modules\Leave\Controllers\MyLeaveController;
 use App\Modules\Me\Controllers\DeviceTokenController;
+use App\Modules\Me\Controllers\MyPhotoController;
+use App\Modules\Me\Controllers\MyProfileController;
+use App\Modules\Me\Controllers\MySummaryController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -31,6 +34,26 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(['auth:sanctum', 'audit'])->group(function () {
+    // The caller's own employee record (work order §4.8), with their own pay
+    // block and national id by the self rule — EmployeeResource::forSelf(),
+    // never a viewSalary grant (requirements §6.1).
+    Route::get('/profile', [MyProfileController::class, 'show'])
+        ->name('me.profile');
+
+    // The caller's own photo (§4.8; no photo is imported, 2026-10-14). A new
+    // upload replaces the old one; nobody approves it (2026-10-19). Streamed,
+    // never a URL.
+    Route::post('/photo', [MyPhotoController::class, 'store'])
+        ->name('me.photo.store');
+
+    Route::get('/photo', [MyPhotoController::class, 'show'])
+        ->name('me.photo.show');
+
+    // The home screen (§4.8, requirements §6.2): one object of cards, each
+    // null until its module can answer — today only salary (Stage 4).
+    Route::get('/summary', [MySummaryController::class, 'show'])
+        ->name('me.summary');
+
     // Push tokens. The body carries the token rather than the path: FCM
     // tokens are long and not guaranteed URL-safe, and legacy's client already
     // sends it this way.

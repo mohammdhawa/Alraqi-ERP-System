@@ -347,6 +347,21 @@ class AttendanceReportService
             OutOfScope::deny('هذا الموظف خارج نطاق صلاحياتك.')->authorize();
         }
 
+        return $this->days($employee, $from, $to, $state, $workingDaysOnly, $sort);
+    }
+
+    /**
+     * The grid's days and summary, WITHOUT the scope check — for a caller
+     * that has already settled who may read them: `grid()` above, and the
+     * employee's own home screen (`/api/me/summary`, work order §4.8), which
+     * reads only the caller's own employee.
+     *
+     * @return array<string, mixed>
+     */
+    public function days(Employee $employee, string $from, string $to, ?int $state = null, bool $workingDaysOnly = false, ?string $sort = null): array
+    {
+        $employee->loadMissing('department');
+
         $id = (int) $employee->getKey();
         $byDate = static fn (Collection $rows): Collection => $rows->groupBy(fn (AttendanceRecord $r): string => $r->recorded_at->toDateString());
         $ins = $byDate($this->events([$id])->checkIns()->accepted()->inDateRange($from, $to)->orderBy('recorded_at')->orderBy('id')->get());
