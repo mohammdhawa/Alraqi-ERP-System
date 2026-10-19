@@ -338,5 +338,37 @@ Documented in `API_DOCUMENTATION.md` §16.3–16.4.
 8. **A self-filed request has no `created_by`**, as legacy: only HR's excuses
    record a filer.
 
-**Next: slice 3** — HR's excuses, return to work, the register.
+### ✅ Slice 3 — HR's side, built 2026-10-18 — §4.7 complete
+
+Documented in `API_DOCUMENTATION.md` §16.5–16.8.
+
+| Piece | Tests |
+|---|---|
+| `POST /api/leave/excuses` — approved at once, refused on an attended day, `force` past the balance, files optional | `LeaveExcuseTest` (17) |
+| `DELETE /api/leave/excuses/{leaveRequest}` — the row kept, the absence back, the employee told | `LeaveExcuseCancellationTest` (13) |
+| `POST …/return-to-work` — cut back or cancelled, the approval untouched, the days returned; `leave.returned_to_work` joins the catalogue | `LeaveReturnToWorkTest` (14) |
+| `GET /api/leave/requests` — the register, clipped to its window, the summary over the whole set | `LeaveRegisterTest` (14) |
+
+**Settled while building:**
+
+9. **`leave.excuses.delete` arrived with `.create`**, one grant pair.
+10. **The register sorts** by `start_date` (default), `end_date`,
+    `requested_days`, `created_at`, `employee_name` and `id` — the own list's
+    keys and the person.
+11. **The register's `month` / `year` name its window**, not the own list's
+    start-month filter; they are folded into `from` / `to` — a `year` alone
+    is that whole year (legacy's resolveWindow()), and the window's dates are
+    written in full (`YYYY-MM-DD`).
+12. **The final approval's re-check takes the employee's lock** before it
+    reads the balance, as legacy's review() did — so two final approvals, or
+    one racing an excuse or a balance cut, cannot overdraw it together.
+
+**Reviewed** by a fresh reviewer over all three slices: no critical finding;
+the two important ones (12 above, and the year-alone window) and the
+unpadded window dates were fixed test-first. Deferred, not built: a cap on a
+leave's span; recording an attachment's path before its row; the register's
+default month in the attendance timezone; the return-to-work notification
+inside its transaction; the balance update's reach checked before its body.
+
+**§4.7 is complete.** Next in dependency order: §4.8, the `/api/me` surface.
 

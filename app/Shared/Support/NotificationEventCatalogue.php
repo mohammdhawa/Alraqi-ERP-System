@@ -44,6 +44,10 @@ final class NotificationEventCatalogue
 
     public const LEAVE_EXCUSE_CANCELLED = 'leave.excuse_cancelled';
 
+    // Leave — to the employee whose approved leave HR cut short or cancelled
+    // because they came back to work (legacy's leave_returned_to_work).
+    public const LEAVE_RETURNED_TO_WORK = 'leave.returned_to_work';
+
     // Approvals — to the approver whose step just became current.
     public const APPROVAL_STEP_PENDING = 'approval.step_pending';
 
@@ -72,6 +76,7 @@ final class NotificationEventCatalogue
         self::LEAVE_CANCELLED              => 'تم إلغاء الإجازة',
         self::LEAVE_EXCUSE_FILED           => 'تم تسجيل عذر',
         self::LEAVE_EXCUSE_CANCELLED       => 'تم إلغاء العذر',
+        self::LEAVE_RETURNED_TO_WORK       => 'تم تعديل إجازتك لعودتك إلى العمل',
         self::APPROVAL_STEP_PENDING        => 'طلب بانتظار موافقتك',
         self::APPROVAL_STEP_ASSIGNED       => 'أصبحت ضمن مسار اعتماد',
         self::ATTENDANCE_CHECKOUT_REMINDER => 'تذكير بتسجيل الانصراف',

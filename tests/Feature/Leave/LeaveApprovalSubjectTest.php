@@ -20,6 +20,7 @@ use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Services\LeaveApprovalRoute;
 use App\Shared\Support\NotificationEventCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
 
@@ -160,6 +161,28 @@ class LeaveApprovalSubjectTest extends TestCase
 
         $this->assertSame(LeaveStatus::Approved, $first->fresh()->status);
         $this->assertSame(LeaveStatus::Pending, $second->fresh()->status);
+    }
+
+    public function test_the_final_re_check_takes_the_employees_lock(): void
+    {
+        // Legacy's review() locked the employee before re-reading the balance,
+        // so two final approvals — or one racing an excuse or a balance cut,
+        // both of which lock the same row — serialise. SQLite drops FOR UPDATE,
+        // so this pins the locked read itself: the employee row by id, read
+        // inside the final approval's transaction.
+        $leave = $this->file($this->people['staff']);
+        $this->decide($leave, $this->people['headA']);
+
+        $employeeReads = [];
+        DB::listen(function ($query) use (&$employeeReads): void {
+            if (str_contains($query->sql, 'from "employees" where "employees"."id" = ?') && in_array($this->people['staff']->id, $query->bindings, true)) {
+                $employeeReads[] = $query->sql;
+            }
+        });
+
+        $this->decide($leave, $this->people['hrHead']);
+
+        $this->assertNotEmpty($employeeReads, 'the final approval reads the employee row under lock');
     }
 
     public function test_a_non_deducting_leave_is_approved_with_a_spent_balance(): void

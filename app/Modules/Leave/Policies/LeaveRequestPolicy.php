@@ -42,6 +42,35 @@ class LeaveRequestPolicy
             : Response::deny();
     }
 
+    /**
+     * Undoing an HR excuse: `leave.excuses.delete` (the route's
+     * `permission:`) reaching the employee's current unit — the same reach
+     * the excuse was filed under, so nobody retracts an entry for someone
+     * they could not have excused (legacy).
+     */
+    public function cancelExcuse(User $user, LeaveRequest $leave): Response
+    {
+        return $this->reaches($user, $leave, 'leave.excuses.delete');
+    }
+
+    /**
+     * Recording a return to work: `leave.requests.returnToWork` reaching the
+     * employee's current unit.
+     */
+    public function returnToWork(User $user, LeaveRequest $leave): Response
+    {
+        return $this->reaches($user, $leave, 'leave.requests.returnToWork');
+    }
+
+    private function reaches(User $user, LeaveRequest $leave, string $permission): Response
+    {
+        $unit = $leave->employee?->department_id;
+
+        return RequestRowScopes::forUser($user, $permission)->covers($unit === null ? null : (int) $unit)
+            ? Response::allow()
+            : OutOfScope::deny('هذا الموظف خارج نطاق صلاحياتك.');
+    }
+
     private function isParty(int $employeeId, LeaveRequest $leave): bool
     {
         if ($employeeId === (int) $leave->employee_id) {

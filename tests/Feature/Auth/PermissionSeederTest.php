@@ -48,10 +48,11 @@ class PermissionSeederTest extends TestCase
      * The approvals engine added one (2026-10-16): `approvals.view`; its
      * endpoints a second (2026-10-18): `approvals.reassign`.
      *
-     * Leave added six (2026-10-18): `leave.types.create`, `.update`,
-     * `.delete`, `leave.balances.view`, `.update`, and `leave.requests.view`.
+     * Leave added nine (2026-10-18): `leave.types.create`, `.update`,
+     * `.delete`, `leave.balances.view`, `.update`, `leave.requests.view`,
+     * `.returnToWork`, and `leave.excuses.create`, `.delete`.
      */
-    private const TOTAL = 42;
+    private const TOTAL = 45;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -71,7 +72,7 @@ class PermissionSeederTest extends TestCase
             'hr.employees.viewIdentity', 'hr.employees.viewSalary',
             'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update', 'hr.job_titles.view',
             'hr.warnings.create', 'hr.warnings.delete', 'hr.warnings.update', 'hr.warnings.view',
-            'leave.balances.update', 'leave.balances.view', 'leave.requests.view',
+            'leave.balances.update', 'leave.balances.view', 'leave.excuses.create', 'leave.excuses.delete', 'leave.requests.returnToWork', 'leave.requests.view',
             'leave.types.create', 'leave.types.delete', 'leave.types.update',
         ];
 

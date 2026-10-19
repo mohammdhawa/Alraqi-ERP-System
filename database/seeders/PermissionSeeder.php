@@ -113,6 +113,9 @@ class PermissionSeeder extends Seeder
             'leave.balances.view',
             'leave.balances.update',
             'leave.requests.view',
+            'leave.excuses.create',
+            'leave.excuses.delete',
+            'leave.requests.returnToWork',
         ],
     ];
 
@@ -165,6 +168,9 @@ class PermissionSeeder extends Seeder
         'leave.balances.view'        => 'عرض أرصدة الإجازات',
         'leave.balances.update'      => 'تعديل أرصدة الإجازات',
         'leave.requests.view'        => 'عرض طلبات الإجازات',
+        'leave.excuses.create'       => 'تسجيل عذر غياب',
+        'leave.excuses.delete'       => 'التراجع عن عذر غياب',
+        'leave.requests.returnToWork' => 'تسجيل العودة إلى العمل',
     ];
 
     public function run(): void

@@ -79,6 +79,11 @@ final class PermissionReach
         'leave.balances.update',
         // Reading others' leave: LeaveRequestPolicy per row.
         'leave.requests.view',
+        // HR's excuses: the employee's reach checked before anything is written.
+        'leave.excuses.create',
+        'leave.excuses.delete',
+        // Return to work: LeaveRequestPolicy per row.
+        'leave.requests.returnToWork',
     ];
 
     /**

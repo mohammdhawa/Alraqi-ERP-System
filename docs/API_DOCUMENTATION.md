@@ -1021,7 +1021,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
-- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
 - **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
 
 **What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
@@ -1031,7 +1031,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1) | the approval screen for that request | the same, under الطلبات |
 | `approval.step_assigned` | someone a **later** step was reassigned to — on the chain, not yet their turn (2026-10-16) | the request being approved | the approval screen for that request | the same |
 | `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled` | the requester | their leave request | that leave request | that leave request |
-| `leave.excuse_filed`, `leave.excuse_cancelled` | the employee | the excuse | the full text | the employee's leave history |
+| `leave.excuse_filed`, `leave.excuse_cancelled`, `leave.returned_to_work` | the employee | the excuse / the leave | the full text | the employee's leave history |
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
 
@@ -1997,6 +1997,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zb| POST      | `/api/me/leave-requests/{id}/cancel`         | bearer   | — (self-scoped, §16.3) |
 | 18zc| GET       | `/api/leave/requests/{leaveRequest}`         | bearer   | — (the employee, the chain) or `leave.requests.view` (§16.4) |
 | 18zd| GET       | `/api/leave/requests/{leaveRequest}/attachments/{attachment}` | bearer | as 18zc |
+| 18ze| POST      | `/api/leave/excuses`                         | bearer   | `leave.excuses.create` (§16.5) |
+| 18zf| DELETE    | `/api/leave/excuses/{leaveRequest}`          | bearer   | `leave.excuses.delete` (§16.6) |
+| 18zg| POST      | `/api/leave/requests/{leaveRequest}/return-to-work` | bearer | `leave.requests.returnToWork` (§16.7) |
+| 18zh| GET       | `/api/leave/requests`                        | bearer   | `leave.requests.view` (§16.8) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2021,10 +2025,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **78 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
+⚙️ **82 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
 device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes),
-thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and twelve
-leave routes so far (18u–18zd). The count below is the one from before them.
+thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and sixteen
+leave routes (18u–18zh). The count below is the one from before them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2684,9 +2688,9 @@ leave request will offer the same as its own cancel.)
 ## 16. Leave — الإجازات
 
 ⚙️ **New 2026-10-18** (work order §4.7, `LEAVE_BUILD.md`). Legacy's leave
-module on ERP employees. Built in three slices: **types and balances
-(16.1–16.2), requests on the approvals engine (16.3–16.4)**; HR's excuses,
-return to work and the register follow.
+module on ERP employees: **types and balances (16.1–16.2), requests on the
+approvals engine (16.3–16.4), HR's excuses, return to work and the register
+(16.5–16.8)**.
 
 Every HR route is row-scoped through the employee's **current** unit, as
 attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف خارج نطاق
@@ -2697,7 +2701,9 @@ attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف 
 | `leave.types.create`, `.update`, `.delete` | the type catalogue | company-wide only |
 | `leave.balances.view` | HR's balances list | row-scoped |
 | `leave.balances.update` | setting an employee's allocation and adjustment | row-scoped |
-| `leave.requests.view` | reading other people's leave (§16.4) | row-scoped |
+| `leave.requests.view` | reading other people's leave (§16.4) and the register (§16.8) | row-scoped |
+| `leave.excuses.create`, `.delete` | filing and undoing an HR excuse (§16.5–16.6) | row-scoped |
+| `leave.requests.returnToWork` | cutting an approved leave short (§16.7) | row-scoped |
 
 ### 16.1 Leave types
 
@@ -2889,3 +2895,108 @@ this one's path is **404**.
 (§12.1), and the daily board, the monthly report and the day grid (§14) count
 it, with who approved it (the last approver) or, for an excuse, who recorded
 it.
+
+### 16.5 HR excuses — file one
+
+⚙️ **Slice 3, 2026-10-18.** An excuse records an **absence that already
+happened**: it is **approved at once**, with no chain, and reclassifies those
+days across every attendance report (§14).
+
+```
+POST /api/leave/excuses              leave.excuses.create  (multipart/form-data)
+```
+
+`employee_id` (required, in reach), `leave_type_id` (an active type
+`for_excuses`), `start_date`, `end_date`, `reason` (required where the type
+says), `force` (boolean), `attachments[]` (**optional** for HR — even on sick
+leave — up to 5, PDF / JPG / PNG, ≤ 10 MB).
+
+| Refusal (422) | When |
+|---|---|
+| «نوع الإجازة (…) غير متاح للأعذار.» (on `leave_type_id`) | |
+| «نوع الإجازة (…) يتطلب ذكر السبب.» (on `reason`) | |
+| «الفترة المحددة لا تتضمن أيام عمل.» | |
+| «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | |
+| «للموظف حضور مسجّل في بعض هذه الأيام، فلا يوجد غياب لتبريره: 2026-06-22.» | an **accepted** check-in on any of the days — a refused one does not count; `force` never overrides this |
+| «العذر يتجاوز رصيد الإجازات المتبقي للموظف (المتبقي N يوم). أرسل force لتسجيله رغم ذلك.» | a deducting type past the balance; `force: true` records it and the balance shows `over_balance_days` |
+
+**201** «تم تسجيل العذر.» → `{ leave_request, balance }`; the request has
+`origin: 2`, `status: 2`, `approval: null`, `created_by` the filer. The
+employee is told (`leave.excuse_filed`): «سجّلت إدارة الموارد البشرية (…) من … إلى
+…، وقد تم خصمها من رصيد إجازاتك.» — or «… ولا تُخصم من رصيد إجازاتك.».
+
+### 16.6 HR excuses — undo one
+
+```
+DELETE /api/leave/excuses/{leaveRequest}     leave.excuses.delete
+```
+
+For an excuse filed in error. `reason` (optional, ≤ 2000). Everything unwinds
+from the one status change: the days are absences again, a deducted day comes
+back, the period can be excused again at once. The row is **kept**,
+`status: 4`, with `cancelled_by`, `cancelled_at`, `cancellation_reason`.
+
+**200** «تم التراجع عن العذر.» → `{ leave_request, balance }`. The employee is
+told (`leave.excuse_cancelled`): «تم التراجع عن (…) المسجّلة من … إلى …، وعاد
+الغياب كما كان.» (+ «وقد أُعيد يوم الرصيد المخصوم.» when it deducted, + «السبب: …»).
+
+**422** «يمكن التراجع هنا عن الأعذار التي سجّلتها الموارد البشرية فقط؛ طلب الموظف
+يُقرَّر عبر مسار اعتماده.» · «تم التراجع عن هذا العذر مسبقاً.» · «يمكن التراجع عن عذر
+قائم فقط.»
+
+### 16.7 Return to work
+
+```
+POST /api/leave/requests/{leaveRequest}/return-to-work     leave.requests.returnToWork
+```
+
+The employee came back **before their approved leave was over**.
+`returned_on` (a date inside the leave; **today** by default), `reason`
+(optional). The leave is cut back to end the day before; the days after it are
+free for a check-in and their balance days return. **Back on the first day**,
+the leave is cancelled instead. **The approval is untouched** — the decision
+stands for the days it covered. `original_end_date` keeps the span that was
+granted, however many times it is shortened.
+
+**200** → `{ leave_request, cancelled, days_returned, balance }`, message
+«تم تقصير الإجازة إلى الأيام المأخوذة فعلاً.» or «أُلغيت الإجازة لعودة الموظف في
+يومها الأول.». `days_returned` is 0 for a non-deducting type. The employee is
+told (`leave.returned_to_work`): «تم إنهاء (…) المعتمدة بتاريخ … بدلاً من … لعودتك
+إلى العمل بتاريخ ….» / «تم إلغاء (…) …» (+ «وأُعيد إلى رصيدك N يوم.», + «السبب: …»).
+
+**422** «يمكن إنهاء الإجازة المعتمدة فقط بالعودة إلى العمل.» · «هذا عذر غياب
+سجّلته الموارد البشرية، وليس إجازة جارية. تراجع عنه بدلاً من ذلك.» · «يجب أن يقع
+تاريخ العودة ضمن فترة الإجازة.»
+
+### 16.8 The register
+
+```
+GET /api/leave/requests          leave.requests.view
+```
+
+Every leave in reach that **overlaps a window**: `from` / `to` (written in
+full, `YYYY-MM-DD`), or `month` + `year` for that month, or `year` alone for
+that whole year, or **the current month** by default; at most **366
+days**, never inverted (422 on `to`). **Approved rows by default** — excuses
+are approved, so they are in; `status` / `statuses` widen it. Also: §16.3's
+`leave_type_id(s)` and `is_excuse`, and the employee filters
+(`employee_id(s)`, `department_id(s)` with their subtree, `search`). `sort`:
+`start_date` (default), `end_date`, `requested_days`, `created_at`,
+`employee_name`, `id`, with `-` for descending.
+
+Each row is the leave request object plus **`days_in_range`** (working days
+inside the window) and **`calendar_days_in_range`** — a leave from 28 May to 3
+June counts 3 days in June's register. Beside `meta`: `from`, `to`, and a
+**`summary` over the whole filtered set**, not the page:
+
+```json
+"summary": {
+  "employees": 2, "requests": 3, "days": 5, "calendar_days": 5,
+  "deducted_days": 3, "excuses": 1,
+  "by_type": [ { "leave_type_id": 1, "name": "إجازة سنوية", "deducts_balance": true,
+                 "requests": 2, "employees": 2, "days": 3 } ],
+  "by_status": { "2": 3 }
+}
+```
+
+`by_type` is ordered by days, most first.

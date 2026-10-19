@@ -175,6 +175,14 @@ class LeaveRequest extends Model implements Approvable
             return null;
         }
 
+        // The employee's lock first, as legacy's review() took it: two final
+        // approvals of one person's requests — or one racing an excuse or a
+        // balance cut, which lock the same row — then read the balance one at
+        // a time. Inside the engine's transaction, after the approval's own
+        // locks; nothing locks the employee and then an approval, so the
+        // order cannot deadlock.
+        Employee::query()->whereKey($this->employee_id)->lockForUpdate()->first();
+
         $remaining = app(LeaveBalances::class)->remaining((int) $this->employee_id, $this->start_date->year);
 
         return $this->requested_days > $remaining ? 'طلب الإجازة يتجاوز رصيد الإجازات المتبقي للموظف.' : null;

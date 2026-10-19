@@ -1092,3 +1092,27 @@ verified to fail its tests when disabled.
 
 **Next:** slice 3 — HR's excuses, return to work, the register.
 
+### 2026-10-19 — §4.7 leave, slice 3 built: HR's side — §4.7 complete
+
+Committed before it: slice 2 (`64c1189`). This slice is not committed.
+
+**Built** ([`LEAVE_BUILD.md`](LEAVE_BUILD.md) §10;
+[`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) §16.5–16.8): HR's excuses —
+filed approved at once, refused on a day the employee attended, past the
+balance only with `force`, undone with the row kept and the employee told;
+return to work — the leave cut back to the day before or cancelled on its
+first day, the unused days returned, the approval untouched; and the leave
+register — every leave in reach over a window, clipped, with a summary over
+the whole set. Three permissions; `leave.returned_to_work` joins the
+notification catalogue.
+
+**61 tests; 1056 passing, Pint clean, 82 routes (four added).** Every guard of
+the slice was verified to fail its tests when disabled. A fresh review of all
+three slices found nothing critical; its two important findings — the final
+approval's balance re-check now takes the employee's lock, as legacy's did,
+and a bare `year` on the register is that year — were fixed test-first, with
+the register's dates now required in full (`LEAVE_BUILD.md` §10).
+
+**§4.7 is complete.** Next in dependency order: **§4.8, the `/api/me`
+surface** — profile, summary and the rest of the self-service contract.
+

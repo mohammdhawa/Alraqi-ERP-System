@@ -5,8 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Leave\Controllers;
 
 use App\Modules\Leave\Models\LeaveRequest;
+use App\Modules\Leave\Requests\LeaveRegisterRequest;
+use App\Modules\Leave\Requests\ReturnToWorkRequest;
+use App\Modules\Leave\Resources\LeaveRegisterRowResource;
 use App\Modules\Leave\Resources\LeaveRequestResource;
+use App\Modules\Leave\Services\LeaveBalances;
+use App\Modules\Leave\Services\LeaveRegister;
 use App\Modules\Leave\Services\LeaveRequestQuery;
+use App\Modules\Leave\Services\ReturnToWorkService;
 use App\Shared\Models\Attachment;
 use App\Shared\Services\AttachmentStore;
 use App\Shared\Support\RequestRowScopes;
@@ -26,6 +32,22 @@ class LeaveRequestController extends Controller
     use ApiRespond;
 
     /**
+     * GET /api/leave/requests — HR's register.
+     */
+    public function index(LeaveRegisterRequest $request, LeaveRegister $register): JsonResponse
+    {
+        $filters = $request->filters();
+        $page = $register->page($request->user(), $filters, $this->perPage($request));
+        RequestRowScopes::warm($request, ['approvals.reassign']);
+
+        return $this->paginated(LeaveRegisterRowResource::collection($page['rows']), extra: [
+            'from'    => $filters['from'],
+            'to'      => $filters['to'],
+            'summary' => $page['summary'],
+        ]);
+    }
+
+    /**
      * GET /api/leave/requests/{leaveRequest}
      */
     public function show(Request $request, LeaveRequest $leaveRequest): JsonResponse
@@ -33,6 +55,23 @@ class LeaveRequestController extends Controller
         RequestRowScopes::warm($request, ['approvals.reassign']);
 
         return $this->success(new LeaveRequestResource($leaveRequest->load(LeaveRequestQuery::renderRelations())));
+    }
+
+    /**
+     * POST /api/leave/requests/{leaveRequest}/return-to-work
+     */
+    public function returnToWork(ReturnToWorkRequest $request, LeaveRequest $leaveRequest, ReturnToWorkService $returns, LeaveBalances $balances): JsonResponse
+    {
+        $outcome = $returns->record($leaveRequest, $request->user(), $request->validated('returned_on'), $request->validated('reason'));
+        $leave = $outcome->leave->fresh()->load(LeaveRequestQuery::renderRelations());
+        RequestRowScopes::warm($request, ['approvals.reassign']);
+
+        return $this->success([
+            'leave_request' => (new LeaveRequestResource($leave))->resolve($request),
+            'cancelled'     => $outcome->cancelled,
+            'days_returned' => $outcome->daysReturned,
+            'balance'       => $balances->for((int) $leave->employee_id, $leave->start_date->year)->toArray(),
+        ], $outcome->cancelled ? 'أُلغيت الإجازة لعودة الموظف في يومها الأول.' : 'تم تقصير الإجازة إلى الأيام المأخوذة فعلاً.');
     }
 
     /**

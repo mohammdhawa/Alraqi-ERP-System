@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Leave\Controllers\LeaveBalanceController;
+use App\Modules\Leave\Controllers\LeaveExcuseController;
 use App\Modules\Leave\Controllers\LeaveRequestController;
 use App\Modules\Leave\Controllers\LeaveTypeController;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,9 @@ use Illuminate\Support\Facades\Route;
 | Reading one leave and its files is `can:view` (LeaveRequestPolicy): the
 | employee, anyone on its chain, or `leave.requests.view` within reach. A file
 | is bound scoped to its leave.
+|
+| HR's excuses are `leave.excuses.create` / `.delete`, row-scoped through the
+| employee's current unit, as balances.
 |
 */
 
@@ -67,6 +71,12 @@ Route::middleware(['auth:sanctum', 'audit'])
             ->name('update');
     });
 
+// HR's register: every leave in reach over a window (legacy's
+// /leave-register), row-scoped on the builder.
+Route::middleware(['auth:sanctum', 'audit', 'permission:leave.requests.view'])
+    ->get('/requests', [LeaveRequestController::class, 'index'])
+    ->name('leave.requests.index');
+
 Route::middleware(['auth:sanctum', 'audit'])
     ->prefix('requests/{leaveRequest}')
     ->whereNumber(['leaveRequest', 'attachment'])
@@ -80,4 +90,23 @@ Route::middleware(['auth:sanctum', 'audit'])
         Route::get('/attachments/{attachment}', [LeaveRequestController::class, 'attachment'])
             ->middleware('can:view,leaveRequest')
             ->name('attachment');
+
+        // The employee came back early: HR cuts the leave short (legacy).
+        Route::post('/return-to-work', [LeaveRequestController::class, 'returnToWork'])
+            ->middleware(['permission:leave.requests.returnToWork', 'can:returnToWork,leaveRequest'])
+            ->name('return-to-work');
+    });
+
+Route::middleware(['auth:sanctum', 'audit'])
+    ->prefix('excuses')
+    ->name('leave.excuses.')
+    ->group(function () {
+        Route::post('/', [LeaveExcuseController::class, 'store'])
+            ->middleware('permission:leave.excuses.create')
+            ->name('store');
+
+        Route::delete('/{leaveRequest}', [LeaveExcuseController::class, 'destroy'])
+            ->middleware(['permission:leave.excuses.delete', 'can:cancelExcuse,leaveRequest'])
+            ->whereNumber('leaveRequest')
+            ->name('destroy');
     });
