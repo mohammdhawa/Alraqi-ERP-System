@@ -10,6 +10,7 @@ use App\Modules\Attendance\Enums\AttendanceSource;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Enums\ScopeType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\TestCase;
@@ -38,12 +39,40 @@ class AttendanceCheckoutCorrectionTest extends TestCase
         $this->buildTree();
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     private function correct(AttendanceRecord $record, string $at = '2026-06-21 16:30:00', ?string $note = 'نسي تسجيل الانصراف'): TestResponse
     {
         return $this->patchJson("/api/attendance/records/{$record->id}/checkout", array_filter([
             'checked_out_at' => $at,
             'note'           => $note,
         ]));
+    }
+
+    /**
+     * Parity audit S-3 (owner, 2026-10-20): the corrected time is on the
+     * check-in's own day, after it, and not in the future — a typo can no
+     * longer file the check-out on another date.
+     */
+    public function test_the_corrected_time_is_on_the_check_ins_day_and_not_in_the_future(): void
+    {
+        Carbon::setTestNow('2026-06-21 12:00:00');
+        $this->actingAsScopedUser(self::CORRECT, ScopeType::Company);
+        $checkIn = $this->checkIn($this->people['a'], '2026-06-21 08:00:00');
+
+        $this->correct($checkIn, '2026-06-22 16:30:00')
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'وقت الانصراف يجب أن يكون في يوم الحضور نفسه.');
+        $this->correct($checkIn, '2026-06-21 16:30:00')
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'وقت الانصراف لا يمكن أن يكون في المستقبل.');
+
+        $this->correct($checkIn, '2026-06-21 11:30:00')->assertOk();
     }
 
     public function test_a_forgotten_check_out_is_recorded_with_its_corrector(): void

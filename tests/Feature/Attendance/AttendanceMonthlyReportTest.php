@@ -10,6 +10,7 @@ use App\Modules\Auth\Enums\ScopeType;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
@@ -42,6 +43,13 @@ class AttendanceMonthlyReportTest extends TestCase
 
         $this->buildTree();
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     /** @param  array<string, mixed>  $query */
@@ -180,6 +188,57 @@ class AttendanceMonthlyReportTest extends TestCase
         $this->assertSame(2, $response->json('data.totals.employees'));
 
         $this->assertCount(1, $this->report(['has_missing_checkouts' => 1])->json('data.rows'));
+    }
+
+    /**
+     * Parity audit S-1 (owner, 2026-10-20): days after today are neither
+     * expected nor absent — legacy counted them absent — and today counts
+     * only once something is recorded or covers it, as /api/me/summary does.
+     * `working_days` still names the whole window; `counted_to` says where
+     * the counting stopped.
+     */
+    public function test_days_after_today_are_not_counted_and_today_only_once_recorded(): void
+    {
+        Carbon::setTestNow('2026-06-10 12:00:00');
+        $this->checkIn($this->people['a'], '2026-06-10 08:00:00');
+        $this->grantLeave($this->people['b'], '2026-06-09', '2026-06-12');
+
+        $response = $this->report()->assertOk()
+            ->assertJsonPath('data.working_days', self::JUNE)
+            ->assertJsonPath('data.counted_to', '2026-06-10');
+
+        $a = $this->rowOf($response, 'a');      // checked in today: today counts
+        $this->assertSame([10, 1, 9], [$a['expected_days'], $a['present_days'], $a['absent_days']]);
+        $this->assertEquals(10.0, $a['attendance_rate']);
+
+        $a1 = $this->rowOf($response, 'a1');    // nothing today yet: today left out
+        $this->assertSame([9, 0, 9], [$a1['expected_days'], $a1['present_days'], $a1['absent_days']]);
+
+        $b = $this->rowOf($response, 'b');      // leave 9–12: only 9 and 10 so far
+        $this->assertSame([10, 2, 8], [$b['expected_days'], $b['on_leave_days'], $b['absent_days']]);
+
+        $response->assertJsonPath('data.totals.expected_days', 29);
+        Carbon::setTestNow();
+    }
+
+    public function test_a_window_wholly_in_the_future_counts_nothing(): void
+    {
+        Carbon::setTestNow('2026-05-20 12:00:00');
+
+        $row = $this->rowOf($this->report()->assertOk()->assertJsonPath('data.counted_to', null), 'a');
+
+        $this->assertSame([0, 0, null], [$row['expected_days'], $row['absent_days'], $row['attendance_rate']]);
+        Carbon::setTestNow();
+    }
+
+    /** Parity audit S-2: a flagged check-in whose day has a check-out is not missing one. */
+    public function test_a_flagged_day_with_a_check_out_is_not_a_missing_check_out(): void
+    {
+        $this->checkIn($this->people['a'], '2026-06-03 08:00:00', ['status' => AttendanceRecordStatus::MissingCheckout]);
+        $this->checkOut($this->people['a'], '2026-06-03 16:00:00');
+        $this->checkIn($this->people['a'], '2026-06-04 08:00:00', ['status' => AttendanceRecordStatus::MissingCheckout]);
+
+        $this->assertSame(1, $this->rowOf($this->report(), 'a')['missing_checkouts']);
     }
 
     public function test_the_month_shorthand(): void

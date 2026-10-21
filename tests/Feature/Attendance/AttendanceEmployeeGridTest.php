@@ -8,6 +8,8 @@ use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\RejectionReason;
 use App\Modules\Auth\Enums\ScopeType;
+use App\Modules\HR\Enums\EmployeeStatus;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
@@ -36,6 +38,13 @@ class AttendanceEmployeeGridTest extends TestCase
         $this->buildTree();
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     /** @param  array<string, mixed>  $query */
     private function grid(string $key = 'a', array $query = []): TestResponse
     {
@@ -50,6 +59,59 @@ class AttendanceEmployeeGridTest extends TestCase
     private function states(TestResponse $response): array
     {
         return array_column($response->json('data.days'), 'status', 'date');
+    }
+
+    /**
+     * A departed employee — soft-deleted or terminated — is not reached at
+     * all (owner, 2026-10-20, parity audit C-8), as legacy's grid answered
+     * 404 for a deleted user. A suspended one is still an employee, and read.
+     */
+    public function test_a_departed_employees_grid_cannot_be_reached(): void
+    {
+        $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
+
+        $this->people['a']->delete();
+        $this->grid('a')->assertNotFound();
+
+        $this->people['b']->update(['status' => EmployeeStatus::Terminated]);
+        $this->grid('b')->assertNotFound();
+
+        $this->people['a1']->update(['status' => EmployeeStatus::Suspended]);
+        $this->grid('a1')->assertOk();
+    }
+
+    /**
+     * Parity audit S-1 (owner, 2026-10-20): a day after today is «لم يُسجَّل
+     * بعد», not absent — still showing leave over it, for the calendar — and
+     * today is too until something is recorded. Neither is counted.
+     */
+    public function test_today_before_anything_and_the_days_after_it_are_not_yet(): void
+    {
+        Carbon::setTestNow('2026-06-24 12:00:00');
+        $this->checkIn($this->people['a'], '2026-06-23 08:00:00');
+        $this->grantLeave($this->people['a'], '2026-06-26', '2026-06-26');
+        $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
+
+        $response = $this->grid()->assertOk();
+
+        $this->assertSame([
+            '2026-06-21' => AttendanceDayState::Absent->value,
+            '2026-06-22' => AttendanceDayState::Absent->value,
+            '2026-06-23' => AttendanceDayState::CheckedIn->value,
+            '2026-06-24' => AttendanceDayState::NotYet->value,
+            '2026-06-25' => AttendanceDayState::NotYet->value,
+            '2026-06-26' => AttendanceDayState::OnLeave->value,
+            '2026-06-27' => AttendanceDayState::NotYet->value,
+        ], $this->states($response));
+
+        $response->assertJsonPath('data.days.3.status_label', 'لم يُسجَّل بعد')
+            ->assertJsonPath('data.working_days', 7)
+            ->assertJsonPath('data.counted_to', '2026-06-24')
+            ->assertJsonPath('data.summary.expected_days', 3)
+            ->assertJsonPath('data.summary.present_days', 1)
+            ->assertJsonPath('data.summary.on_leave_days', 0)
+            ->assertJsonPath('data.summary.absent_days', 2);
+        Carbon::setTestNow();
     }
 
     public function test_one_state_per_day_by_legacys_precedence(): void

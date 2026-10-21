@@ -46,6 +46,14 @@ return [
     'min_checkout_gap_minutes' => (int) env('ATTENDANCE_MIN_CHECKOUT_GAP', 60),
 
     /*
+    | How far ahead of the server's clock a recorded moment may be, in minutes
+    | — room for a phone's clock drift, and no more: a phone set to tomorrow
+    | can no longer check in for tomorrow (parity audit S-6, owner 2026-10-20;
+    | legacy accepted any moment). Offline entries are always in the past.
+    */
+    'max_clock_ahead_minutes' => (int) env('ATTENDANCE_MAX_CLOCK_AHEAD', 10),
+
+    /*
     | reminder_at   push a check-out reminder to everyone still checked in.
     | auto_close_at close the day: an open check-in becomes a missing check-out,
     |               with no invented check-out and no hours.

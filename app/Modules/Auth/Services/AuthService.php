@@ -142,6 +142,10 @@ class AuthService
             throw new AccountDisabledException;
         }
 
+        if ($user->isSuspendedEmployee()) {
+            throw new AccountDisabledException('لا يمكن تسجيل الدخول: الموظف موقوف عن العمل.');
+        }
+
         return DB::transaction(function () use ($user, $deviceName, $platform): array {
             $session = [
                 'session_id'   => (string) Str::uuid(),
@@ -233,6 +237,10 @@ class AuthService
 
                 if (! $user || ! $user->isActive()) {
                     throw new InvalidRefreshTokenException('الحساب غير مُفعّل.');
+                }
+
+                if ($user->isSuspendedEmployee()) {
+                    throw new InvalidRefreshTokenException('لا يمكن تسجيل الدخول: الموظف موقوف عن العمل.');
                 }
 
                 // Revoke the current refresh token (single-use)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Exceptions;
 
+use App\Modules\HR\Models\Employee;
 use App\Shared\Exceptions\DomainException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -23,6 +24,20 @@ class AttendanceException extends \RuntimeException implements DomainException
         public readonly int $statusCode = Response::HTTP_UNPROCESSABLE_ENTITY,
     ) {
         parent::__construct($message);
+    }
+
+    /** The refusal for an act on someone not on duty (owner, 2026-10-20, parity audit C-3). */
+    public const NOT_ON_DUTY = 'لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس عمله.';
+
+    /**
+     * Refuse unless the employee is on duty — not suspended, not terminated,
+     * not departed. Their records stay readable; nothing new is written.
+     */
+    public static function unlessOnDuty(?Employee $employee): void
+    {
+        if ($employee === null || ! $employee->isOnDuty()) {
+            throw new self(self::NOT_ON_DUTY);
+        }
     }
 
     public function statusCode(): int

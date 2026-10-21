@@ -499,6 +499,7 @@ POST /api/auth/login
 
 - `401` — invalid credentials: `{ "message": "بيانات الاعتماد غير صحيحة." }` (generic on purpose — does not reveal whether the email exists).
 - `403` — disabled account (`is_active = false`): `{ "message": "تم تعطيل هذا الحساب." }`. Note this is **403, not 401** — do **not** route it through the token-refresh flow; show an "account disabled" state.
+- `403` — ⚙️ **2026-10-20** — the account's employee is **suspended** (موقوف): `{ "message": "لا يمكن تسجيل الدخول: الموظف موقوف عن العمل." }`. The account stays enabled, and signs in again once the employee is back on duty. Suspending an employee also ends every session they had open (parity audit C-3). A terminated employee's account is disabled, as before.
 - `422` — validation failure (e.g. `email` / `password` missing or malformed). Per‑field Arabic messages in `errors`.
 - `429` — too many attempts (5/min/IP). Read the `Retry-After` header.
 
@@ -537,6 +538,7 @@ POST /api/auth/refresh
 - `رمز التحديث غير صالح.` — token not found.
 - `انتهت صلاحية رمز التحديث.` — expired.
 - `الحساب غير مُفعّل.` — account disabled.
+- `لا يمكن تسجيل الدخول: الموظف موقوف عن العمل.` — ⚙️ 2026-10-20: the employee is suspended (parity audit C-3).
 - `تم إبطال هذا الرمز. تم إنهاء جميع الجلسات حفاظًا على الأمان.` — **token reuse detected**. The refresh token was already used once; the server treats this as theft and **revokes all of the user's sessions**. The client must force a full re‑login.
 
 > **Single‑use rule:** never retry `/refresh` with the same refresh token. Always store the new refresh token returned by each call.
@@ -2034,10 +2036,13 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
 | 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
 
-⚙️ **82 routes** in `route:list` (2026-10-18): the 41 above, the sessions and
-device-token routes of work order §4.3 (3a–3c, 18a, 18b — six routes),
-thirteen attendance routes (18c–18n), six approvals routes (18o–18t) and sixteen
-leave routes (18u–18zh). The count below is the one from before them.
+⚙️ **88 routes** under `/api` in `route:list` (2026-10-20): the 41 above, the
+sessions and device-token routes of work order §4.3 (3a–3c, 18a, 18b — six
+routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t),
+sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
+2026-10-20, from the parity audit — `GET /api/approvals` (§15.7) and
+`GET /api/leave/on-leave` (§16.9). The count below is the one from before
+them.
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2104,7 +2109,7 @@ POST /api/me/attendance        multipart/form-data
 | `latitude` | required, number, −90…90 |
 | `longitude` | required, number, −180…180 |
 | `selfie` | required, image, ≤ 10 MB |
-| `recorded_at` | required, date-time — the moment on the phone; an offset is honoured and normalised to Asia/Damascus |
+| `recorded_at` | required, date-time — the moment on the phone; an offset is honoured and normalised to Asia/Damascus. ⚙️ 2026-10-20: at most **10 minutes** ahead of the server's clock (`ATTENDANCE_MAX_CLOCK_AHEAD`) |
 | `client_uuid` | optional, UUID |
 
 **201** → `{ success, message: "تم تسجيل الحضور بنجاح.", data: <record> }`.
@@ -2122,8 +2127,14 @@ when that `client_uuid` was already saved.
 | check-out within 60 minutes of the check-in | لا يمكن تسجيل الانصراف قبل مرور 60 دقيقة على الحضور. |
 | a non-working day / outside the check-in window — **not reachable as configured**: every day is a working day and the window is open (decisions Q8, Q9) | لا يمكن تسجيل الحضور في يوم عطلة. / … قبل الساعة … / … بعد الساعة … |
 | a suspended employee | لا يمكن تسجيل الحضور لموظف ليس على رأس عمله. |
+| ⚙️ 2026-10-20 — `recorded_at` more than 10 minutes in the future (parity audit S-6; legacy accepted it) | وقت التسجيل لا يمكن أن يكون في المستقبل. |
 
 A refused event stores no selfie.
+
+⚙️ **2026-10-20 (parity audit S-2):** a check-out for a day that already
+closed — an offline queue synced the next morning — clears the check-in's
+missing-check-out flag (`status` back to `null`), so every report agrees the
+day was completed. Legacy left the flag.
 
 **The record object:**
 
@@ -2246,6 +2257,11 @@ manages. After a transfer the new unit's reach covers the person's whole
 history and the old unit's none of it. An out-of-reach record is **403**
 `out_of_scope`, before any body is read; an unknown id is **404**.
 
+⚙️ **2026-10-20 (parity audit C-3):** correcting, refusing and un-refusing a
+record of an employee who is **not on duty** — suspended or terminated — is
+**422** «لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس عمله.». Their records
+stay readable.
+
 | Permission | Allows |
 |---|---|
 | `attendance.records.view` | the list and the selfie |
@@ -2312,7 +2328,9 @@ apply.
 
 **422:** «يجب اختيار سجل دخول لتصحيح الانصراف.» (not a check-in) · «هذا السجل لا
 يحتاج إلى تصحيح انصراف.» (the day has its check-out, or the check-in was
-refused) · «وقت الانصراف يجب أن يكون بعد وقت الحضور.»
+refused) · «وقت الانصراف يجب أن يكون بعد وقت الحضور.» · ⚙️ 2026-10-20 (parity
+audit S-3): «وقت الانصراف يجب أن يكون في يوم الحضور نفسه.» (another date) ·
+«وقت الانصراف لا يمكن أن يكون في المستقبل.»
 
 ### 13.4 Refuse a record
 
@@ -2360,11 +2378,22 @@ was recorded again after the refusal, and restoring it would leave two.
 **`attendance.records.view`** and see only what the caller's grant reaches
 (§13), through the employee's **current** unit.
 
-**Who a report is about.** The daily board and the employee grid read every
-employee in reach. The monthly report and absent-today read those **expected
-to attend**: active employees with an active account (decision Q7 — legacy's
-`attendance_check` flag is gone). A suspended employee, or one with no
-account, has no monthly row and is never absent.
+**Who a report is about.** The daily board reads every employee in reach
+**still on the roll** — ⚙️ 2026-10-20 (parity audit C-8): a departed employee,
+soft-deleted or terminated, is not counted, as legacy left deleted users out.
+The employee grid reads one employee in reach, and a departed one is **404**.
+The monthly report and absent-today read those **expected to attend**: active
+employees with an active account (decision Q7 — legacy's `attendance_check`
+flag is gone). A suspended employee, or one with no account, has no monthly
+row and is never absent.
+
+**The days so far** — ⚙️ 2026-10-20 (parity audit S-1). The monthly report
+and the grid count only up to **today**: a day after today is neither
+expected nor absent (legacy counted it absent), and today counts for a person
+only once something is recorded or covers it — a check-in, a refusal, leave —
+as `/api/me/summary` already read it. Both say where they stopped in
+`counted_to` (`null` when the window starts after today); `working_days` still
+names the whole window.
 
 **The person filters**, on every report: `employee_id` / `employee_ids`,
 `department_id` / `department_ids` (each unit with everything under it),
@@ -2376,7 +2405,7 @@ account, has no monthly row and is never absent.
 |---|---|---|
 | `1` حاضر (لم ينصرف بعد) — checked in, not out | `2` حاضر — in and out | `3` انصراف مفقود |
 | `4` في إجازة | `5` غياب بعذر — an HR excuse | `6` غائب |
-| `7` عطلة — not a working day | `8` تسجيل مرفوض — refused by HR | |
+| `7` عطلة — not a working day | `8` تسجيل مرفوض — refused by HR | `9` لم يُسجَّل بعد — after today, or today with nothing yet (2026-10-20) |
 
 Legacy used two names for a completed day (`checked_out` on the board,
 `present` in the grid); both are `2` here. Every day is a working day today
@@ -2453,7 +2482,7 @@ and the totals are recomputed over what is left. `sort`: `employee_name`,
 
 ```json
 {
-  "from": "2026-06-01", "to": "2026-06-30", "working_days": 30,
+  "from": "2026-06-01", "to": "2026-06-30", "working_days": 30, "counted_to": "2026-06-30",
   "rows": [ {
     "employee": { … }, "department": { … },
     "expected_days": 30, "present_days": 2, "on_leave_days": 2,
@@ -2471,6 +2500,12 @@ days inside the window, and a day the employee worked is never also a leave
 day. `rejected_days` are refusals that became absences — already inside
 `absent_days`.
 
+⚙️ **2026-10-20:** `expected_days` is **per row** — the working days from
+`from` to `counted_to`, less today for someone with nothing for it yet — and
+`totals.expected_days` is their sum. `missing_checkouts` no longer counts a
+flagged check-in whose day has an accepted check-out (parity audit S-2), so it
+agrees with the grid.
+
 ### 14.3 One employee's days
 
 ```
@@ -2478,7 +2513,8 @@ GET /api/attendance/report/employee?employee_id=7&from=2026-06-01&to=2026-06-30
 ```
 
 `employee_id` required; `from`/`to` or `month` + `year`, at most 92 days. An
-employee outside the caller's reach is **403** `out_of_scope`. `status` (a day
+employee outside the caller's reach is **403** `out_of_scope`; a departed one
+(soft-deleted or terminated) is **404** — ⚙️ 2026-10-20, parity audit C-8. `status` (a day
 state) and `working_days_only` narrow `days` — not `summary`, which always
 covers the whole range. `sort`: `date`, `status`, `work_hours`.
 
@@ -2490,8 +2526,11 @@ a later check-in outranks it), `correction`, `excuse` (on an excused day).
 
 A day's state, by precedence: an accepted check-in (`2` / `1` / `3`), else a
 day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
-else absent (`6`). `summary` carries the monthly report's counts plus
-`off_days`.
+else absent (`6`) — ⚙️ 2026-10-20: else, after today or today with nothing
+yet, `9` لم يُسجَّل بعد. A day after today keeps its leave or day-off state
+for the calendar but is not counted. `summary` carries the monthly report's
+counts plus `off_days`, over `from`…`counted_to`; the response also carries
+`working_days` (the whole window) and `counted_to`.
 
 ### 14.4 Absent today
 
@@ -2616,6 +2655,21 @@ notification). An account with no employee gets an empty list. Any other
 
 A row opens the request screen: `GET /api/approvals/{approval_id}`.
 
+⚙️ **Filters — 2026-10-20 (parity audit C-4)**, legacy's queue filters, on both
+halves of the inbox:
+
+| Query | |
+|---|---|
+| `search` | a part of the requester's name, or their staff number |
+| `department_id`, `department_ids` | the requester's current unit — each with everything under it (`department_ids=3,7` or an array) |
+| `subject_type` | the request's kind: `leave_request` |
+| `submitted_from`, `submitted_to` | the day it was filed, `YYYY-MM-DD` |
+| `leave_type_id`, `leave_type_ids` | a leave's type — narrows to leave requests |
+| `date_from`, `date_to` | days the leave overlaps, `YYYY-MM-DD` — narrows to leave requests |
+| `sort` | `submitted_at`, `employee_name`; `-` for descending. Default: newest first |
+
+An unknown value is a **422** naming the field.
+
 ### 15.3 The request screen
 
 ```
@@ -2694,6 +2748,43 @@ leave request will offer the same as its own cancel.)
 
 ---
 
+### 15.7 Every approval — HR's list
+
+⚙️ **New 2026-10-20 (parity audit C-4)** — legacy's admin saw the whole queue
+and reassigned from it.
+
+```
+GET /api/approvals        (approvals.view)
+```
+
+Every approval whose requester's **current** unit the caller's
+`approvals.view` reaches, **every status by default**, paginated. `status` /
+`statuses` narrow it (`1` pending · `2` approved · `3` rejected · `4`
+cancelled); the filters of §15.2; `sort`: `submitted_at`, `decided_at`,
+`employee_name`, `-` for descending — newest first by default.
+
+```json
+{
+  "id": 12, "status": 1, "status_label": "قيد الاعتماد",
+  "subject": { "type": "leave_request", "id": 31, "title": "إجازة سنوية", "summary": "2 أيام · 2026-06-21 → 2026-06-22" },
+  "requester": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+  "department": { "id": 3, "name": "قسم أ-1" },
+  "submitted_at": "2026-06-18T09:12:00+03:00", "decided_at": null,
+  "current_steps": [ { "id": 40, "step_order": 1, "approver": { "id": 4, "full_name": "…", "employee_number": "EMP-00004" } } ],
+  "can_reassign": true
+}
+```
+
+`current_steps` is whose turn it is — empty once decided — so a request stuck
+on an absent approver shows at a glance. A row opens §15.3, where it is
+reassigned (§15.5).
+
+**Skip reasons** (§15.1 `steps[].skip_reason`): ⚙️ 2026-10-20 adds `5`
+«لا يوجد مدير أعلى من مقدِّم الطلب» — المدير العام's own request: nobody stands
+above them, so the direct-manager step is skipped and the rest of the route
+decides (parity audit C-1). For leave, مدير الموارد decides alone — the mirror
+of the HR manager's own leave.
+
 ## 16. Leave — الإجازات
 
 ⚙️ **New 2026-10-18** (work order §4.7, `LEAVE_BUILD.md`). Legacy's leave
@@ -2713,6 +2804,12 @@ attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف 
 | `leave.requests.view` | reading other people's leave (§16.4) and the register (§16.8) | row-scoped |
 | `leave.excuses.create`, `.delete` | filing and undoing an HR excuse (§16.5–16.6) | row-scoped |
 | `leave.requests.returnToWork` | cutting an approved leave short (§16.7) | row-scoped |
+
+⚙️ **2026-10-20 (parity audit C-3):** an employee who is **not on duty** —
+suspended or terminated — takes no action and has none taken on them. Filing
+or withdrawing their own leave, and HR's excuse, its undo, a return to work
+and a balance change, are **422** «لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس
+عمله.». Their leave stays readable.
 
 ### 16.1 Leave types
 
@@ -2880,6 +2977,12 @@ to file again. **200** «تم سحب طلب الإجازة.» with the request. 
 «لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب عذر سجّلته الموارد
 البشرية.» A colleague's id is **404**.
 
+⚙️ **2026-10-20 (parity audit C-5):** a withdrawn request carries
+`cancelled_at` and `cancelled_by` (the requester's account), as HR's
+cancellations do. Nobody is notified; the approver who opens it from an
+earlier `approval.step_pending` reads status `4` and, on the approval, «مسحوب»
+with their step «أُغلقت بسحب الطلب».
+
 The outcome reaches the employee as `leave.approved` («تمت الموافقة على طلب
 إجازتك من … إلى …») or `leave.rejected`, referencing the request.
 
@@ -2928,6 +3031,7 @@ leave — up to 5, PDF / JPG / PNG, ≤ 10 MB).
 | «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | |
 | «للموظف حضور مسجّل في بعض هذه الأيام، فلا يوجد غياب لتبريره: 2026-06-22.» | an **accepted** check-in on any of the days — a refused one does not count; `force` never overrides this |
 | «العذر يتجاوز رصيد الإجازات المتبقي للموظف (المتبقي N يوم). أرسل force لتسجيله رغم ذلك.» | a deducting type past the balance; `force: true` records it and the balance shows `over_balance_days` |
+| «لا يمكن تسجيل عذر لأيام لم تأتِ بعد.» | ⚙️ 2026-10-20 (parity audit S-5): `end_date` after today — an excuse justifies an absence that happened; today is allowed. Legacy took future days, which then blocked checking in on them |
 
 **201** «تم تسجيل العذر.» → `{ leave_request, balance }`; the request has
 `origin: 2`, `status: 2`, `approval: null`, `created_by` the filer. The
@@ -2969,7 +3073,10 @@ granted, however many times it is shortened.
 
 **200** → `{ leave_request, cancelled, days_returned, balance }`, message
 «تم تقصير الإجازة إلى الأيام المأخوذة فعلاً.» or «أُلغيت الإجازة لعودة الموظف في
-يومها الأول.». `days_returned` is 0 for a non-deducting type. The employee is
+يومها الأول.». `days_returned` is 0 for a non-deducting type, and — ⚙️
+2026-10-20 (parity audit S-4) — counts only the days THIS act handed back: a
+second return to work on the same leave reports what the first did not
+(legacy counted again from the original end). The employee is
 told (`leave.returned_to_work`): «تم إنهاء (…) المعتمدة بتاريخ … بدلاً من … لعودتك
 إلى العمل بتاريخ ….» / «تم إلغاء (…) …» (+ «وأُعيد إلى رصيدك N يوم.», + «السبب: …»).
 
@@ -3009,6 +3116,32 @@ June counts 3 days in June's register. Beside `meta`: `from`, `to`, and a
 ```
 
 `by_type` is ordered by days, most first.
+
+---
+
+### 16.9 Who is on approved leave on a day
+
+⚙️ **New 2026-10-20 (parity audit X2)** — legacy's `/approved-leave-users`.
+
+```
+GET /api/leave/on-leave?date=2026-06-21        (attendance.records.view)
+```
+
+Every **approved** request and HR excuse whose span covers `date` (today in
+the attendance timezone by default), for the employees the caller's
+`attendance.records.view` reaches through their current unit — an attendance
+roster, as legacy gated it on the attendance reports. Departed employees
+(soft-deleted or terminated) are left out (parity audit C-8). Paginated.
+
+| Query | |
+|---|---|
+| `date` | `YYYY-MM-DD` |
+| `leave_type_id`, `leave_type_ids` | the type(s) — CSV or an array |
+| `is_excuse` | `1` HR excuses only · `0` requests only |
+| `employee_id(s)`, `department_id(s)`, `search` | the person filters of §13.1 |
+| `sort` | `start_date` (default), `end_date`, `employee_name`; `-` for descending |
+
+Rows are the leave request of §16.3. Beside `meta`: `date` and `working_day`.
 
 ---
 

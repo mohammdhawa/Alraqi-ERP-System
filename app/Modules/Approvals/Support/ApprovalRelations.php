@@ -51,6 +51,21 @@ final class ApprovalRelations
         ];
     }
 
+    /**
+     * HR's list (parity audit C-4): each approval's requester and unit, its
+     * subject, and its steps' approvers — to say whose turn it is.
+     *
+     * @return array<int|string, mixed>
+     */
+    public static function list(): array
+    {
+        return [
+            'requester.department',
+            'approvable' => self::subject(),
+            'steps.approver',
+        ];
+    }
+
     private static function subject(): \Closure
     {
         return static function (MorphTo $subject): void {

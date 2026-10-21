@@ -13,6 +13,7 @@ use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Attendance\Support\RowSort;
 use App\Modules\Auth\Models\User;
+use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeStub;
 use App\Shared\Support\Actor;
@@ -82,7 +83,8 @@ class AttendanceReportService
      */
     public function daily(User $user, string $date, array $filters, ?string $sort): array
     {
-        $ids = $this->population->reachable($user, $filters)->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        // Departed employees are not counted (parity audit C-8).
+        $ids = $this->population->onRoll($user, $filters)->pluck('employees.id')->map(fn ($id): int => (int) $id)->all();
 
         $ins = $this->events($ids)->checkIns()->accepted()->onDate($date)
             ->orderBy('recorded_at')->orderBy('id')->get()->groupBy('employee_id')->map->first();
@@ -177,6 +179,13 @@ class AttendanceReportService
      * totals are recomputed over what survives, so the summary always matches
      * what is listed.
      *
+     * THE DAYS SO FAR (owner, 2026-10-20, parity audit S-1): a day after
+     * today is neither expected nor absent — legacy counted it absent — and
+     * today counts for a person only once something is recorded or covers it
+     * (a check-in, a refusal, leave), as /api/me/summary reads it. So each
+     * row has its own expected days; `working_days` still names the whole
+     * window, and `counted_to` the last day counted (null: none yet).
+     *
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
@@ -185,25 +194,32 @@ class AttendanceReportService
         $employees = $this->population->expected($user, $filters)
             ->with('department')->orderBy('first_name')->orderBy('last_name')->orderBy('id')->get();
         $ids = $employees->modelKeys();
-        $expected = $this->calendar->workingDaysBetween($from, $to);
+        $countTo = $this->countTo($from, $to);
+        $expected = $countTo === null ? 0 : $this->calendar->workingDaysBetween($from, $countTo);
 
         $accepted = $this->events($ids)->accepted()->inDateRange($from, $to)->get(['employee_id', 'type', 'status', 'recorded_at', 'work_hours']);
         $checkIns = $accepted->filter(fn (AttendanceRecord $r): bool => $r->type === AttendanceEventType::CheckIn);
         $attended = $this->datesByEmployee($checkIns);
         $hours = $accepted->filter(fn (AttendanceRecord $r): bool => $r->type === AttendanceEventType::CheckOut)
             ->groupBy('employee_id')->map(fn (Collection $rows): float => (float) $rows->sum('work_hours'));
-        $missing = $checkIns->filter(fn (AttendanceRecord $r): bool => $r->status === AttendanceRecordStatus::MissingCheckout)
+        // A flagged check-in whose day has an accepted check-out after all is
+        // not a missing one — the grid says the same (parity audit S-2).
+        $checkedOut = $this->datesByEmployee($accepted->filter(fn (AttendanceRecord $r): bool => $r->type === AttendanceEventType::CheckOut));
+        $missing = $checkIns->filter(fn (AttendanceRecord $r): bool => $r->status === AttendanceRecordStatus::MissingCheckout
+            && ! isset($checkedOut[(int) $r->employee_id][$r->recorded_at->toDateString()]))
             ->countBy('employee_id');
 
         $spans = $this->leave->spans($ids, $from, $to);
-        $leaveDays = $this->leaveDays($spans, $from, $to, $attended);
+        $leaveDays = $countTo === null ? [] : $this->leaveDays($spans, $from, $countTo, $attended);
         $rejectedDays = $this->rejectedAbsenceDays($ids, $from, $to, $attended, $spans);
+        $notYetToday = $this->notYetToday($ids, $from, $to, $attended, $spans);
 
-        $rows = $employees->map(function (Employee $employee) use ($expected, $attended, $hours, $missing, $leaveDays, $rejectedDays): array {
+        $rows = $employees->map(function (Employee $employee) use ($expected, $attended, $hours, $missing, $leaveDays, $rejectedDays, $notYetToday): array {
             $id = (int) $employee->getKey();
             $present = count($attended[$id] ?? []);
             $leave = $leaveDays[$id] ?? self::NO_LEAVE;
             $workHours = round($hours[$id] ?? 0.0, 2);
+            $expected -= isset($notYetToday[$id]) ? 1 : 0;
 
             return [
                 'employee'                   => EmployeeStub::from($employee),
@@ -237,23 +253,67 @@ class AttendanceReportService
         return [
             'from'         => $from,
             'to'           => $to,
-            'working_days' => $expected,
+            'working_days' => $this->calendar->workingDaysBetween($from, $to),
+            'counted_to'   => $countTo,
             'rows'         => $rows,
-            'totals'       => $this->totals($rows, $expected),
+            'totals'       => $this->totals($rows),
         ];
+    }
+
+    /**
+     * The last day a report counts: today, or the window's end if earlier;
+     * null when the window starts after today (parity audit S-1).
+     */
+    private function countTo(string $from, string $to): ?string
+    {
+        $countTo = min($to, $this->calendar->today());
+
+        return $countTo < $from ? null : $countTo;
+    }
+
+    /**
+     * Who, among $ids, has nothing for today yet — no accepted check-in, no
+     * refused one, no leave over it — when today is a working day inside the
+     * window. The day is not over (the check-in window is open all day, Q9),
+     * so it is not yet expected of them (parity audit S-1).
+     *
+     * @param  array<int, int>  $ids
+     * @param  array<int, array<string, true>>  $attended
+     * @param  array<int, LeaveSpan>  $spans
+     * @return array<int, true>
+     */
+    private function notYetToday(array $ids, string $from, string $to, array $attended, array $spans): array
+    {
+        $today = $this->calendar->today();
+
+        if ($today < $from || $today > $to || ! $this->calendar->isWorkingDay(Carbon::parse($today))) {
+            return [];
+        }
+
+        $refused = array_flip(array_map('intval', $this->events($ids)->checkIns()->rejected()->onDate($today)->pluck('employee_id')->all()));
+        $result = [];
+
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if (! isset($attended[$id][$today]) && ! isset($refused[$id]) && $this->spanOn($spans, $id, $today) === null) {
+                $result[$id] = true;
+            }
+        }
+
+        return $result;
     }
 
     /**
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<string, int|float>
      */
-    private function totals(array $rows, int $expected): array
+    private function totals(array $rows): array
     {
         $sum = static fn (string $key): int => (int) array_sum(array_column($rows, $key));
 
         return [
             'employees'                 => count($rows),
-            'expected_days'             => $expected * count($rows),
+            'expected_days'             => $sum('expected_days'),
             'present_days'              => $sum('present_days'),
             'on_leave_days'             => $sum('on_leave_days'),
             'excused_days'              => $sum('excused_days'),
@@ -331,6 +391,10 @@ class AttendanceReportService
      * refusal, otherwise absent. A day off outranks leave because leave is
      * counted in working days everywhere else.
      *
+     * The days so far (parity audit S-1): an absent day after today — or
+     * today, with nothing for it yet — is NotYet, and nothing after today is
+     * counted; the summary covers [$from, `counted_to`].
+     *
      * The day filters narrow the grid only; the summary keeps describing the
      * whole range.
      *
@@ -338,7 +402,12 @@ class AttendanceReportService
      */
     public function grid(User $user, int $employeeId, string $from, string $to, ?int $state, bool $workingDaysOnly, ?string $sort): array
     {
-        $employee = Employee::withTrashed()->with('department')->findOrFail($employeeId);
+        // A departed employee — soft-deleted or terminated — is not reached
+        // at all: 404, as legacy's grid answered for a deleted user (owner,
+        // 2026-10-20, parity audit C-8).
+        $employee = Employee::query()->with('department')
+            ->where('status', '!=', EmployeeStatus::Terminated)
+            ->findOrFail($employeeId);
 
         // The employee's CURRENT unit must be in reach (D6) — the same rule as
         // the records list. 403, not 404: decision 19.
@@ -372,6 +441,8 @@ class AttendanceReportService
         $days = [];
         $count = ['present' => 0, 'on_leave' => 0, 'absent' => 0, 'off' => 0, 'missing' => 0, 'rejected' => 0, 'excused_charged' => 0, 'excused_free' => 0];
         $hours = 0.0;
+        $today = $this->calendar->today();
+        $todayNotYet = false;
 
         for ($cursor = Carbon::parse($from)->startOfDay(), $last = Carbon::parse($to)->startOfDay(); $cursor->lte($last); $cursor->addDay()) {
             $date = $cursor->toDateString();
@@ -382,30 +453,38 @@ class AttendanceReportService
             $span = $this->spanOn($spans, $id, $date);
             $dayHours = $out?->work_hours;
 
-            if ($in !== null) {
-                $dayState = $out !== null ? AttendanceDayState::CheckedOut
-                    : ($in->status === AttendanceRecordStatus::MissingCheckout ? AttendanceDayState::MissingCheckout : AttendanceDayState::CheckedIn);
-                $count['present']++;
-                $count['missing'] += $dayState === AttendanceDayState::MissingCheckout ? 1 : 0;
-                $hours += $dayHours ?? 0.0;
-            } elseif (! $working) {
-                $dayState = AttendanceDayState::Off;
-                $count['off']++;
-            } elseif ($span?->isExcuse) {
-                $dayState = AttendanceDayState::Excused;
-                $count[$span->deductsBalance ? 'excused_charged' : 'excused_free']++;
-            } elseif ($span !== null) {
-                $dayState = AttendanceDayState::OnLeave;
-                $count['on_leave']++;
-            } elseif ($refusedIn !== null) {
+            $dayState = match (true) {
+                $in !== null => $out !== null ? AttendanceDayState::CheckedOut
+                    : ($in->status === AttendanceRecordStatus::MissingCheckout ? AttendanceDayState::MissingCheckout : AttendanceDayState::CheckedIn),
+                ! $working          => AttendanceDayState::Off,
+                (bool) $span?->isExcuse => AttendanceDayState::Excused,
+                $span !== null      => AttendanceDayState::OnLeave,
                 // HR threw the day out: it costs the day either way, so it is
                 // absent; the state only says what happened.
-                $dayState = AttendanceDayState::Rejected;
-                $count['absent']++;
-                $count['rejected']++;
-            } else {
-                $dayState = AttendanceDayState::Absent;
-                $count['absent']++;
+                $refusedIn !== null => AttendanceDayState::Rejected,
+                default             => AttendanceDayState::Absent,
+            };
+
+            // The days so far (parity audit S-1): after today nothing is
+            // counted — leave and days off still show, for the calendar — and
+            // today with nothing for it yet is not yet absent.
+            $future = $date > $today;
+            if ($dayState === AttendanceDayState::Absent && $date >= $today) {
+                $dayState = AttendanceDayState::NotYet;
+                $todayNotYet = $todayNotYet || $date === $today;
+            }
+
+            if (! $future) {
+                $count['present'] += $in !== null ? 1 : 0;
+                $count['missing'] += $dayState === AttendanceDayState::MissingCheckout ? 1 : 0;
+                $count['off'] += $dayState === AttendanceDayState::Off ? 1 : 0;
+                $count['on_leave'] += $dayState === AttendanceDayState::OnLeave ? 1 : 0;
+                $count['rejected'] += $dayState === AttendanceDayState::Rejected ? 1 : 0;
+                $count['absent'] += in_array($dayState, [AttendanceDayState::Absent, AttendanceDayState::Rejected], true) ? 1 : 0;
+                if ($dayState === AttendanceDayState::Excused) {
+                    $count[$span?->deductsBalance ? 'excused_charged' : 'excused_free']++;
+                }
+                $hours += $in !== null ? ($dayHours ?? 0.0) : 0.0;
             }
 
             $days[] = [
@@ -431,7 +510,8 @@ class AttendanceReportService
             ];
         }
 
-        $expected = $this->calendar->workingDaysBetween($from, $to);
+        $countTo = $this->countTo($from, $to);
+        $expected = ($countTo === null ? 0 : $this->calendar->workingDaysBetween($from, $countTo)) - ($todayNotYet ? 1 : 0);
         $excused = $count['excused_charged'] + $count['excused_free'];
         $hours = round($hours, 2);
 
@@ -447,7 +527,8 @@ class AttendanceReportService
             'department'   => $this->unitOf($employee),
             'from'         => $from,
             'to'           => $to,
-            'working_days' => $expected,
+            'working_days' => $this->calendar->workingDaysBetween($from, $to),
+            'counted_to'   => $countTo,
             'days'         => RowSort::apply(array_values($days), $sort, self::gridKeys()),
             'summary'      => [
                 'expected_days'              => $expected,

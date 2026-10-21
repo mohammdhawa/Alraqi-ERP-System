@@ -334,7 +334,25 @@ class Employee extends Model
             if ($employee->wasChanged('status') && $employee->status === EmployeeStatus::Terminated) {
                 $employee->user?->disable();
             }
+
+            // Suspension ends the sessions already open, and AuthService
+            // refuses the next sign-in while it lasts (owner, 2026-10-20,
+            // parity audit C-3). The account itself stays enabled: a
+            // suspension is temporary, and back on duty the same account works.
+            if ($employee->wasChanged('status') && $employee->status === EmployeeStatus::Suspended) {
+                $employee->user?->endAllSessions();
+            }
         });
+    }
+
+    /**
+     * On duty: neither suspended nor terminated. An employee who is not takes
+     * no action and has none taken on them — records stay readable, nothing
+     * new is written (owner, 2026-10-20, parity audit C-3).
+     */
+    public function isOnDuty(): bool
+    {
+        return $this->status === EmployeeStatus::Active;
     }
 
     /**

@@ -145,7 +145,12 @@ class LeaveReturnToWorkTest extends TestCase
         $this->back($leave, ['returned_on' => '2026-06-23'])
             ->assertOk()
             ->assertJsonPath('data.leave_request.original_end_date', '2026-06-25')
-            ->assertJsonPath('data.leave_request.end_date', '2026-06-22');
+            ->assertJsonPath('data.leave_request.end_date', '2026-06-22')
+            // Parity audit S-4: the day returned THIS time, not counted again
+            // from the original end (legacy said 3).
+            ->assertJsonPath('data.days_returned', 1);
+
+        $this->assertStringContainsString('وأُعيد إلى رصيدك 1 يوم.', Notification::where('type', NotificationEventCatalogue::LEAVE_RETURNED_TO_WORK)->latest('id')->first()->body);
     }
 
     public function test_the_employee_is_told_their_leave_changed(): void

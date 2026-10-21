@@ -58,6 +58,7 @@ class AttendanceOversightService
 
         return DB::transaction(function () use ($checkIn, $corrector, $checkedOutAt, $note): array {
             $this->lock($checkIn);
+            AttendanceException::unlessOnDuty($checkIn->employee);
 
             // The check-in must still stand, and its day have no check-out yet.
             $date = $checkIn->recorded_at->toDateString();
@@ -69,6 +70,16 @@ class AttendanceOversightService
             $moment = $this->calendar->parse($checkedOutAt);
             if ($moment->lte($checkIn->recorded_at)) {
                 throw new AttendanceException('وقت الانصراف يجب أن يكون بعد وقت الحضور.');
+            }
+
+            // On the check-in's own day, and not yet to come: a typo would
+            // otherwise file it on another date, leaving the day it corrects
+            // open (parity audit S-3; legacy took any later moment).
+            if ($moment->toDateString() !== $date) {
+                throw new AttendanceException('وقت الانصراف يجب أن يكون في يوم الحضور نفسه.');
+            }
+            if ($moment->isFuture()) {
+                throw new AttendanceException('وقت الانصراف لا يمكن أن يكون في المستقبل.');
             }
 
             $checkOut = AttendanceRecord::create([
@@ -116,6 +127,7 @@ class AttendanceOversightService
         return DB::transaction(function () use ($record, $reviewer, $reason, $note): array {
             $this->lock($record);
             $record->refresh();
+            AttendanceException::unlessOnDuty($record->employee);
 
             if ($record->isRejected()) {
                 throw new AttendanceException('تم رفض هذا السجل مسبقاً.');
@@ -168,6 +180,7 @@ class AttendanceOversightService
         return DB::transaction(function () use ($record): array {
             $this->lock($record);
             $record->refresh();
+            AttendanceException::unlessOnDuty($record->employee);
 
             if (! $record->isRejected()) {
                 throw new AttendanceException('هذا السجل غير مرفوض.');

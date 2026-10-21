@@ -210,6 +210,47 @@ class ApprovalSubmissionTest extends TestCase
         );
     }
 
+    /**
+     * Parity audit C-1 (owner, 2026-10-20): the head of the tree has nobody
+     * above them. Their direct-manager step is skipped with its own reason,
+     * and the rest of the route asks who it names.
+     */
+    public function test_the_head_of_the_tree_skips_the_direct_manager_step(): void
+    {
+        $approval = $this->submit($this->people['gm']);
+
+        [$first, $second] = $approval->steps->all();
+        $this->assertSame($this->people['gm']->id, (int) $first->approver_id);
+        $this->assertSame(StepStatus::Skipped, $first->status);
+        $this->assertSame(SkipReason::TopOfTree, $first->skip_reason);
+
+        $this->assertSame($this->people['hrHead']->id, (int) $second->approver_id);
+        $this->assertSame(StepStatus::Pending, $second->status);
+        $this->assertSame([NotificationEventCatalogue::APPROVAL_STEP_PENDING], $this->notificationsOf($this->people['hrHead']));
+    }
+
+    public function test_the_head_of_the_tree_with_nobody_else_on_the_route_is_refused(): void
+    {
+        $route = ApprovalRoute::sequential(RejectionPolicy::Ends, StepDefinition::directManager());
+
+        $this->assertRefused(
+            fn () => $this->submit($this->people['gm'], $route),
+            'لا يمكن تقديم الطلب: لا يوجد من يعتمده.',
+        );
+    }
+
+    public function test_someone_who_manages_a_unit_below_the_root_is_not_the_head_of_the_tree(): void
+    {
+        // headA, with the general manager's post empty: still a vacant post.
+        $this->units['gm']->update(['manager_id' => null]);
+        $this->units['a1']->update(['manager_id' => $this->people['headA']->id]);
+
+        $this->assertRefused(
+            fn () => $this->submit($this->people['headA']),
+            'لا يمكن تقديم الطلب: لا يوجد مدير مباشر في الهيكل التنظيمي لاعتماده.',
+        );
+    }
+
     public function test_a_chain_climbing_to_an_empty_general_managers_post_refuses_the_submission(): void
     {
         // headA's own leave: past themselves, to GM — whose post is empty.

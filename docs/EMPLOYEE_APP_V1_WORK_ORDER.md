@@ -177,8 +177,9 @@ and `source`, `config/attendance.php` ported, `checkout-reminder` and
 retention command (three months, the record stays — D7); `auto_close_at` 23:59
 everywhere.
 
-Self-service: `POST /api/me/attendance`, `POST /api/me/attendance/sync` (legacy
-payload shape accepted), `GET /api/me/attendance`. HR/manager: records, daily,
+Self-service: `POST /api/me/attendance`, `POST /api/me/attendance/sync` (legacy's
+`records[]` + `selfies[]` structure; `type` is an int, `1`/`2`, by the house
+standard C26 — parity audit C-6), `GET /api/me/attendance`. HR/manager: records, daily,
 monthly and per-employee reports, absent-today, correct a check-out, reject and
 un-reject — all row-scoped per GAP-3.
 
@@ -1168,3 +1169,53 @@ employee-visible the day the app ships, so HR's review rounds must check each
 person's pay block before Batch 4 (requirements §6.1). §7's risk row says so.
 
 **Next in dependency order: §4.9, the real import.**
+
+### 2026-10-20 — the parity audit, and the owner's answers
+
+[`PARITY_AUDIT_ATTENDANCE_LEAVE.md`](PARITY_AUDIT_ATTENDANCE_LEAVE.md) checked
+attendance and leave against legacy rule by rule (103 rules). The
+calculations matched; ten undocumented differences (C-1…C-10) and six legacy
+defects the port had carried over (S-1…S-6) were put to the project owner.
+**Answered by the project owner** (2026-10-20), and built (not committed):
+
+| Item | Answer | Built as |
+|---|---|---|
+| C-1 المدير العام's own leave was refused (no manager above) | Skip step 1 | The head of the tree — the manager of a root unit — resolves the direct-manager step to themselves; the engine records it `skipped` with the new `SkipReason::TopOfTree` (5, «لا يوجد مدير أعلى من مقدِّم الطلب»), and مدير الموارد decides alone. A vacant root post is still refused |
+| C-2 no seeded role reproduces legacy's default powers | Solved later by the owner; a section manager sees **only their unit's** employees (the ERP's reach, not legacy's whole department) | Nothing built; a grant plan before the pilot |
+| C-3 inactive employees | An employee who is not on duty — **suspended or terminated** — takes no action and has none taken on them; their data stays readable. A suspended employee **cannot sign in** | `Employee::isOnDuty()`; `LeaveException` / `AttendanceException::unlessOnDuty()` refuse filing and withdrawing leave, HR's excuse and its undo, return to work, a balance change, a check-out correction, a refusal and its undo (422 «لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس عمله.»). Login and refresh refuse a suspended employee's account (403 «لا يمكن تسجيل الدخول: الموظف موقوف عن العمل.»); suspending ends their sessions; the account stays enabled, so it works again once they are back on duty |
+| C-4 the approvals inbox had no filters, and HR no list of all approvals | Implement the filters; HR gets a menu of every request | `GET /api/me/approvals` takes legacy's queue filters — requester name or staff number, unit (with subtree), subject type, filing day, and each subject's own (`FiltersApprovals`: leave type, leave dates) — and a sort. New `GET /api/approvals` (`approvals.view`, scoped by the requester's current unit): every approval, every status by default, with whose turn it is |
+| C-5 withdrawal notifies nobody | Keep; the approver who opens it sees it was withdrawn | A withdrawn request now carries `cancelled_at` / `cancelled_by` (the requester); the approval reads «مسحوب», the step «أُغلقت بسحب الطلب» |
+| C-6 `type` is `1`/`2`, not `check_in`/`check_out` | Explained (house standard C26); kept | Wording corrected here (§4.5) and in the mapping §10 |
+| C-7 the register refuses an invalid month (legacy fell back to this month) | Kept as the ERP does | — |
+| C-8 departed employees on the daily board and their grid | Not counted; the grid not reachable | The daily board counts only employees on the roll (not soft-deleted, not terminated); the employee grid of a departed one is 404 |
+| C-9 notifications skip inactive accounts | A right change | — |
+| C-10 the default allocation's env key was renamed | Noted | Check legacy's production `ANNUAL_LEAVE_DAYS` before cutover |
+| X2 legacy's `/approved-leave-users` | Provide it | `GET /api/leave/on-leave?date=` (`attendance.records.view`): approved requests and excuses covering the day, filtered and paginated |
+| S-1 future days counted absent | Count the days so far | New day state `9` «لم يُسجَّل بعد»: after today, or today with nothing yet. The monthly report and the grid count up to today (`counted_to`), so expected is per row; `/api/me/summary` now reads the grid as is |
+| S-2 a late check-out left «انصراف مفقود» on the day | Clear it | A check-out landing on a flagged day clears the flag; the monthly count also ignores a flagged day that has a check-out |
+| S-3 a corrected check-out could land on another day | Bound it | The corrected time must be on the check-in's day and not in the future |
+| S-4 the second return to work over-stated the days returned | Report this act's days only | `days_returned` = the days this act handed back |
+| S-5 an excuse could be filed for future days | Refuse past today | «لا يمكن تسجيل عذر لأيام لم تأتِ بعد.» |
+| S-6 a future `recorded_at` was accepted | Refuse beyond a tolerance | More than 10 minutes ahead of the server is refused (`attendance.max_clock_ahead_minutes`); no age limit on old offline entries |
+
+**Where the ERP now deliberately differs from legacy** — added to the list in
+"the decision round, answered" and the engine's:
+
+13. المدير العام's own leave is approved by مدير الموارد alone (C-1).
+14. A suspended employee cannot sign in, and nobody acts on a suspended or
+    terminated employee's attendance or leave (C-3).
+15. Future days, and today before anything is recorded, are not absent (S-1);
+    a late check-out clears the missing flag (S-2); a correction stays on its
+    day (S-3); excuses stop at today (S-5); a recorded moment may not run
+    more than 10 minutes ahead (S-6).
+16. Departed employees are left off the daily board and their grid is 404
+    (C-8), as legacy's deleted users were.
+
+**1130 tests passing, Pint clean, 88 API routes (two added).** Each change
+has its tests (`InactiveEmployeeTest`, `ApprovalListFiltersTest`,
+`OnLeaveRosterTest`, and cases added to the attendance, approvals and leave
+suites).
+
+**For the dashboard:** the new day state `9` (grid and monthly), `counted_to`,
+per-row `expected_days`, the two new screens (every approval; on leave today),
+the inbox filters, and the new 403/422 messages.

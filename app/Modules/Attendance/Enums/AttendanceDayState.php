@@ -25,6 +25,7 @@ enum AttendanceDayState: int
     case Absent          = 6;
     case Off             = 7;   // not a working day
     case Rejected        = 8;   // recorded, and refused by HR
+    case NotYet          = 9;   // after today, or today before anything is recorded (parity audit S-1)
 
     public function label(): string
     {
@@ -37,6 +38,7 @@ enum AttendanceDayState: int
             self::Absent          => 'غائب',
             self::Off             => 'عطلة',
             self::Rejected        => 'تسجيل مرفوض',
+            self::NotYet          => 'لم يُسجَّل بعد',
         };
     }
 

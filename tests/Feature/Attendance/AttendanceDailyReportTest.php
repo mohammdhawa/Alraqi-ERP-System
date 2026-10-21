@@ -8,6 +8,7 @@ use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\RejectionReason;
 use App\Modules\Auth\Enums\ScopeType;
+use App\Modules\HR\Enums\EmployeeStatus;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -64,6 +65,30 @@ class AttendanceDailyReportTest extends TestCase
     private function asHr(): void
     {
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
+    }
+
+    /**
+     * Departed employees — soft-deleted or terminated — are not counted on
+     * the board (owner, 2026-10-20, parity audit C-8), as legacy left
+     * deleted users out; their records stay in the records list.
+     */
+    public function test_departed_employees_are_not_on_the_board(): void
+    {
+        $this->checkIn($this->people['a'], self::DAY.' 08:00:00');
+        $this->checkIn($this->people['a1'], self::DAY.' 08:00:00');
+        $this->checkIn($this->people['b'], self::DAY.' 08:00:00');
+        $this->grantLeave($this->people['headA'], self::DAY, self::DAY);
+
+        $this->people['a']->delete();
+        $this->people['b']->update(['status' => EmployeeStatus::Terminated]);
+        $this->people['headA']->update(['status' => EmployeeStatus::Terminated]);
+        $this->asHr();
+
+        $response = $this->report(['date' => self::DAY])->assertOk();
+
+        $this->assertSame([$this->people['a1']->id], $this->employeesIn($response, 'checked_in'));
+        $this->assertSame([], $this->employeesIn($response, 'on_leave'));
+        $response->assertJsonPath('data.summary.checked_in', 1)->assertJsonPath('data.summary.on_leave', 0);
     }
 
     public function test_the_day_is_split_into_its_sections(): void

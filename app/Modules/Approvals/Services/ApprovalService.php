@@ -10,6 +10,7 @@ use App\Modules\Approvals\Enums\ApproverNotice;
 use App\Modules\Approvals\Enums\Decision;
 use App\Modules\Approvals\Enums\RejectionPolicy;
 use App\Modules\Approvals\Enums\SkipReason;
+use App\Modules\Approvals\Enums\StepResolver;
 use App\Modules\Approvals\Enums\StepStatus;
 use App\Modules\Approvals\Exceptions\ApprovalException;
 use App\Modules\Approvals\Models\Approval;
@@ -137,8 +138,13 @@ class ApprovalService
                     throw new ApprovalException('لا يمكن تكرار المعتمد نفسه في الخطوة ذاتها.');
                 }
 
+                $isRequester = $id === (int) $requester->getKey();
+
+                // A direct-manager step can name the requester only when they
+                // head the tree (ApproverResolver::directManager).
                 $skip = match (true) {
-                    $id === (int) $requester->getKey() => SkipReason::Requester,
+                    $isRequester && $definition->resolver === StepResolver::DirectManager => SkipReason::TopOfTree,
+                    $isRequester                       => SkipReason::Requester,
                     isset($before[$id])                => SkipReason::SameApprover,
                     default                            => null,
                 };

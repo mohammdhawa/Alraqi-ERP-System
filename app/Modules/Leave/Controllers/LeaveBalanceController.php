@@ -90,6 +90,7 @@ class LeaveBalanceController extends Controller
     public function update(UpdateLeaveBalanceRequest $request, Employee $employee, int $year): JsonResponse
     {
         LeaveReach::ensure($request->user(), $employee, 'leave.balances.update');
+        LeaveException::unlessOnDuty($employee);
 
         $allocated = (int) $request->validated('allocated_days');
         $adjustment = (int) $request->validated('adjustment_days', 0);

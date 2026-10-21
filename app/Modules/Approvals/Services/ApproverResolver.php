@@ -69,8 +69,29 @@ class ApproverResolver
      */
     private function directManager(Employee $requester): Employee
     {
-        return $this->chain->resolve($requester)
-            ?? throw new ApprovalException('لا يمكن تقديم الطلب: لا يوجد مدير مباشر في الهيكل التنظيمي لاعتماده.');
+        $manager = $this->chain->resolve($requester);
+
+        if ($manager !== null) {
+            return $manager;
+        }
+
+        // The head of the tree — المدير العام — has nobody above them. The
+        // step names the requester, and the engine records it skipped with
+        // TopOfTree (parity audit C-1, owner 2026-10-20). Anyone else with no
+        // manager found is a vacant post, and still refused.
+        if ($this->headsTheTree($requester)) {
+            return $requester;
+        }
+
+        throw new ApprovalException('لا يمكن تقديم الطلب: لا يوجد مدير مباشر في الهيكل التنظيمي لاعتماده.');
+    }
+
+    private function headsTheTree(Employee $requester): bool
+    {
+        return Department::query()
+            ->whereNull('parent_id')
+            ->where('manager_id', $requester->getKey())
+            ->exists();
     }
 
     /**

@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Controllers;
 
+use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Requests\LeaveRegisterRequest;
+use App\Modules\Leave\Requests\OnLeaveRequest;
 use App\Modules\Leave\Requests\ReturnToWorkRequest;
 use App\Modules\Leave\Resources\LeaveRegisterRowResource;
 use App\Modules\Leave\Resources\LeaveRequestResource;
 use App\Modules\Leave\Services\LeaveBalances;
 use App\Modules\Leave\Services\LeaveRegister;
 use App\Modules\Leave\Services\LeaveRequestQuery;
+use App\Modules\Leave\Services\OnLeaveRoster;
 use App\Modules\Leave\Services\ReturnToWorkService;
 use App\Shared\Models\Attachment;
 use App\Shared\Services\AttachmentStore;
@@ -20,6 +23,7 @@ use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -45,6 +49,26 @@ class LeaveRequestController extends Controller
             'to'      => $filters['to'],
             'summary' => $page['summary'],
         ]);
+    }
+
+    /**
+     * GET /api/leave/on-leave — who is on approved leave on one day (legacy's
+     * /approved-leave-users; parity audit X2). `date` defaults to today in
+     * the attendance timezone.
+     */
+    public function onLeave(OnLeaveRequest $request, OnLeaveRoster $roster, AttendanceCalendar $calendar): JsonResponse
+    {
+        $filters = $request->validated();
+        $filters['date'] ??= $calendar->today();
+        RequestRowScopes::warm($request, ['approvals.reassign']);
+
+        return $this->paginated(
+            LeaveRequestResource::collection($roster->page($request->user(), $filters, $this->perPage($request))),
+            extra: [
+                'date'        => $filters['date'],
+                'working_day' => $calendar->isWorkingDay(Carbon::parse($filters['date'])),
+            ],
+        );
     }
 
     /**

@@ -123,6 +123,12 @@ final class AttendanceCalendar
         return max(0, (int) config('attendance.min_checkout_gap_minutes', 60));
     }
 
+    /** Minutes a recorded moment may run ahead of the server (parity audit S-6). */
+    public function maxClockAheadMinutes(): int
+    {
+        return max(0, (int) config('attendance.max_clock_ahead_minutes', 10));
+    }
+
     public function reminderAt(): string
     {
         return (string) (config('attendance.reminder_at') ?: '17:00');

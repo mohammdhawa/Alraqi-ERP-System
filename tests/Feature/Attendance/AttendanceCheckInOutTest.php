@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Attendance;
 
 use App\Modules\Attendance\Enums\AttendanceEventType;
+use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\AttendanceSource;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Models\User;
@@ -12,6 +13,7 @@ use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
@@ -46,6 +48,13 @@ class AttendanceCheckInOutTest extends TestCase
 
         Storage::fake('local');
         Storage::fake('public');
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     /** Legacy's own tests pin a Friday off and a 06:00–17:00 window to exercise the mechanism. */
@@ -92,6 +101,44 @@ class AttendanceCheckInOutTest extends TestCase
     private function onLeave(Employee $employee, string $date): void
     {
         $this->grantLeave($employee, $date, $date);
+    }
+
+    // ── Parity audit, 2026-10-20 ─────────────────────────────────────────
+
+    /**
+     * S-2: an offline check-out that arrives after the day closed clears the
+     * check-in's missing-check-out flag, so the reports agree on the day.
+     */
+    public function test_a_late_check_out_clears_the_missing_check_out_flag(): void
+    {
+        $employee = $this->employee();
+        $checkIn = AttendanceRecord::factory()->checkIn()->create([
+            'employee_id' => $employee->id, 'recorded_at' => self::SUNDAY.' 08:00:00', 'status' => AttendanceRecordStatus::MissingCheckout,
+        ]);
+        $this->actAs($employee);
+
+        $this->record(self::SUNDAY.' 16:00:00', AttendanceEventType::CheckOut)->assertCreated();
+
+        $this->assertNull($checkIn->fresh()->status);
+    }
+
+    /**
+     * S-6: a moment more than ten minutes ahead of the server is refused — a
+     * phone with a wrong clock can no longer check in for tomorrow. Within
+     * the tolerance, clock drift is accepted.
+     */
+    public function test_a_moment_in_the_future_is_refused_beyond_the_tolerance(): void
+    {
+        Carbon::setTestNow(self::SUNDAY.' 08:00:00');
+        $employee = $this->employee();
+        $this->actAs($employee);
+
+        $this->record(self::SUNDAY.' 08:30:00')
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'وقت التسجيل لا يمكن أن يكون في المستقبل.');
+
+        $this->record(self::SUNDAY.' 08:09:00')->assertCreated();
+        $this->assertSame(1, AttendanceRecord::count());
     }
 
     // ── Check-in ─────────────────────────────────────────────────────────

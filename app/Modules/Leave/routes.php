@@ -77,6 +77,12 @@ Route::middleware(['auth:sanctum', 'audit', 'permission:leave.requests.view'])
     ->get('/requests', [LeaveRequestController::class, 'index'])
     ->name('leave.requests.index');
 
+// Who is on approved leave on one day (legacy's /approved-leave-users;
+// parity audit X2) — an attendance roster, so attendance's grant and reach.
+Route::middleware(['auth:sanctum', 'audit', 'permission:attendance.records.view'])
+    ->get('/on-leave', [LeaveRequestController::class, 'onLeave'])
+    ->name('leave.on-leave');
+
 Route::middleware(['auth:sanctum', 'audit'])
     ->prefix('requests/{leaveRequest}')
     ->whereNumber(['leaveRequest', 'attachment'])

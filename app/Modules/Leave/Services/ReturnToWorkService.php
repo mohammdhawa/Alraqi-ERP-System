@@ -50,6 +50,8 @@ class ReturnToWorkService
             /** @var LeaveRequest $leave */
             $leave = LeaveRequest::query()->whereKey($leave->id)->lockForUpdate()->firstOrFail();
 
+            LeaveException::unlessOnDuty($leave->employee);
+
             if ($leave->status !== LeaveStatus::Approved) {
                 throw new LeaveException('يمكن إنهاء الإجازة المعتمدة فقط بالعودة إلى العمل.');
             }
@@ -70,6 +72,7 @@ class ReturnToWorkService
 
             $originalEnd = ($leave->original_end_date ?? $leave->end_date)->copy();
             $newEnd = $returned->copy()->subDay();
+            $daysBefore = (int) $leave->requested_days;
 
             if ($newEnd->lt($start)) {
                 $leave->update([
@@ -93,8 +96,12 @@ class ReturnToWorkService
             }
 
             $cancelled = $leave->status === LeaveStatus::Cancelled;
+            // The days handed back by THIS act: a second shortening returns
+            // only what the first did not (parity audit S-4; legacy counted
+            // again from the original end). A cancelled leave returns all
+            // it still held.
             $daysReturned = $leave->deducts_balance
-                ? max(0, $this->calendar->workingDaysBetween($start, $originalEnd) - ($cancelled ? 0 : $leave->requested_days))
+                ? max(0, $daysBefore - ($cancelled ? 0 : (int) $leave->requested_days))
                 : 0;
 
             return new ReturnOutcome($leave, $cancelled, $daysReturned);

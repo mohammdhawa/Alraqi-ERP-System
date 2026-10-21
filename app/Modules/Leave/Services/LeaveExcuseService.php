@@ -54,10 +54,18 @@ class LeaveExcuseService
      */
     public function file(Employee $employee, User $by, array $data, array $files, bool $force): LeaveRequest
     {
+        LeaveException::unlessOnDuty($employee);
+
         $type = LeaveType::query()->findOrFail($data['leave_type_id']);
         $start = Carbon::parse($data['start_date'])->toDateString();
         $end = Carbon::parse($data['end_date'])->toDateString();
         $days = $this->calendar->workingDaysBetween($start, $end);
+
+        // An excuse justifies an absence that happened (parity audit S-5;
+        // legacy took future days, which then blocked checking in on them).
+        if ($end > $this->calendar->today()) {
+            throw new LeaveException('لا يمكن تسجيل عذر لأيام لم تأتِ بعد.');
+        }
 
         if ($days < 1) {
             throw new LeaveException('الفترة المحددة لا تتضمن أيام عمل.');
@@ -129,6 +137,8 @@ class LeaveExcuseService
         return DB::transaction(function () use ($excuse, $by, $reason): LeaveRequest {
             /** @var LeaveRequest $excuse */
             $excuse = LeaveRequest::query()->whereKey($excuse->id)->lockForUpdate()->firstOrFail();
+
+            LeaveException::unlessOnDuty($excuse->employee);
 
             if (! $excuse->isExcuse()) {
                 throw new LeaveException('يمكن التراجع هنا عن الأعذار التي سجّلتها الموارد البشرية فقط؛ طلب الموظف يُقرَّر عبر مسار اعتماده.');

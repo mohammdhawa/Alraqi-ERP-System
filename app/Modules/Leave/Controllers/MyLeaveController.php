@@ -53,6 +53,7 @@ class MyLeaveController extends Controller
     {
         $employee = $this->employeeOf($request->user());
         $leave = LeaveRequest::query()->where('employee_id', $employee->id)->findOrFail($leaveRequest);
+        LeaveException::unlessOnDuty($employee);
 
         if ($leave->isExcuse() || $leave->approval === null) {
             throw new LeaveException('لا يمكن سحب عذر سجّلته الموارد البشرية.');

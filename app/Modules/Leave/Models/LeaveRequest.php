@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Leave\Models;
 
 use App\Modules\Approvals\Contracts\Approvable;
+use App\Modules\Approvals\Contracts\FiltersApprovals;
 use App\Modules\Approvals\Enums\ApprovalStatus;
 use App\Modules\Approvals\Enums\ApproverNotice;
 use App\Modules\Approvals\Models\Approval;
@@ -31,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 /**
  * A leave request or an HR excuse (LEAVE_BUILD.md §4) — legacy's LeaveRequest
@@ -52,7 +54,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $decided_at
  */
 #[UsePolicy(LeaveRequestPolicy::class)]
-class LeaveRequest extends Model implements Approvable
+class LeaveRequest extends Model implements Approvable, FiltersApprovals
 {
     use HasAuditLog;
 
@@ -195,6 +197,9 @@ class LeaveRequest extends Model implements Approvable
      */
     public function onApprovalDecided(Approval $approval): void
     {
+        $account = User::query()->where('employee_id', $this->employee_id)->value('id');
+        $withdrawn = $approval->status === ApprovalStatus::Cancelled;
+
         $this->update([
             'status' => match ($approval->status) {
                 ApprovalStatus::Approved  => LeaveStatus::Approved,
@@ -203,6 +208,12 @@ class LeaveRequest extends Model implements Approvable
                 ApprovalStatus::Pending   => LeaveStatus::Pending,
             },
             'decided_at' => $approval->decided_at,
+            // A withdrawal is the requester's own act — the engine allows
+            // nobody else — stamped as HR's cancellations are, so the
+            // approver who opens it from an earlier notification reads who
+            // withdrew it and when (owner, 2026-10-20, parity audit C-5).
+            // Nobody is notified.
+            ...($withdrawn ? ['cancelled_at' => $approval->decided_at, 'cancelled_by' => $account] : []),
         ]);
 
         $span = "من {$this->start_date->toDateString()} إلى {$this->end_date->toDateString()}";
@@ -212,8 +223,6 @@ class LeaveRequest extends Model implements Approvable
             ApprovalStatus::Rejected => [NotificationEventCatalogue::LEAVE_REJECTED, 'تم رفض طلب الإجازة', "تم رفض طلب إجازتك {$span}."],
             default                  => [null, '', null],
         };
-
-        $account = User::query()->where('employee_id', $this->employee_id)->value('id');
 
         if ($type !== null && $account !== null) {
             app(NotificationService::class)->sendToUser((int) $account, $title, $body, type: $type, reference: $this);
@@ -246,6 +255,63 @@ class LeaveRequest extends Model implements Approvable
     public static function approvalSummaryRelations(): array
     {
         return ['type', 'employee'];
+    }
+
+    // ── Filters on the approval lists (FiltersApprovals, parity audit C-4) ─
+
+    /**
+     * Legacy's queue filters that belong to a leave: its type, and a window
+     * its dates overlap (legacy's date_from / date_to).
+     *
+     * @return array<string, mixed>
+     */
+    public static function approvalFilterRules(): array
+    {
+        return [
+            'leave_type_id'    => ['sometimes', 'integer', Rule::exists('leave_types', 'id')],
+            'leave_type_ids'   => ['sometimes', 'array'],
+            'leave_type_ids.*' => ['integer', Rule::exists('leave_types', 'id')],
+            'date_from'        => ['sometimes', 'date_format:Y-m-d'],
+            'date_to'          => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function approvalFilterMessages(): array
+    {
+        return [
+            'leave_type_id.integer'    => 'نوع الإجازة غير صالح.',
+            'leave_type_id.exists'     => 'نوع الإجازة غير موجود.',
+            'leave_type_ids.array'     => 'قائمة أنواع الإجازة غير صالحة.',
+            'leave_type_ids.*.integer' => 'نوع الإجازة غير صالح.',
+            'leave_type_ids.*.exists'  => 'أحد أنواع الإجازة غير موجود.',
+            'date_from.date_format'    => 'تاريخ البداية يجب أن يكون بالصيغة YYYY-MM-DD.',
+            'date_to.date_format'      => 'تاريخ النهاية يجب أن يكون بالصيغة YYYY-MM-DD.',
+            'date_to.after_or_equal'   => 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية أو مساوياً له.',
+        ];
+    }
+
+    /**
+     * @param  Builder<LeaveRequest>  $subjects
+     * @param  array<string, mixed>  $filters
+     */
+    public static function applyApprovalFilters(Builder $subjects, array $filters): void
+    {
+        $types = array_values(array_unique(array_map('intval', [
+            ...($filters['leave_type_ids'] ?? []),
+            ...(isset($filters['leave_type_id']) ? [$filters['leave_type_id']] : []),
+        ])));
+
+        if ($types !== []) {
+            $subjects->whereIn('leave_type_id', $types);
+        }
+
+        if (isset($filters['date_from']) || isset($filters['date_to'])) {
+            $subjects->whereDate('start_date', '<=', $filters['date_to'] ?? '9999-12-31')
+                ->whereDate('end_date', '>=', $filters['date_from'] ?? '1000-01-01');
+        }
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────

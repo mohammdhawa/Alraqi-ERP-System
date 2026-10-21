@@ -14,9 +14,9 @@ use Illuminate\Validation\Validator;
 
 /**
  * GET /api/attendance/report/employee — legacy's
- * EmployeeAttendanceBreakdownRequest: one employee (trashed ones included —
- * their days are still history), a range or `month` + `year`, at most 92
- * days, and the day filters. Whether the employee is in reach is the
+ * EmployeeAttendanceBreakdownRequest: one employee, a range or `month` +
+ * `year`, at most 92 days, and the day filters. Whether the employee is in
+ * reach — and not departed, which is a 404 (parity audit C-8) — is the
  * service's question, after this.
  */
 class EmployeeGridRequest extends FormRequest

@@ -457,7 +457,7 @@ All legacy routes are under `/api`; the ERP keeps its own envelope
 | `GET /me` | `GET /api/auth/me` (account) + **`GET /api/me/profile`** (the person, with the full pay block for the owner — decision 17, D10) |
 | — | **`GET /api/me/summary`** — the home screen; each card `null` until its module exists (§6.2 of the requirements) |
 | `POST /attendance/record` | `POST /api/me/attendance` |
-| `POST /attendance/sync` | `POST /api/me/attendance/sync` — accepts the legacy payload shape (`records[]` + `selfies[]`) plus the optional `client_uuid` |
+| `POST /attendance/sync` | `POST /api/me/attendance/sync` — legacy's structure (`records[]` + `selfies[]`) plus the optional `client_uuid`; `type` is an int (`1`/`2`), not legacy's strings (house standard C26; parity audit C-6, 2026-10-20) |
 | `GET /attendance/my-records` | `GET /api/me/attendance` |
 | `GET /attendance/leave-balance` | `GET /api/me/leave-balance` |
 | `GET /attendance/leave-types` | `GET /api/leave/types` (catalogue read, any authenticated caller) |

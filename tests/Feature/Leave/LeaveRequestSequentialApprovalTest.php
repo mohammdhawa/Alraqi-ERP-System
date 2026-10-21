@@ -116,6 +116,24 @@ class LeaveRequestSequentialApprovalTest extends TestCase
         $this->assertSame(LeaveStatus::Approved, LeaveRequest::sole()->status);
     }
 
+    /**
+     * The owner's answer of 2026-10-20 (parity audit C-1): nobody stands
+     * above المدير العام, so their step 1 is skipped — not refused — and
+     * مدير الموارد decides alone, the mirror of the HR manager's own leave.
+     */
+    public function test_the_general_managers_own_leave_is_decided_by_the_hr_manager(): void
+    {
+        $leave = $this->fileAs($this->people['gm']);
+
+        $this->assertSame(StepStatus::Skipped->value, $leave['approval']['steps'][0]['status']);
+        $this->assertSame(SkipReason::TopOfTree->value, $leave['approval']['steps'][0]['skip_reason']);
+        $this->assertSame($this->people['hrHead']->id, $leave['approval']['steps'][1]['approver']['id']);
+        $this->assertSame([NotificationEventCatalogue::APPROVAL_STEP_PENDING], $this->typesFor($this->people['hrHead']));
+
+        $this->act($leave, $this->people['hrHead'])->assertOk();
+        $this->assertSame(LeaveStatus::Approved, LeaveRequest::sole()->status);
+    }
+
     public function test_a_reassigned_step_is_decided_by_its_new_approver(): void
     {
         $leave = $this->fileAs($this->people['staff']);

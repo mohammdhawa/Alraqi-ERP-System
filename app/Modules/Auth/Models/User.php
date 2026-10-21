@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Auth\Models;
 
 use App\Modules\Auth\Support\PermissionCache;
+use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\UserFactory;
@@ -172,6 +173,18 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->is_active === true;
+    }
+
+    /**
+     * Linked to an employee who is suspended. Such an account may not sign in
+     * or refresh (owner, 2026-10-20, parity audit C-3) though it stays
+     * enabled, so it works again once the employee is back on duty. An
+     * account with no employee is never one.
+     */
+    public function isSuspendedEmployee(): bool
+    {
+        return $this->employee_id !== null
+            && $this->employee()->where('status', EmployeeStatus::Suspended)->exists();
     }
 
     /**

@@ -114,6 +114,29 @@ class MyLeaveRequestsTest extends TestCase
         $this->fileLeave()->assertCreated();
     }
 
+    /**
+     * The approver is not notified of a withdrawal (owner, 2026-10-20,
+     * parity audit C-5); opening the request from their earlier notification
+     * shows that it was withdrawn, by whom and when.
+     */
+    public function test_the_approver_opening_a_withdrawn_request_sees_who_withdrew_it_and_when(): void
+    {
+        $requester = $this->actingAsPerson($this->people['staff']);
+        $id = $this->fileLeave()->assertCreated()->json('data.leave_request.id');
+        $this->postJson("/api/me/leave-requests/{$id}/cancel")->assertOk();
+
+        $this->actingAsPerson($this->people['headA']);
+
+        $this->getJson("/api/leave/requests/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.status', LeaveStatus::Cancelled->value)
+            ->assertJsonPath('data.cancelled_by.id', $requester->id)
+            ->assertJsonPath('data.approval.status_label', 'مسحوب')
+            ->assertJsonPath('data.approval.steps.0.skip_reason_label', 'أُغلقت بسحب الطلب');
+
+        $this->assertNotNull(LeaveRequest::findOrFail($id)->cancelled_at);
+    }
+
     public function test_not_once_an_approver_has_decided(): void
     {
         $this->actingAsPerson($this->people['staff']);

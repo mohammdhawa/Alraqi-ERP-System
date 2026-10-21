@@ -52,6 +52,8 @@ class LeaveRequestService
      */
     public function file(Employee $employee, User $by, array $data, array $files): LeaveRequest
     {
+        LeaveException::unlessOnDuty($employee);
+
         $type = LeaveType::query()->findOrFail($data['leave_type_id']);
         $start = Carbon::parse($data['start_date'])->toDateString();
         $end = Carbon::parse($data['end_date'])->toDateString();

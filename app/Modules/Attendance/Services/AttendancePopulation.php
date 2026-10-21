@@ -18,7 +18,10 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * - REACHABLE: the employees the caller's attendance.records.view grants
  *   reach (GAP-3, through the CURRENT unit — D6), trashed ones included,
- *   because a departed person's records are still history.
+ *   because a departed person's records are still history — the records
+ *   list.
+ * - ON THE ROLL: of them, those not departed (soft-deleted or terminated) —
+ *   the daily board (parity audit C-8).
  * - EXPECTED: those of them expected to attend (Q7) — active employees with
  *   an active account. Legacy's `attendance_check` flag is gone. This is who
  *   has a row in the monthly report and who can be absent today.
@@ -39,6 +42,22 @@ final class AttendancePopulation
         $query = RequestRowScopes::forUser($user, 'attendance.records.view')->applyTo(Employee::withTrashed());
 
         return self::filter($query, $filters);
+    }
+
+    /**
+     * Those still on the roll: in reach, not departed — neither soft-deleted
+     * nor terminated. Who the daily board counts (owner, 2026-10-20, parity
+     * audit C-8; legacy's board left deleted users out). A suspended
+     * employee is still on the roll.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return Builder<Employee>
+     */
+    public function onRoll(User $user, array $filters): Builder
+    {
+        return RequestRowScopes::forUser($user, 'attendance.records.view')
+            ->applyTo(self::filter(Employee::query(), $filters))
+            ->where('status', '!=', EmployeeStatus::Terminated);
     }
 
     /**

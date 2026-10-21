@@ -6,6 +6,7 @@ namespace App\Modules\Attendance\Services;
 
 use App\Modules\Attendance\Contracts\ApprovedLeave;
 use App\Modules\Attendance\Enums\AttendanceEventType;
+use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\AttendanceSource;
 use App\Modules\Attendance\Exceptions\AttendanceException;
 use App\Modules\Attendance\Models\AttendanceRecord;
@@ -87,6 +88,11 @@ class AttendanceService
                 $moment = $this->calendar->parse($data['recorded_at']);
                 $workHours = null;
 
+                // A phone whose clock runs ahead (parity audit S-6).
+                if ($moment->gt(Carbon::now($this->calendar->timezone())->addMinutes($this->calendar->maxClockAheadMinutes()))) {
+                    throw new AttendanceException('وقت التسجيل لا يمكن أن يكون في المستقبل.');
+                }
+
                 if ($type === AttendanceEventType::CheckIn) {
                     $this->assertCanCheckIn($employee, $moment);
                 } else {
@@ -94,6 +100,13 @@ class AttendanceService
                     // From the check-in to the check-out: Carbon 3's difference
                     // is signed, so the order matters (legacy's Carbon 2 was not).
                     $workHours = round($checkIn->recorded_at->floatDiffInRealHours($moment), 2);
+
+                    // An offline check-out arriving after the day closed: the
+                    // check-in is no longer missing one, so the reports agree
+                    // on the day (parity audit S-2; legacy left the flag).
+                    if ($checkIn->status === AttendanceRecordStatus::MissingCheckout) {
+                        $checkIn->update(['status' => null]);
+                    }
                 }
 
                 $stored = $selfie === null ? null : $this->selfies->store($selfie, (int) $employee->getKey(), $moment);

@@ -17,6 +17,7 @@ use App\Modules\Leave\Models\LeaveRequest;
 use App\Shared\Support\NotificationEventCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
@@ -45,6 +46,13 @@ class LeaveExcuseTest extends TestCase
         $this->hr = $this->actingAsScopedUser(self::CREATE, ScopeType::Company, employeeId: null);
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     private function excuse(array $body = [], string $type = 'annual', ?Employee $employee = null): TestResponse
     {
         return $this->post('/api/leave/excuses', $body + [
@@ -61,6 +69,21 @@ class LeaveExcuseTest extends TestCase
     }
 
     // ── Filing ───────────────────────────────────────────────────────────
+
+    /**
+     * Parity audit S-5 (owner, 2026-10-20): an excuse justifies an absence
+     * that happened, so no day after today; today itself is allowed.
+     */
+    public function test_an_excuse_cannot_reach_past_today(): void
+    {
+        Carbon::setTestNow('2026-06-21 10:00:00');
+
+        $this->excuse()
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'لا يمكن تسجيل عذر لأيام لم تأتِ بعد.');
+
+        $this->excuse(['end_date' => '2026-06-21'])->assertCreated();
+    }
 
     public function test_an_excuse_is_approved_at_once_with_no_chain_and_its_author(): void
     {

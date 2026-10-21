@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Approvals\Controllers\ApprovalController;
+use App\Modules\Approvals\Controllers\ApprovalListController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -24,6 +25,11 @@ use Illuminate\Support\Facades\Route;
 | SCOPED to their approval: a step of another request is a 404.
 |
 */
+
+// HR's list of every approval in reach (parity audit C-4, 2026-10-20).
+Route::get('/', [ApprovalListController::class, 'index'])
+    ->middleware(['auth:sanctum', 'audit', 'permission:approvals.view'])
+    ->name('approvals.index');
 
 Route::middleware(['auth:sanctum', 'audit'])
     ->prefix('{approval}')

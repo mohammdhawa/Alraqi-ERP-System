@@ -99,7 +99,9 @@ final class MySummary
         $grid = $this->attendance->days($employee, $from, $today);
 
         $row = collect($grid['days'])->firstWhere('date', $today);
-        $notYet = $row['status'] === AttendanceDayState::Absent->value;
+        // The grid already leaves a today with nothing yet out of its
+        // expected and absent days (parity audit S-1); the card says null.
+        $notYet = $row['status'] === AttendanceDayState::NotYet->value;
         $summary = $grid['summary'];
 
         $day = [
@@ -116,11 +118,11 @@ final class MySummary
         $month = [
             'from'                       => $from,
             'to'                         => $today,
-            'expected_days'              => $summary['expected_days'] - ($notYet ? 1 : 0),
+            'expected_days'              => $summary['expected_days'],
             'present_days'               => $summary['present_days'],
             'on_leave_days'              => $summary['on_leave_days'],
             'excused_days'               => $summary['excused_days'],
-            'absent_days'                => $summary['absent_days'] - ($notYet ? 1 : 0),
+            'absent_days'                => $summary['absent_days'],
             'total_work_hours'           => $summary['total_work_hours'],
             'total_work_hours_formatted' => $summary['total_work_hours_formatted'],
         ];
