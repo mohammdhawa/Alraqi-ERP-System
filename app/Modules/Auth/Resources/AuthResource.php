@@ -52,12 +52,23 @@ class AuthResource extends JsonResource
     {
         return [
             'id'                => $this->id,
-            'name'              => $this->employee?->name,
+            // Joined from the employee's three name parts by the model's
+            // accessor — `employees.name` was split in Batch 2. The key stays
+            // `name`: this is the signed-in person's display name, and the
+            // session header has no use for the parts.
+            'name'              => $this->employee?->full_name,
             'email'             => $this->email,
             'is_active'         => $this->is_active,
+            // The client reads this to decide whether to open the
+            // change-password screen or the dashboard. It is not the
+            // enforcement — EnsurePasswordIsChanged is — it is how a
+            // well-behaved client avoids walking into a wall of 403s.
+            'must_change_password' => $this->must_change_password,
+            // De-duplicated since GAP-3, as in UserResource: the same role
+            // granted over two units is two rows in `roles`.
             'roles'             => $this->whenLoaded(
                 'roles',
-                fn () => $this->roles->pluck('name')->values(),
+                fn () => $this->roles->pluck('name')->unique()->values(),
             ),
             'permissions'       => $this->whenLoaded(
                 'roles',

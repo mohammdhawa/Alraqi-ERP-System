@@ -7,6 +7,7 @@ namespace App\Modules\Auth\Models;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Role Model
@@ -27,6 +28,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class Role extends Model
 {
     use HasAuditLog;
+
+    /**
+     * WHY SoftDeletes (C23): Stage 2's shared approval engine will reference
+     * roles by id, and a hard delete would strand those rows. Access is not
+     * affected — the global scope applies through the belongsToMany, so a
+     * trashed role vanishes from $user->roles() and grants nothing, while its
+     * user_roles and role_permissions rows survive so a restore is faithful.
+     */
+    use SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -55,9 +65,17 @@ class Role extends Model
 
     /**
      * Users who hold this role.
+     *
+     * Configured exactly like `User::roles()`, and it must stay that way: the
+     * scope guard lives in `UserRole`'s saving hook, and a plain belongsToMany
+     * here would let `$role->users()->attach(...)` insert raw pivot rows past
+     * it — a unit grant with no unit, from the one direction nobody checked.
+     * A user granted this role over two units appears twice.
      */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'user_roles');
+        return $this->belongsToMany(User::class, 'user_roles')
+            ->using(UserRole::class)
+            ->withPivot(['id', 'scope_type', 'scope_department_id']);
     }
 }

@@ -1,5 +1,27 @@
 # AI Agent Base Prompt - Alraqi ERP System
 
+> ## ⛔ SUPERSEDED — read `API_BUILD_STANDARD.md` instead
+>
+> **Only the task-framing and output-format sections of this file are still
+> usable.** Its architecture and technical-debt sections are stale, and stale in
+> the direction that produces insecure code. An agent following them will ship
+> unguarded endpoints.
+>
+> Specifically, this file still claims:
+>
+> | It says | Actually |
+> |---|---|
+> | the `permission` middleware "is currently a placeholder — do not rely on it as real RBAC" | It is **full, enforced RBAC** with no fail-open path. Every route is guarded by it and an agent told to distrust it will route around the only thing enforcing authorization |
+> | `App\Models\User` exists | `app/Models/` does not exist. The model is `App\Modules\Auth\Models\User` |
+> | the prune command may be unregistered | It is scheduled |
+> | throttling may be misconfigured | Configured and asserted by `AuthThrottleTest` |
+> | tests are minimal | 179 pass, 809 assertions |
+>
+> **`API_BUILD_STANDARD.md` is the binding standard**: numbered constraints
+> (C1–C31) you can cite in review, per-layer contracts, the build workflow, a
+> worked example, the review checklist, and a live gap register. Read it first.
+> Rewrite or delete this file rather than patching it.
+
 Use this prompt as the stable base prompt for any AI coding agent working on this repository. Replace only the section named `TASK BODY`.
 
 ---

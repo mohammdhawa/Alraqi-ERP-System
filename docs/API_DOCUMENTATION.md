@@ -2,6 +2,71 @@
 
 > Reference for frontend implementation. Covers every endpoint shipped in Phase 1:
 > **Auth**, **Users**, **Roles & Permissions (RBAC)**, **Notifications**, **Departments**, and **HR / Employees**.
+>
+> ⚠️ **2026-09-28 — `hire_date` and the posting history agree (GAP-19).**
+> Correcting an employee's `hire_date` now moves their opening تعيين posting
+> with it; a correction the history cannot follow is a **422 on `hire_date`**,
+> and a posting may not start before the hire (**422 on `from_date`** on the
+> assignments endpoint). See §8 (employee write) and the assignments section.
+>
+> ⚠️ **2026-09-28 — you can only hand out what you hold (GAP-16).** Assigning or
+> revoking a role, and creating, editing or deleting one, is now a **403** when
+> it would make someone gain or lose a permission the caller does not hold
+> themselves — over the grant's units for assign/unassign, company-wide for a
+> role definition. The message names the missing permissions by their Arabic
+> labels. **Only a super admin** grants or revokes `super_admin`. The interim
+> **422** that refused a scoped grant of a role carrying `auth.roles.assign`
+> (and adding `assign` to a role held narrowly) is **gone**: a scoped assigner
+> is legitimate now. See §5.2–§5.6. Nothing to migrate.
+>
+> ⚠️ **BREAKING, 2026-09-26 — assigning roles needs `auth.roles.assign`.**
+> `POST /api/auth/roles/assign` and `/unassign` no longer take
+> `auth.roles.update`, which now means editing role *definitions* only. Every
+> role that held `auth.roles.update` was given `auth.roles.assign` by migration,
+> so nobody lost the ability to assign — but **a client that shows the assign UI on
+> `auth.roles.update` must switch to `auth.roles.assign`**. And a grant scoped to
+> a unit or «الوحدات التي أديرها» now confers **only** the permissions whose
+> scope the server enforces (see §5.4, "What a scoped grant confers"); `/auth/me`
+> lists exactly those, so a UI built from it stays truthful.
+> **Deploy:** run `php artisan migrate` before the new code takes traffic — the
+> migration creates `auth.roles.assign` and hands it out; code live first would
+> 403 every role administrator short of a super admin until it runs. It
+> **refuses** if a role carrying `auth.roles.update` is granted over a unit
+> (that would become a scoped `assign`, which GAP-16 forbids), and it **reports**
+> every existing scoped grant that stops conferring a company-only permission.
+>
+> ⚠️ **BREAKING, 2026-09-24 — `direct_manager_id` and `direct_manager` are
+> gone.** Employee payloads carry a single **`manager`**, resolved from the org
+> tree; bind "المدير المباشر" to it. `direct_manager_id` is no longer accepted on
+> create or update, so **remove any manager picker from the employee form** — a
+> manager follows from `department_id` now. See §8.
+>
+> ⚠️ **ALSO 2026-09-23 — `viewSalary` / `viewIdentity` now gate WRITES.**
+> Sending a pay field or `national_id` without the matching permission is a
+> **422** naming the field, and `null` is refused like a value. Employee rows in
+> the audit trail need `hr.employees.viewSalary` for their `old_values` /
+> `new_values`. See §2 (field-level permissions) and §9.
+>
+> ⚠️ **BREAKING, 2026-09-23 — login takes `login`, not `email`.** Every client
+> must change its login call. The identifier is now the employee number, an
+> account may have no email at all, and a new **`POST /api/auth/password`**
+> exists. While `must_change_password` is `true` the API answers **403** on
+> everything except that route, `/auth/logout` and `/auth/me`. Read §3.1 and
+> §3.5 before touching the auth code.
+>
+> ⚠️ **BEHAVIOUR CHANGE, 2026-10-10 — `/auth/logout` ends only the caller's
+> session.** It used to sign the user out on every device. That is
+> **`POST /auth/logout-all`** now, and each signed-in device is a session the
+> user can list and end (§3.6). Login accepts optional `device_name` and
+> `platform` to label it.
+>
+> ⚙️ **Changed 2026-09-23 — `legacy_number` is gone.** The employee payload no
+> longer carries it, `search` no longer matches it, and it is rejected on create
+> and update. The company keeps **one** staff number — `employee_number` — and a
+> hand-typed `M024333` is stored exactly as given, so searching by a number off a
+> paper file still works. **If a list column or a profile header shows a separate
+> old-number field, remove it**; `FRONTEND_BATCH2_WORK_ORDER.md` asked for one
+> and that instruction is withdrawn.
 
 ---
 
@@ -25,7 +90,7 @@ All routes below are relative to `/api`. Each module is mounted under its own pr
 ### Content type
 
 - Send `Content-Type: application/json` and `Accept: application/json` on every request.
-- Always send `Accept: application/json` — it makes Laravel return JSON errors (e.g. 401/422) instead of HTML redirects.
+- Always send `Accept: application/json` — it is what the API is written for. ⚙️ Since 2026-09-28 (GAP-17) it is no longer what stands between you and a broken error: every `/api/*` error comes back as the JSON envelope whatever the header says, and an unauthenticated request is a **401**, never a redirect. Before that date, a request to a protected route **without** it got a **500** (Laravel tried to redirect to a login page that does not exist) — curl, a browser tab, a webhook or a health check all saw it.
 
 ### Authentication
 
@@ -37,7 +102,10 @@ Authentication uses **Laravel Sanctum bearer tokens** with a custom refresh‑to
   Authorization: Bearer {access_token}
   ```
 
-- **Access token** lifetime: **15 minutes** (`expires_in: 900` seconds).
+- **Access token** lifetime: **15 minutes** by default (`expires_in: 900` seconds).
+  Read `expires_in` from the login/refresh response rather than hardcoding 900 —
+  it is derived from server config (`SANCTUM_TOKEN_EXPIRATION`) and is `null` if
+  access tokens are configured never to expire.
 - **Refresh token** lifetime: **30 days**, single‑use (rotated on every refresh).
 - On `401 Unauthorized`, call `POST /api/auth/refresh` with the refresh token to obtain a new pair, then retry the original request.
 - Tokens are per‑user and replace each other: logging in (or refreshing) **deletes the previous access token**, so a user effectively holds one active access token at a time.
@@ -55,11 +123,36 @@ Authentication uses **Laravel Sanctum bearer tokens** with a custom refresh‑to
 
 Almost every endpoint returns the **same envelope**, so you can write a single parser.
 
-> ⚠️ **Two exceptions that do NOT carry `success`** (they are rendered by Laravel's defaults, not our handler):
-> - **`401` from a missing/expired/invalid access token** → `{ "message": "Unauthenticated." }` (English, no `success` key). This is the response that drives the refresh flow — **trigger your refresh interceptor on the HTTP `401` status, not on `success === false`**.
-> - **`429` rate-limit** → `{ "message": "Too Many Requests" }` plus a `Retry-After` header (seconds) and `X-RateLimit-*` headers. Read `Retry-After` to back off.
+> ✅ **There are now NO exceptions. Every response carries `success`** — success and error, application-generated and framework-generated, in every environment.
 >
-> Every other error (business rules, validation, permissions, disabled account, refresh-token failures) **does** use the envelope below.
+> **This changed on 2026-09-08, and it changed in your favour.** The previous
+> version of this section listed `401` and `429` as the only two bare responses.
+> That was wrong, and wrong in the direction that costs you: `422` validation —
+> the most common error any client handles — also arrived with **no `success`
+> key**, as did `404`, `405` and `5xx`. The `404` from a bad id additionally
+> leaked the internal model class name into `message`. All of it now goes
+> through one mapper.
+>
+> **What this means for your code**
+>
+> - You can now read `success` on **every** response, including `401` and `429`.
+> - **Keep triggering your refresh interceptor on the HTTP `401` status**, not on
+>   `success === false`. That advice has not changed and is still correct — a
+>   `403` also carries `success: false` and must never trigger a refresh.
+> - `401` and `429` messages are now Arabic and display-ready like everything
+>   else. If you were special-casing the English `"Unauthenticated."` or
+>   `"Too Many Requests"` strings, delete that branch.
+> - `429` still carries `Retry-After` (seconds) and `X-RateLimit-*` headers, and
+>   `405` still carries `Allow`. Those are unchanged.
+> - `message` on a `404` is now a generic Arabic string. Do not parse it — a
+>   missing row and an unknown route deliberately return the same text, so that a
+>   `404` never reveals which rows exist.
+>
+> 🆕 **`X-Request-Id` on every response.** Each response carries a correlation id,
+> and it is recorded on the matching audit rows. If you send your own
+> `X-Request-Id` (up to 64 chars of `A-Za-z0-9._-`) it is honoured and echoed
+> back; anything else is replaced. Send one per user action and log it, and a bug
+> report becomes traceable to the exact server-side rows that handled it.
 
 **Success**
 
@@ -107,11 +200,95 @@ Almost every endpoint returns the **same envelope**, so you can write a single p
 
 Most validation/business messages are returned in **Arabic**. Display `message` directly; use `errors` for per‑field highlighting.
 
+### Timestamps ⚠️ (applies to every endpoint, not just one)
+
+**Every timestamp this API returns is ISO‑8601 carrying the `+03:00` offset.**
+
+```json
+"created_at": "2026-06-21T10:00:00+03:00"
+```
+
+The app timezone is **Asia/Damascus**, and every resource serialises datetimes
+with Carbon's `toIso8601String()`, which preserves the instance's zone. So
+`created_at`, `updated_at`, `last_login_at`, `email_verified_at` and every other
+`_at` field carry `+03:00` — on Auth, Users, Roles, Notifications, Departments,
+HR and the audit log alike. There is no endpoint that returns UTC.
+
+**Parse the offset the server sent. Do not re‑zone it, and do not strip it.** A
+client that treats these as UTC renders the entire system three hours early —
+and it is a *plausible* three hours, which is what makes it dangerous: the dates
+stay right, nothing looks broken, and an evening event reads as afternoon.
+
+**The one exception, and it is not a serialised field.** Inside the audit log's
+`old_values` / `new_values` (§9.2), a timestamp appears as the raw stored
+column — `"updated_at": "2026-09-20 11:24:23"` — in DB format, Damascus local,
+with **no offset and no `T`**. Those blobs are a verbatim copy of the audited
+row, not a rendered resource, and putting an offset on them at read time would
+mean rewriting history on an append-only table. **Read a bare timestamp as
+Damascus local**; that is what the server means by one, and it is the only place
+you will meet it.
+
+> ⚠️ **Corrected 2026‑09‑20.** Every JSON example in this document below §1 used
+> to show `+00:00`. That was wrong for all of them — seventeen examples across
+> six sections — and nothing in the API ever behaved that way. The rule was
+> stated only in §9.6, where it read as a quirk of the audit log rather than as
+> what it is: a property of every response. `TimestampContractTest` now sweeps
+> every `_at` key of every shipped endpoint, at any depth, so an example and the
+> wire cannot drift apart again without failing the build.
+
+### Embedded objects (an FK and the thing it points at)
+
+Where a resource carries a foreign key you would otherwise resolve yourself, it
+ships the id **and** the referenced record beside it, under the same name
+without the `_id`:
+
+```json
+"manager_id": 12,
+"manager": { "id": 12, "full_name": "سامر خليل", "employee_number": "E-0012" }
+```
+
+- **The `*_id` is unchanged and is the write contract.** It is what you `POST` /
+  `PUT` back, and what permission fallbacks and client-side rules read. The
+  embedded object is read‑only decoration beside it — never send it back.
+- **The object is `null`, never missing, when there is nobody to name** — the FK
+  is null, or it points at a soft‑deleted row you could not fetch either way.
+- ⚠️ **A missing key means something else entirely: "you may not see this
+  field."** That is how field‑level gating is expressed (`national_id`, the pay
+  block — see [§8.1](#81-employee-object)). Never treat an absent key and a
+  `null` as the same thing.
+- **A person is always `{ id, full_name, employee_number }`**, wherever they are
+  embedded. `employee_number` is in there because الاسم الثلاثي is *not* unique
+  at this headcount — two people genuinely share one, and the staff number is
+  what tells them apart on screen.
+- **Embedded people are not permission‑gated.** Whoever may read the owning
+  record may see who the referenced person is; neither `full_name` nor
+  `employee_number` sits behind `viewIdentity` / `viewSalary`.
+
+Every embed below is resolved server‑side with a single query per page — reading
+a list never costs you a request per row.
+
+| Resource | FK | Embedded object |
+| --- | --- | --- |
+| Department | `manager_id` | `manager` — the employee who runs the unit |
+| User | `employee_id` | `employee` — the person the account belongs to |
+| Employee | `department_id` · `job_title_id` | `department` (`{id, name, level}`) · `job_title` (`{id, name}`) · `manager` — **resolved from the org tree, not an FK on this row** |
+| Employee warning | `issued_by` | `issuer` — who issued it |
+| Posting (assignment) | `department_id` · `job_title_id` | `department` · `job_title` |
+
 ### Pagination ⚠️ (important for list endpoints)
 
-List endpoints (`departments.index`, `hr/employees.index`, `notifications.index`) are paginated server‑side at **15 items per page**.
+**Every list endpoint in this API is paginated, and they all page identically** —
+`departments.index`, `hr/employees.index`, `notifications.index`,
+`auth/users.index` and `auth/roles.index`. Write one pager; it works on all five.
 
 - Request a page with the query string: `?page=2`.
+- Request a page size with `?per_page=50`. **Default 15, clamped to 1–100.**
+  Out-of-range values are clamped rather than rejected, so `?per_page=1000000`
+  returns 100 and `?per_page=0` returns 1 — neither is an error. A non-numeric
+  value falls back to 15. `meta.per_page` always reports the size actually
+  applied, so read it back rather than assuming your request was honoured.
+- An out-of-range `?page=99` is a **`200`** with `"data": []` and correct `meta`,
+  never a `404`.
 - `data` is a **flat array of items**, and pagination metadata is returned alongside it under a sibling **`meta`** key:
 
 ```json
@@ -134,11 +311,28 @@ List endpoints (`departments.index`, `hr/employees.index`, `notifications.index`
 | -------------- | ------------------------------------------------ |
 | `current_page` | the page returned                                |
 | `last_page`    | total number of pages (build pager from this)    |
-| `per_page`     | items per page (15)                              |
+| `per_page`     | items per page actually applied (after clamping) |
 | `total`        | total item count across all pages                |
 | `from` / `to`  | 1‑based index range of items on this page (`null` when the page is empty) |
 
-Roles and Users list endpoints (`/api/auth/roles`, `/api/auth/users`) return the **full collection** (not paginated) and have **no** `meta` key.
+These six keys are the **whole** contract — there is no `links` or `path`, and
+`meta` is a sibling of `data`, never nested inside it. `data` is **always an
+array**, never an object keyed by id and never `null`; an empty page is `[]` with
+`from`/`to` set to `null`. `last_page` is `1` when there are no results, never `0`.
+
+> ⚠️ **Changed 2026-09-08 — action needed if you consume roles or users.**
+> `/api/auth/roles` and `/api/auth/users` previously returned the **full
+> collection** with no `meta`. They are now paginated like everything else, so
+> they return **15 items by default instead of all of them**. If you were relying
+> on receiving every row in one response — populating a role dropdown, for
+> instance — page through with `?per_page=100` or read `meta.last_page`. This is
+> the one breaking change in this revision, and `users` is about to grow past 242
+> rows in Batch 4, so the old behaviour was not survivable.
+>
+> Also changed: `POST /api/auth/roles/assign` and `/unassign` now return the
+> updated user (with their resulting `roles`) in `data`, where they previously
+> returned a message only. Purely additive — existing `message`-only clients are
+> unaffected — but it saves you a follow-up request to refresh what you changed.
 
 ---
 
@@ -152,14 +346,75 @@ Roles and permissions both carry an Arabic **`label`** for display; `name` is th
 
 Permission string format: `{module}.{resource}.{action}`.
 
-**Phase‑1 permission catalogue**
+**Permission catalogue — 30 rows** (27 route-level + 3 field-level)
 
-| Module        | Permissions                                                                                      |
-| ------------- | ------------------------------------------------------------------------------------------------ |
-| Departments   | `departments.view`, `departments.create`, `departments.update`, `departments.delete`             |
-| HR            | `hr.employees.view`, `hr.employees.create`, `hr.employees.update`, `hr.employees.delete`         |
-| Auth – Users  | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`                 |
-| Auth – Roles  | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`                 |
+| Module            | Permissions                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| Departments       | `departments.view`, `departments.create`, `departments.update`, `departments.delete`         |
+| HR – Employees    | `hr.employees.view`, `hr.employees.create`, `hr.employees.update`, `hr.employees.delete`     |
+| HR – fields       | `hr.employees.viewSalary`, `hr.employees.viewIdentity` — **field-level**, see below           |
+| HR – Job titles   | `hr.job_titles.view`, `hr.job_titles.create`, `hr.job_titles.update`, `hr.job_titles.delete` |
+| HR – Assignments  | `hr.assignments.view`, `hr.assignments.create` — **no update or delete**, see [§8.3](#83-posting-history--سجل-التعيين) |
+| HR – Warnings     | `hr.warnings.view`, `hr.warnings.create`, `hr.warnings.update`, `hr.warnings.delete`         |
+| Auth – Users      | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`             |
+| Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`, `auth.roles.assign` — **`update` edits a role's definition; `assign` grants roles to users** (split 2026-09-26) |
+| Auth – Audit      | `auth.audit.view` — **no create/update/delete**, see [§9](#9-audit-log--سجل-التدقيق); `auth.audit.viewValues` — **field-level**, see below |
+
+> `hr.assignments` has no `update` or `delete` **by design**, not by omission:
+> سجل التعيين is append-only, because editing a historical posting changes what
+> a payslip was computed against with no trace of the original.
+>
+> `auth.audit` has no write action at all, for the same reason taken further:
+> `audit_logs` is append-only by design and in production the DB user should
+> hold INSERT and SELECT only. There is no permission to grant, because there is
+> no such power to hold.
+
+### Field-level permissions (new, 2026-09-08)
+
+These three guard **fields inside a payload**, not routes. No endpoint requires
+them; they decide whether certain keys appear in a response:
+
+| Permission | Unlocks |
+| --- | --- |
+| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, `payroll_location`, and **every classification axis** — `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
+| `hr.employees.viewIdentity` | `national_id` |
+| `auth.audit.viewValues` | `old_values` and `new_values` on `GET /api/auth/audit-logs/{id}` — see [§9](#9-audit-log--سجل-التدقيق) |
+
+**Without the permission the key is ABSENT, not `null`.** Do not read
+`employee.salary === null` as "this employee has no salary" — check whether the
+key exists, or gate your UI on the permission array you already receive from
+login and `/me`. A `null` would be a claim about the employee; an absent key is a
+statement about the reader.
+
+> ⚙️ **2026-10-19 — your own record is the exception, on `/api/me` only.**
+> `GET /api/me/profile` shows the caller **their own** pay block and national
+> id without either permission (§17.1). Nothing is granted: on
+> `/api/hr/employees/*` every row — the caller's own included — is still
+> decided by the permissions above.
+
+They are separate on purpose: payroll needs pay and not identity documents, HR
+administration often needs the reverse. Previously both fields were visible to
+anyone holding plain `hr.employees.view`.
+
+Batch 2 extends `viewSalary` to `agreed_salary`, `sham_cash_account` and the
+classification axes (`activity_type`, `organizational_grade`, …) — the axes are
+the inputs the salary is computed from, so hiding the result while exposing them
+would be theatre.
+
+> ⚠️ **NEW 2026-09-23 — these permissions now gate WRITES too: من لا يرى لا
+> يكتُب.** Sending any field in the table above on `POST /api/hr/employees` or
+> `PUT/PATCH /api/hr/employees/{id}` **without the matching permission is a
+> 422**, with the error on that field:
+>
+> ```json
+> { "errors": { "agreed_salary": ["لا تملك صلاحية تعديل حقول الرواتب ومعاييرها."] } }
+> ```
+>
+> **The field must be ABSENT, not `null`.** Sending `"agreed_salary": null` is
+> refused exactly like sending a value — otherwise a caller who cannot read a
+> salary could clear one. This is the server half of the rule your UI already
+> follows: *don't render, don't send*. A payload that reaches the API carrying a
+> gated field is a client bug, and the 422 names which field it was.
 
 A missing permission yields:
 
@@ -181,17 +436,27 @@ HTTP `403`.
 ```
 POST /api/auth/login
 ```
-**Public.** Rate limited to **5 requests/minute per IP**.
+**Public.** Rate limited to **5 requests/minute per IP + identifier**.
+
+> ⚠️ **BREAKING, 2026-09-23 — the field is `login`, not `email`.** Sending
+> `email` is now a 422. The identifier is the **employee number**
+> (`EMP-00042`), because most site staff have no email address and every
+> employee needs an account: attendance is recorded through the app. An account
+> with no employee — the technical department, `super_admin` — still signs in
+> with its email, through the same field. **One field, either value; the server
+> works out which.**
 
 **Request body**
 
-| Field      | Type   | Rules                            |
-| ---------- | ------ | -------------------------------- |
-| `email`    | string | required, email, max 255         |
-| `password` | string | required, 8–128 chars            |
+| Field      | Type   | Rules                                                     |
+| ---------- | ------ | --------------------------------------------------------- |
+| `login`    | string | required, max 255 — an employee number **or** an email      |
+| `password` | string | required, 8–128 chars                                       |
+| `device_name` | string | optional, max 100 — labels this session in §3.6 (`Galaxy A54`) |
+| `platform` | string | optional — `android`, `ios` or `web`; anything else is a 422 |
 
 ```json
-{ "email": "admin@example.com", "password": "secret123" }
+{ "login": "EMP-00042", "password": "secret123" }
 ```
 
 **200 Response**
@@ -206,6 +471,7 @@ POST /api/auth/login
       "name": "Test User",
       "email": "admin@example.com",
       "is_active": true,
+      "must_change_password": false,
       "roles": ["super_admin"],
       "permissions": [
         "auth.users.view", "auth.users.create", "auth.users.update", "auth.users.delete",
@@ -213,9 +479,9 @@ POST /api/auth/login
         "departments.view", "departments.create", "departments.update", "departments.delete",
         "hr.employees.view", "hr.employees.create", "hr.employees.update", "hr.employees.delete"
       ],
-      "last_login_at": "2026-06-21T09:59:00+00:00",
+      "last_login_at": "2026-06-21T09:59:00+03:00",
       "email_verified_at": null,
-      "created_at": "2026-06-21T10:00:00+00:00"
+      "created_at": "2026-06-21T10:00:00+03:00"
     },
     "access_token": "1|xxxxxxxxxxxxxxxxxxxxxxxx",
     "refresh_token": "64-character-random-string",
@@ -233,6 +499,7 @@ POST /api/auth/login
 
 - `401` — invalid credentials: `{ "message": "بيانات الاعتماد غير صحيحة." }` (generic on purpose — does not reveal whether the email exists).
 - `403` — disabled account (`is_active = false`): `{ "message": "تم تعطيل هذا الحساب." }`. Note this is **403, not 401** — do **not** route it through the token-refresh flow; show an "account disabled" state.
+- `403` — ⚙️ **2026-10-20** — the account's employee is **suspended** (موقوف): `{ "message": "لا يمكن تسجيل الدخول: الموظف موقوف عن العمل." }`. The account stays enabled, and signs in again once the employee is back on duty. Suspending an employee also ends every session they had open (parity audit C-3). A terminated employee's account is disabled, as before.
 - `422` — validation failure (e.g. `email` / `password` missing or malformed). Per‑field Arabic messages in `errors`.
 - `429` — too many attempts (5/min/IP). Read the `Retry-After` header.
 
@@ -271,6 +538,7 @@ POST /api/auth/refresh
 - `رمز التحديث غير صالح.` — token not found.
 - `انتهت صلاحية رمز التحديث.` — expired.
 - `الحساب غير مُفعّل.` — account disabled.
+- `لا يمكن تسجيل الدخول: الموظف موقوف عن العمل.` — ⚙️ 2026-10-20: the employee is suspended (parity audit C-3).
 - `تم إبطال هذا الرمز. تم إنهاء جميع الجلسات حفاظًا على الأمان.` — **token reuse detected**. The refresh token was already used once; the server treats this as theft and **revokes all of the user's sessions**. The client must force a full re‑login.
 
 > **Single‑use rule:** never retry `/refresh` with the same refresh token. Always store the new refresh token returned by each call.
@@ -282,12 +550,23 @@ POST /api/auth/refresh
 ```
 POST /api/auth/logout
 ```
-**Protected** (`Authorization: Bearer`). Revokes **all** access + refresh tokens for the user (logs them out on every device).
+**Protected** (`Authorization: Bearer`). Ends **the caller's session only** — this device's access and refresh token. Other devices stay signed in.
+
+> ⚙️ **Changed 2026-10-10.** This used to sign the user out everywhere. To do that now, call `POST /api/auth/logout-all`.
 
 **200 Response**
 
 ```json
 { "success": true, "message": "تم تسجيل الخروج بنجاح." }
+```
+
+```
+POST /api/auth/logout-all
+```
+**Protected.** Ends **every** session the user has, on every device. Reachable while `must_change_password` is set.
+
+```json
+{ "success": true, "message": "تم تسجيل الخروج من جميع الأجهزة." }
 ```
 
 ---
@@ -310,18 +589,117 @@ GET /api/auth/me
     "name": "Test User",
     "email": "admin@example.com",
     "is_active": true,
+    "must_change_password": false,
     "roles": ["super_admin"],
     "permissions": ["auth.users.view", "auth.roles.view", "hr.employees.view", "..."],
-    "last_login_at": "2026-06-21T09:59:00+00:00",
+    "last_login_at": "2026-06-21T09:59:00+03:00",
     "email_verified_at": null,
-    "created_at": "2026-06-21T10:00:00+00:00"
+    "created_at": "2026-06-21T10:00:00+03:00"
   }
 }
 ```
 
 - `name` is the **linked employee's** name (`null` when the account has no employee link).
+- `email` **may be `null`** since 2026-09-23. It is a contact field, not the identity — see §3.1.
 - `permissions` is the **union** of every permission across the user's roles, de‑duplicated. A user with no roles gets `[]`. A **super admin** gets the **entire catalogue**.
 - `roles` is an array of role names.
+- ⚠️ `must_change_password` — when `true`, **open the change-password screen, not the dashboard.** Every other endpoint answers 403 until it is cleared. See §3.5.
+
+---
+
+### 3.5 Change your own password
+
+```
+POST /api/auth/password
+```
+**Protected. Self-scoped — no permission required**, because it acts only on the caller's own credential.
+
+> **Why this exists.** The first password of every account is issued by HR, so it is a secret more than one person knows. The account carries `must_change_password` until it is replaced, and while that flag is set **the API refuses every route except this one, `/auth/logout`, `/auth/logout-all` and `/auth/me`** with a **403**.
+>
+> **403, not 401 — do not refresh the token and do not bounce to login.** The session is valid; the *action* is refused. Treating it as an auth failure produces an infinite loop, because re-authenticating changes nothing.
+
+**Request body**
+
+| Field                   | Type   | Rules                                                        |
+| ----------------------- | ------ | ------------------------------------------------------------ |
+| `current_password`      | string | required                                                      |
+| `password`              | string | required, 8–128, **confirmed**, must differ from the current   |
+| `password_confirmation` | string | required, must match `password`                               |
+
+**200 Response** — a **fresh token pair**, because a successful change revokes every session including the caller's:
+
+```json
+{
+  "success": true,
+  "message": "تم تغيير كلمة المرور بنجاح. تم إنهاء الجلسات الأخرى.",
+  "data": {
+    "access_token": "3|xxxxxxxxxxxxxxxxxxxxxxxx",
+    "refresh_token": "64-character-random-string",
+    "token_type": "Bearer",
+    "expires_in": 900
+  }
+}
+```
+
+⚠️ **Replace your stored tokens with these.** Every previously issued token for this account — including the one that made this request — is dead by the time the response arrives. That is deliberate: if somebody else had signed in with the temporary password, a change that spared their session would have locked nobody out.
+
+**Failures**
+
+| Status | When |
+| ------ | ---- |
+| **401** | `current_password` is wrong (`كلمة المرور الحالية غير صحيحة.`) |
+| **422** | The new password is too short, unconfirmed, or identical to the current one |
+
+---
+
+### 3.6 Sessions — the caller's signed-in devices
+
+A **session** is one sign-in on one device. Login starts it; every `/refresh` continues it (same `id`); it ends at logout, at `DELETE` below, at a password change (every session except the caller's), or when the account is disabled. **Self-scoped — no permission required**: these act on the caller's own sessions only.
+
+```
+GET /api/auth/sessions
+```
+
+**200 Response** — newest sign-in first.
+
+```json
+{
+  "success": true,
+  "message": "تم جلب الجلسات.",
+  "data": [
+    {
+      "id": "3f1c2a9e-8b7d-4e21-9a55-2c4f0d6b7e10",
+      "device_name": "Galaxy A54",
+      "platform": "android",
+      "signed_in_at": "2026-10-10T08:02:11+03:00",
+      "last_used_at": "2026-10-10T11:47:03+03:00",
+      "is_current": true
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | The session's UUID — stable across refreshes |
+| `device_name`, `platform` | As sent at login; `null` when the client sent none |
+| `signed_in_at` | When this device signed in |
+| `last_used_at` | The last request made with this session's access token |
+| `is_current` | `true` for the session making this request |
+
+```
+DELETE /api/auth/sessions/{id}
+```
+
+Ends that session: the device's next request is a **401** and its refresh token is refused. Ending your own (`is_current`) is the same as logout.
+
+- **404** — the id is not one of **your** live sessions (another account's, or already ended). Deliberately not 403.
+
+> **Client note — an ended session is not a stolen one.** A device whose session was ended elsewhere gets a plain **401** from `/refresh` and should go to login. That refresh does **not** trip replay detection (§3.2): only a *rotated* token presented twice does.
+
+```json
+{ "success": true, "message": "تم إنهاء الجلسة." }
+```
 
 ---
 
@@ -340,15 +718,17 @@ All routes are **protected** and guarded by `auth.users.*` permissions. Base pat
   "email": "jane@example.com",
   "is_active": true,
   "employee_id": 3,
+  "employee": { "id": 3, "full_name": "Jane Doe", "employee_number": "E-0003" },
   "roles": ["manager"],
-  "last_login_at": "2026-06-21T09:59:00+00:00",
+  "last_login_at": "2026-06-21T09:59:00+03:00",
   "email_verified_at": null,
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
 - **An account stores no name of its own.** `name` is the name of the **linked HR employee** (`employee_id` → employees); it is `null` for an unlinked account. To "rename" a user you rename the employee (HR endpoints) or re‑link `employee_id`.
-- `employee_id` is **required on create** and unique — at most **one account per employee**.
+- 🆕 `employee` is that same person as an object — `{ id, full_name, employee_number }` — so a user list can show **who** each account belongs to without a lookup per row. It is **`null`, never absent**, for an unlinked account (or one whose employee was deleted); see [Embedded objects](#embedded-objects-an-fk-and-the-thing-it-points-at). `name` is unchanged and still the account's display name.
+- `employee_id` is **required on create** and unique — at most **one account per employee**. It remains the write contract: send `employee_id`, never `employee`.
 - `roles` is an array of **role names**, included only when the relation is loaded (it is loaded on all Users endpoints). Grant/revoke roles via the [assign/unassign endpoints](#54-assign-role-to-user) — not here.
 - `last_login_at` is the last successful login (`null` if the account never logged in).
 
@@ -357,7 +737,7 @@ All routes are **protected** and guarded by `auth.users.*` permissions. Base pat
 ```
 GET /api/auth/users          (permission: auth.users.view)
 ```
-Returns the full collection in `data` (array of user objects). Message: `تم جلب المستخدمين.`
+Paginated (15/page, `?page=N`, `?per_page=N`) — `data` is an array of user objects with the six `meta` keys beside it. Message: `تم جلب المستخدمين.`
 
 ### 4.2 Create user
 
@@ -368,7 +748,7 @@ POST /api/auth/users         (permission: auth.users.create)
 | Field         | Type    | Rules                                                                       |
 | ------------- | ------- | --------------------------------------------------------------------------- |
 | `employee_id` | integer | **required**; must be an existing, non‑deleted employee; must not already have an account |
-| `email`       | string  | required, email, max 255, **unique**                                        |
+| `email`       | string  | **optional, nullable** since 2026-09-23, email, max 255, unique when present |
 | `password`    | string  | required, min 8                                                             |
 | `is_active`   | boolean | optional (defaults to `true`)                                               |
 
@@ -385,11 +765,18 @@ Partial update — all fields optional.
 | Field         | Type    | Rules                                                                        |
 | ------------- | ------- | ---------------------------------------------------------------------------- |
 | `employee_id` | integer | optional; re‑links the account to another existing, non‑deleted employee not already linked elsewhere |
-| `email`       | string  | optional, email, max 255, unique (ignores this user)                         |
+| `email`       | string  | optional, **nullable**, email, max 255, unique (ignores this user)           |
 | `password`    | string  | optional, nullable, min 8 (re‑hashed when sent)                              |
 | `is_active`   | boolean | optional                                                                     |
 
 There is **no `name` field** — the display name always tracks the linked employee.
+
+⚠️ **Two updates sign the account out everywhere** (GAP-20, 2026-10-16):
+setting `is_active` to `false`, and sending a `password` (a reset — it also sets
+`must_change_password`). Every session of that account ends at once, on every
+device: its next request is a 401 and its refresh fails. Re-enabling an account
+does not restore them; the person signs in again. **An administrator resetting
+their own password this way is signed out too** — say so before they confirm.
 
 **200 Response** → `{ data: <user object>, message: "تم تحديث المستخدم." }`
 
@@ -417,7 +804,7 @@ All routes **protected**, base path `/api/auth/roles`, guarded by `auth.roles.*`
   "description": "Department managers",
   "is_system": false,
   "permissions": ["hr.employees.view", "hr.employees.update"],
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
@@ -456,6 +843,8 @@ POST /api/auth/roles         (permission: auth.roles.create)
 
 **201 Response** → `{ data: <role object>, message: "تم إنشاء الدور." }`
 **422** — `name.unique`: `يوجد دور بهذا الاسم بالفعل.` / unknown permission: `واحدة أو أكثر من الصلاحيات المحددة غير موجودة.`
+**403** — a permission the caller does not hold **company-wide** (GAP-16; a super admin holds everything). The message lists them:
+`لا يُنشأ دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة». لا تملك: «عرض رواتب الموظفين».`
 
 ### 5.3 Update role
 
@@ -475,27 +864,135 @@ Partial update.
 
 **200 Response** → `{ data: <role object>, message: "تم تحديث الدور." }`
 **409** — system role (`is_system`, e.g. `super_admin`): `لا يمكن تعديل أو حذف دور نظام.`
+**403** — every permission **added or removed** must be one the caller holds
+**company-wide** (GAP-16). Editing a role changes what everyone holding it may
+do — the caller included — so without this, adding a permission to your own
+role would be a way to acquire it. Permissions left unchanged are not checked.
+The message lists what is missing:
+`لا تُضاف صلاحية إلى دور ولا تُزال منه ما لم تكن تملكها أنت على مستوى «الشركة كاملة»، لأن تعديل الدور يغيّر ما يملكه كل من أُسند إليه. لا تملك: «…».`
+
+~~422 on `permissions` for adding `auth.roles.assign` to a role held over a
+unit~~ — removed 2026-09-28 with the GAP-16 fix.
 
 ### 5.4 Assign role to user
 
 ```
-POST /api/auth/roles/assign        (permission: auth.roles.update)
+POST /api/auth/roles/assign        (permission: auth.roles.assign)
 ```
 
-| Field     | Type    | Rules                          |
-| --------- | ------- | ------------------------------ |
-| `user_id` | integer | required, must exist in users  |
-| `role_id` | integer | required, must exist in roles  |
+| Field                 | Type    | Rules                                                                 |
+| --------------------- | ------- | --------------------------------------------------------------------- |
+| `user_id`             | integer | required, must exist in users                                         |
+| `role_id`             | integer | required, must exist in roles                                         |
+| `scope_type`          | integer | optional — `1` الشركة كاملة · `2` وحدة محددة · `3` الوحدات التي أديرها. **Omitted = `1`** |
+| `scope_department_id` | integer | **required when `scope_type` is `2`**, and must be **absent** otherwise (even `null` is refused). A live department |
 
-**200 Response** → `{ message: "تم إسناد الدور 'manager' إلى jane@example.com." }`
-**422** — unknown user/role: `المستخدم المحدد غير موجود.` / `الدور المحدد غير موجود.`
+⚙️ **Scoped grants (GAP-3, 2026-09-24).** A grant is now a role **plus how far it
+reaches**. `1` reads every row — what every grant meant before scopes existed,
+and what all existing grants were migrated to. `2` reaches the named unit and
+everything beneath it. `3` reaches the subtree of every unit whose manager is the
+user's linked employee — nothing is stored about *which* units, so moving a
+manager in the org tree moves their reach with them. The same role may be granted
+over several units; each is its own grant. Assigning an identical grant twice is
+a no-op.
+
+**200 Response** → `{ data: <user object>, message: "تم إسناد الدور إلى المستخدم." }` — the
+user object now carries `grants`:
+
+```json
+"roles":  ["supervisor"],
+"grants": [
+  { "id": 7, "role": "supervisor", "scope_type": 2, "scope_label": "وحدة محددة",
+    "department": { "id": 12, "name": "قسم الصيانة" } },
+  { "id": 8, "role": "supervisor", "scope_type": 2, "scope_label": "وحدة محددة",
+    "department": { "id": 14, "name": "قسم التشغيل" } }
+]
+```
+
+`roles` stays a de-duplicated list of names; `grants` is where the scopes are.
+`department` is `null` for scope types `1` and `3`.
+
+**`super_admin` is company-wide only.** Its power is a bypass, and a bypass has no
+scope, so `scope_type` `2` or `3` with the `super_admin` role is a **422** on
+`scope_type`.
+
+**You can only grant what you reach.** The grant may not reach further than the
+caller's own `auth.roles.assign` grant. A company-wide caller may grant anything;
+a caller holding `auth.roles.assign` over a unit may grant `2` inside that unit,
+or `3` to someone whose managed units are all inside it — and **never** `1`, not
+even to themselves. Anything else is a **403**:
+`لا يمكنك منح أو سحب صلاحية تتجاوز نطاق صلاحياتك.`
+
+A scoped caller may not give `3` to someone who **manages nothing** — nor revoke
+one: its reach would be set by whatever unit that person is appointed to next,
+beyond the caller's. **403**:
+`نطاق «الوحدات التي أديرها» لمستخدم لا يدير حالياً أي وحدة لا يمنحه ولا يسحبه إلا من يملك صلاحية الإسناد على مستوى الشركة كاملة.`
+
+**You can only grant what you hold (GAP-16, 2026-09-28).** Every permission the
+grant would **confer**, the caller must hold themselves **over the same units**
+— company-wide for a `1` grant, over the named unit for `2`, over every unit the
+grantee manages today for `3` (company-wide if they manage none). "Confer" is
+exact: over a unit, the role's company-only permissions confer nothing (table
+below), so they are not asked of the caller either. This binds **every caller
+but a super admin**, company-wide assigners included — an administrator who
+cannot see pay cannot hand out a payroll role, to themselves or to anyone.
+**403**, naming what is missing:
+`لا يُمنح دور ولا يُسحب إلا ممن يملك كل ما يمنحه هذا الدور على النطاق نفسه. لا تملك: «عرض رواتب الموظفين».`
+
+**`super_admin` is granted and revoked by a super admin only** — it carries no
+permission rows, so the rule above would pass it for anyone. **403**:
+`دور مدير النظام لا يمنحه ولا يسحبه إلا مدير نظام.`
+
+A role carrying `auth.roles.assign` **may** be granted over a unit or
+«الوحدات التي أديرها» since 2026-09-28: its holder is bound by the same two rules.
+(From 2026-09-26 until then it was a 422, while this was open.)
+
+**422 on `scope_type`** when a grant over a unit or «الوحدات التي أديرها» would
+confer **nothing** — every permission in the role works company-wide only (see
+below). A role that is only *partly* company-only is accepted, and so is a role
+with no permissions at all (it confers nothing at any scope):
+`لن يمنح هذا الإسناد أي صلاحية على هذا النطاق: كل صلاحيات هذا الدور لا تعمل إلا بإسناد على مستوى «الشركة كاملة». اختر دوراً آخر لهذا النطاق.`
+
+**422** — unknown user/role: `المستخدم المحدد غير موجود.` / `الدور المحدد غير موجود.`;
+a malformed scope names the field (`scope_type` or `scope_department_id`).
+
+#### What a scoped grant confers (GAP-15, 2026-09-26)
+
+A grant over a unit or «الوحدات التي أديرها» confers **only** the permissions
+whose scope the server actually enforces. Everything else in its role counts
+only from a **company-wide** grant — held over a unit, it is simply not held:
+absent from `/auth/me`, and a route requiring it answers the ordinary **403**.
+
+| From any grant (scope applied where it means something) | Only from a company-wide grant |
+| --- | --- |
+| `hr.employees.*` (incl. `viewSalary` / `viewIdentity`), `hr.assignments.*`, `hr.warnings.*` — **row-scoped** (§8.1) | `departments.create` / `update` / `delete` |
+| `auth.roles.assign` — **bounded by the assigner's reach and by what they hold** (above) | `hr.job_titles.create` / `update` / `delete` |
+| `departments.view`, `hr.job_titles.view`, `auth.roles.view` — **company catalogues**, readable from any grant so a scoped user's pickers work | `auth.users.*`, `auth.roles.create` / `update` / `delete`, `auth.audit.view` / `viewValues` |
+
+Why: those routes check the permission by name and nothing else, and three of
+them edit what scope is computed from — who manages which unit, which account is
+which employee, what a role carries — so a scoped grant holding them could widen
+its own reach. A permission added in future is company-only until the server
+enforces its scope. **For an admin UI:** a role assigned over a unit keeps its
+company-only permissions on paper, but they do nothing there — worth a warning
+when assigning.
 
 ### 5.5 Unassign role from user
 
 ```
-POST /api/auth/roles/unassign      (permission: auth.roles.update)
+POST /api/auth/roles/unassign      (permission: auth.roles.assign)
 ```
-Same body as assign. **200 Response** → `{ message: "تم سحب الدور 'manager' من jane@example.com." }`
+Same body as assign. **With** `scope_type` (and `scope_department_id` for a unit)
+only that one grant is revoked; **without** it, **every** grant of the role is
+revoked — the pre-GAP-3 meaning of "take this role away". Takes effect on the
+user's next request. **200 Response** → `{ data: <user object>, message: "تم سحب الدور من المستخدم." }`
+
+Differences from assign: `scope_department_id` **may name a soft-deleted unit**
+(a grant on a unit deleted afterwards keeps working, so it has to stay revocable
+on its own). Every grant being revoked must pass **the same rules as assign** —
+within the caller's reach, carrying nothing the caller does not hold there, and
+`super_admin` only by a super admin; if any one does not, **nothing** is revoked
+and the answer is **403**. Nobody takes away what they could not have given.
 
 ### 5.6 Delete role
 
@@ -504,8 +1001,10 @@ DELETE /api/auth/roles/{role}      (permission: auth.roles.delete)
 ```
 **200 Response** → `{ message: "تم حذف الدور." }`
 **409** — system role (`is_system`, e.g. `super_admin`) — the RBAC bootstrap is protected on **every** path, not just this endpoint: `لا يمكن تعديل أو حذف دور نظام.`
+**403** — the role carries a permission the caller does not hold **company-wide** (GAP-16): deleting it revokes that permission from every holder.
+`لا يُحذف دور يحمل صلاحية لا تملكها أنت على مستوى «الشركة كاملة»، لأن حذفه يسحبها من كل من أُسند إليه. لا تملك: «…».`
 
-> Assigning/unassigning a system role to users **is** allowed — only mutating the role itself is blocked.
+> Assigning/unassigning a system role to users **is** allowed — only mutating the role itself is blocked. For `super_admin`, only a **super admin** may assign or unassign it (§5.4).
 
 ---
 
@@ -520,15 +1019,59 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
   "id": 12,
   "title": "New employee added",
   "body": "Jane Doe joined Engineering.",
-  "type": "employee_created",
-  "reference": { "type": "App\\Modules\\HR\\Models\\Employee", "id": 5 },
+  "type": "leave.approved",
+  "type_label": "تمت الموافقة على الإجازة",
+  "reference": { "type": "employee", "id": 5 },
   "is_read": false,
-  "created_at": "2026-06-21T10:00:00+00:00"
+  "created_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
+
+**What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
+
+| `type` | Sent to | `reference` | Dashboard opens | App opens |
+|---|---|---|---|---|
+| `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1) | the approval screen for that request | the same, under الطلبات |
+| `approval.step_assigned` | someone a **later** step was reassigned to — on the chain, not yet their turn (2026-10-16) | the request being approved | the approval screen for that request | the same |
+| `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled` | the requester | their leave request | that leave request | that leave request |
+| `leave.excuse_filed`, `leave.excuse_cancelled`, `leave.returned_to_work` | the employee | the excuse / the leave | the full text | the employee's leave history |
+| `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
+| `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
+
+⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (at 17:00, to
+everyone still checked in — §12) and `attendance.record_rejected` (§13.4).
+**Catalogued but not sent:** `attendance.missing_checkout` and
+`attendance.record_unrejected` — legacy notifies nobody when the day closes or
+a refusal is undone, and the ERP keeps that until the project owner decides
+otherwise (`ATTENDANCE_BUILD.md` §4). A client should still handle them.
+| any other type | — | any | by `reference` alone (an `employee` opens their profile); otherwise the full text | the same |
+
+- The leave, approval and attendance screens arrive with those modules (work order §4.5–§4.7); until a screen exists, its rows fall back to the full text.
+- **Never act from the notification itself.** By the time it is opened, the request may be decided, cancelled or reassigned. The destination screen shows the request's current state, and that is where approve / reject live.
+- A reference the reader can no longer open (deleted, or now out of their scope) gets a **404 / 403** from the API. Show a plain message, not a broken page.
+
+> ⚠️ **Changed 2026-09-08 — `reference.type` is now a short alias.** It
+> previously returned the PHP class name (`App\Modules\HR\Models\Employee`), and
+> this document published that as the contract. It now returns a stable
+> lower-case alias, and the set is closed:
+>
+> | `reference.type` | Record |
+> | --- | --- |
+> | `employee` | an HR employee |
+> | `department` | an organizational unit |
+> | `user` | a login account |
+> | `role` | an RBAC role |
+> | `permission` | a permission |
+>
+> **If you were switching on the class name, switch on the alias instead.** The
+> aliases are deliberately decoupled from PHP namespaces, so a model moving
+> between modules — which the legacy merge will do — no longer changes what you
+> receive. Any new type will be added to this table, never as a raw class name.
 
 ### 6.1 List my notifications
 
@@ -561,6 +1104,43 @@ POST /api/auth/notifications/{notification}/read
 Idempotent — marking an already‑read notification is a no‑op. Returns the updated notification object. Message: `تم وضع علامة "مقروء" على الإشعار.`
 **404** — id doesn't exist **or** belongs to another user (the two are indistinguishable by design).
 
+### 6.4 Mark all as read
+
+```
+POST /api/auth/notifications/read-all
+```
+Marks every one of the caller's unread notifications read. Audited.
+
+```json
+{ "success": true, "message": "تم وضع علامة \"مقروء\" على جميع الإشعارات.", "data": { "marked": 3 } }
+```
+
+`marked` is how many changed, so the badge can drop to zero without another request.
+
+### 6.5 Register a device for push
+
+```
+POST   /api/me/device-tokens
+DELETE /api/me/device-tokens
+```
+**Protected. Self-scoped.** The token goes in the **body** (FCM tokens are long and not URL-safe).
+
+| Field | Type | Rules |
+|---|---|---|
+| `token` | string | required, max 512 — the device's FCM registration token |
+| `platform` | string | required to register — `android`, `ios` or `web`; ignored on DELETE |
+
+- Register on **every app start** and whenever FCM rotates the token. Re-registering the same token only refreshes it — no duplicates.
+- **One row per device**, not per user: a person's phone and tablet both receive pushes.
+- A token registered by another account (the phone changed hands) **moves to the caller**.
+- The token belongs to the **session** it was registered from. When that session ends — logout, `logout-all`, `DELETE /auth/sessions/{id}`, a password change elsewhere, the account disabled — the device stops receiving pushes. Register again after signing in.
+- `DELETE` is idempotent and answers 200 whether or not the token was the caller's.
+- While `must_change_password` is set this route is refused with 403 like every other — register after the password change.
+
+```json
+{ "success": true, "message": "تم تسجيل الجهاز للإشعارات." }
+```
+
 ---
 
 ## 7. Departments
@@ -573,34 +1153,66 @@ A "department" is an **organizational unit at any tier** of the company tree —
 | ------- | ------------------------ | ----------------- | --------------------------------------------- |
 | `1`     | General administration   | `الإدارة العامة`  | The **single root** — exactly one, no parent  |
 | `2`     | Division                 | `إدارة`           | Always directly under the root                |
-| `3`     | Section                  | `قسم`             | Always directly under a division (deepest tier) |
+| `3`     | Section                  | `قسم`             | Always directly under a division              |
+| `4`     | Office                   | `مكتب`            | Always directly under a section (deepest tier) |
 
 **Hierarchy rules** (enforced on every write; violations are `422` field errors):
 
 - A unit **without** `parent_id` must be level 1, and only **one** root may exist.
-- A unit **with** a parent must sit **exactly one level below it** (no skipping, nothing under level 3).
+- A unit **with** a parent must sit **exactly one level below it** (no skipping, nothing under level 4).
 - The parent must exist and not be soft‑deleted.
 - On update: a unit cannot be its own parent, or be moved under one of its own descendants.
+- `sector` may only be stored on a **level‑2** unit. See [الجهة](#الجهة--sector) below.
+
+### الجهة — `sector`
+
+Which of the company's two groupings a unit belongs to.
+
+| `sector` | `sector_label`      |
+| -------- | ------------------- |
+| `1`      | `المكاتب الإدارية`  |
+| `2`      | `الأجسام الإدارية`  |
+
+**It is stored on divisions only.** The root, the governance units
+(`مجلس الإدارة`, `مكتب المدير العام`), and every section and office store `NULL`
+and **inherit** their sector from the nearest ancestor that has one.
+
+The API therefore returns a **resolved** value: a section reads back
+`"sector": 1` even though its own row is `NULL`. Two consequences for clients:
+
+- **Read it, do not re‑post it.** Sending a non‑null `sector` for a unit whose
+  `level` is not 2 is rejected with `422` — including when the value is simply
+  echoed back from a `GET`. Send `sector` only when you are editing a division.
+  A `PATCH` that omits the field is always safe.
+- **Moving a unit changes its sector automatically.** Re‑parent a section into a
+  division in the other grouping and the section — and everything beneath it —
+  reports the new sector on the next read. No second call is needed, and none is
+  possible.
 
 **Department object shape**
 
 ```json
 {
   "id": 3,
-  "name": "قسم تطوير البرمجيات",
-  "code": "SW",
+  "name": "قسم النقدية",
+  "code": "FIN-CASH",
   "description": null,
   "is_active": true,
   "parent_id": 2,
   "level": 3,
   "level_label": "قسم",
+  "sector": 1,
+  "sector_label": "المكاتب الإدارية",
   "manager_id": 4,
-  "created_at": "2026-06-21T10:00:00+00:00",
-  "updated_at": "2026-06-21T10:00:00+00:00"
+  "manager": { "id": 4, "full_name": "سامر خليل", "employee_number": "E-0012" },
+  "created_at": "2026-06-21T10:00:00+03:00",
+  "updated_at": "2026-06-21T10:00:00+03:00"
 }
 ```
 
-- `level` is the machine‑readable tier to filter on; `level_label` is the Arabic display name (resolved server‑side — do **not** hardcode a tier map in the frontend).
+- 🆕 `manager` is the employee `manager_id` points at — `{ id, full_name, employee_number }` — embedded so rendering "who runs this unit" costs no extra request. It is **`null`, never absent**, when the unit has no manager (or the recorded one has been deleted); see [Embedded objects](#embedded-objects-an-fk-and-the-thing-it-points-at). `manager_id` is unchanged and is still what you send on create/update.
+- `level` is the machine‑readable tier to filter on; `level_label` is the Arabic display name (resolved server‑side — do **not** hardcode a tier map in the frontend). `sector` / `sector_label` work the same way, with the addition that the value is **inherited** — see [الجهة](#الجهة--sector).
+- `code` is a stable short identifier derived from the unit's path through the tree (`FIN` → `FIN-CASH` → `FIN-CASH-VAULT`). Prefer it over `name` when matching units against an external system: names repeat across the company — `الحسابات` and `أمانة الصندوق` each occur under three different divisions.
 
 | Method & path                          | Permission             | Notes                                   |
 | -------------------------------------- | ---------------------- | --------------------------------------- |
@@ -619,14 +1231,15 @@ A "department" is an **organizational unit at any tier** of the company tree —
 | `description` | string  | optional, nullable, max 1000                                            |
 | `is_active`   | boolean | optional (defaults to `true`)                                           |
 | `parent_id`   | integer | nullable; must be an existing, **non‑deleted** unit; `null` = the root  |
-| `level`       | integer | required on create; must be a defined tier (1–3) obeying the rules above |
+| `level`       | integer | required on create; must be a defined tier (1–4) obeying the rules above |
+| `sector`      | integer | optional, nullable; `1` or `2`; **only accepted when `level` is 2** — every other unit inherits it |
 | `manager_id`  | integer | optional, nullable; must be an existing, **non‑deleted employee**       |
 
 **Messages:** index `تم جلب الوحدات التنظيمية.` · show `تم جلب الوحدة التنظيمية.` · create `تم إنشاء الوحدة التنظيمية.` · update `تم تحديث الوحدة التنظيمية.` · delete `تم حذف الوحدة التنظيمية.`
 
 **Errors**
 
-- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.`
+- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · nothing under the deepest tier `لا يمكن إضافة وحدات فرعية تحت مكتب لأنها أدنى مستوى في هيكل الشركة.` · sector on a non‑division `الجهة تُحدَّد على مستوى إدارة (المستوى 2) فقط؛ الوحدات الأدنى ترث جهتها من الوحدة الأعلى.` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.`
 - `409` — deleting the **root**: `لا يمكن حذف الإدارة العامة، فهي الوحدة الجذر لهيكل الشركة.`
 - `409` — deleting a unit that still has live children: `لا يمكن حذف وحدة تنظيمية تحتوي على وحدات فرعية. الرجاء نقل أو حذف الوحدات الفرعية أولًا.`
 
@@ -634,109 +1247,2000 @@ A "department" is an **organizational unit at any tier** of the company tree —
 
 ---
 
-## 8. HR — Employees
+## 8. HR
 
-Base path `/api/hr`. **Protected**, guarded by `hr.employees.*` permissions.
+Base path `/api/hr`. **Protected.** Four resources: employees, the job-title
+catalogue, posting history, and warnings.
 
-**Employee object shape**
+### ⚠️ 8.0 Breaking changes — Batch 2 (2026-09-13)
+
+**Every client that reads an employee must be updated.** The employees table was
+restructured before the company's real staff are imported — the last release in
+which that was a migration rather than a data migration.
+
+| Was | Is now | Why |
+| --- | --- | --- |
+| `name` | `first_name`, `middle_name`, `last_name` + read-only `full_name` | The company records الاسم الثلاثي. Storing parts *and* a joined string is two columns for one fact |
+| `job_title` (string) | `job_title_id` (FK) + embedded `job_title` object | Titles are a governed, company-wide catalogue |
+| `salary` | **removed** | For most staff pay is *computed* from criteria, not stored. The negotiated track uses `agreed_salary` |
+| `status: "active"` | `status: 1` + `status_label: "نشط"` | Matches `level` / `level_label` on departments. `inactive` is now **`موقوف` (suspended)** |
+
+**Migration notes for the frontend**
+
+1. Replace any `employee.name` read with `employee.full_name`; use the three
+   parts in forms.
+2. `POST` and `PUT` now require `first_name`, `middle_name`, `last_name` and
+   `gender` on create.
+3. Every enum field ships as `{field}` (int) plus `{field}_label` (Arabic).
+   Render the label, filter on the int, and never keep your own copy of the
+   mapping.
+4. `GET /api/auth/me` and `/api/auth/users` still return `name` — that key is an
+   *account's* display name and is unchanged. Only the employee resource split.
+
+### 8.1 Employees
+
+**Employee object** (a requester holding **both** field-level permissions)
 
 ```json
 {
   "id": 1,
   "employee_number": "EMP-00001",
-  "name": "Jane Doe",
+
+  "first_name": "سامر",
+  "middle_name": "خالد",
+  "last_name": "الحلبي",
+  "mother_name": "فاطمة",
+  "nickname": "أبو عبد الرحمن",
+  "full_name": "سامر خالد الحلبي",
   "national_id": "1098765432",
-  "phone": "+966500000000",
-  "email": "jane@example.com",
-  "address": "Riyadh",
+
+  "gender": 1,
+  "gender_label": "ذكر",
+  "birth_date": "1990-04-12",
+  "birth_place": "حلب",
+  "origin_governorate": 3,
+  "origin_governorate_label": "حلب",
+  "residence_governorate": 3,
+  "residence_governorate_label": "حلب",
+  "nationality": "سوري",
+  "second_nationality": null,
+
+  "marital_status": 2,
+  "marital_status_label": "متزوج",
+  "wives_count": 1,
+  "sons_count": 2,
+  "daughters_count": 1,
+  "children_count": 3,
+
+  "phone": "+963900000000",
+  "phone_secondary": null,
+  "email": "samer@example.com",
+  "address": "حلب - الفرقان",
+
+  "did_military_service": true,
+  "military_discharge_date": "2014-06-01",
+
+  "education_level": 11,
+  "education_level_label": "كلية",
+  "qualification": "كلية هندسة مدنية",
+  "specialization": "إنشاءات",
+  "is_graduated": true,
+  "graduation_date": "2013-07-01",
+
   "department_id": 2,
-  "job_title": "Engineer",
+  "department": { "id": 2, "name": "الإدارة الهندسية", "level": 2 },
+  "job_title_id": 7,
+  "job_title": { "id": 7, "name": "مهندس مدني" },
+  "manager": { "id": 12, "full_name": "سامر خليل", "employee_number": "E-0012" },
+  "employment_type": 1,
+  "employment_type_label": "متعاقد",
+  "workplace": "مجبل الإسفلت",
   "hire_date": "2026-01-15",
-  "salary": "85000.00",
-  "status": "active",
-  "created_at": "2026-06-21T10:00:00+00:00",
-  "updated_at": "2026-06-21T10:00:00+00:00"
+  "termination_date": null,
+  "status": 1,
+  "status_label": "نشط",
+
+  "activity_type": 1,
+  "activity_type_label": "هندسي",
+  "organizational_grade": 3,
+  "experience_level": 2,
+  "engineering_rank": 6,
+  "engineering_rank_label": "ممارس",
+  "industrial_experience_years": null,
+  "has_hazard_pay": true,
+  "has_scarcity_pay": false,
+  "has_dual_role_pay": false,
+  "distinction_grade": null,
+  "salary_mode": 1,
+  "salary_mode_label": "نظام رواتب",
+  "agreed_salary": null,
+  "sham_cash_account": "1234567890123456",
+  "payroll_location": "مكتب رئيسي - هندسي",
+
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
 }
 ```
 
-- `employee_number` is the unique staff identifier. **Auto‑generated** (`EMP-00001`, …) when omitted on create; a client‑supplied value is honoured but must be unique.
-- `national_id` is nullable, unique when present.
-- `salary` is serialized as a **string** (decimal 12,2). `hire_date` is a plain `YYYY-MM-DD` date.
-- `status` is one of `active` | `inactive` | `terminated`.
+🆕 **`manager` is the employee's manager, and there is no other.** Same
+`{ id, full_name, employee_number }` shape as the other embeds, and **`null`,
+never absent** — null means the top of the tree (المدير العام reports to nobody)
+or an employee with no unit, not a missing value. Bind "المدير المباشر" to this.
 
-| Method & path                              | Permission              | Notes                               |
-| ------------------------------------------ | ----------------------- | ----------------------------------- |
-| `GET /api/hr/employees`                    | `hr.employees.view`     | Paginated list (15/page). `?page=N` |
-| `POST /api/hr/employees`                   | `hr.employees.create`   | 201 on success                      |
-| `GET /api/hr/employees/{employee}`         | `hr.employees.view`     | Single resource                     |
-| `PUT\|PATCH /api/hr/employees/{employee}`  | `hr.employees.update`   | Partial update                      |
-| `DELETE /api/hr/employees/{employee}`      | `hr.employees.delete`   | 200 on success (**soft** delete)    |
+**It is resolved, not stored.** The server walks the org tree on every read: the
+employee's own unit's `manager_id`, then up past any vacant post, stopping at
+المدير العام. So it changes by itself when a unit gets a new head or an employee
+is moved — there is nothing to keep in step and nothing to write.
 
-**Request body (create / update)**
+> ⚠️ **REMOVED 2026-09-24: `direct_manager_id` and `direct_manager`.** They
+> existed to record an employee reporting outside their unit head, and the
+> company has no such case — so the pair is gone from the payload, and
+> `direct_manager_id` is **no longer accepted** on create or update. If your
+> edit form has a manager picker, **delete it**: a manager is not a property of
+> a person here, it is a consequence of which unit they are in. Move someone by
+> changing `department_id`; change who runs a unit through
+> `PUT /api/departments/{id}` and its `manager_id`.
 
-| Field             | Type    | Rules                                                              |
-| ----------------- | ------- | ------------------------------------------------------------------ |
-| `employee_number` | string  | optional, nullable, max 50, unique — **auto‑generated when omitted** |
-| `name`            | string  | required on create, optional on update, max 255                    |
-| `national_id`     | string  | optional, nullable, max 50, unique when present                    |
-| `phone`           | string  | optional, nullable, max 50                                         |
-| `email`           | string  | optional, nullable, email, max 255                                 |
-| `address`         | string  | optional, nullable, max 1000                                       |
-| `department_id`   | integer | optional, nullable, must be an existing, **non‑deleted** department |
-| `job_title`       | string  | optional, nullable, max 255                                        |
-| `hire_date`       | date    | optional, nullable (`YYYY-MM-DD`)                                  |
-| `salary`          | numeric | optional, ≥ 0                                                     |
-| `status`          | enum    | optional, one of `active` / `inactive` / `terminated`              |
+**Field-level gating.** Gated keys are **absent entirely**, never `null` — an
+absent key says "you may not see this", a null would say "this employee has no
+national id". The embedded `department`, `job_title` and `manager` objects are
+the mirror image: always present, `null` when there is nothing to name, and never
+gated — a name and a staff number are not sensitive fields.
+
+| Permission | Gates |
+| --- | --- |
+| `hr.employees.viewIdentity` | `national_id` |
+| `hr.employees.viewSalary` | `salary_mode(_label)`, `agreed_salary`, `sham_cash_account`, `payroll_location`, **and every classification axis**: `activity_type(_label)`, `organizational_grade`, `experience_level`, `engineering_rank(_label)`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
+
+> **Why the axes are gated with the amount:** they are the inputs the salary is
+> computed from. Publishing them while hiding the result would let anyone with
+> the rate table reconstruct the pay to within a rounding error.
+
+Both gates behave identically on the list and single endpoints.
+
+| Method & path | Permission | Notes |
+| --- | --- | --- |
+| `GET /api/hr/employees` | `hr.employees.view` | Paginated. Filters + sort below |
+| `POST /api/hr/employees` | `hr.employees.create` | 201 on success |
+| `GET /api/hr/employees/{employee}` | `hr.employees.view` | Single resource |
+| `PUT\|PATCH /api/hr/employees/{employee}` | `hr.employees.update` | Partial update |
+| `DELETE /api/hr/employees/{employee}` | `hr.employees.delete` | 200 (**soft** delete) |
+
+⚙️ **Row scope (GAP-3, 2026-09-24).** Holding the permission is no longer the
+whole answer: each grant carries a scope (§5.4), and the scope of the grant that
+carries **that** permission decides which employees it reaches.
+
+- **The list is filtered, not refused.** A division head sees their subtree, and
+  `meta.total` counts only what they can page through.
+- **A single employee outside the caller's scope answers `403`** —
+  `هذا الموظف خارج نطاق صلاحياتك.` This is deliberately 403 and not 404
+  (START_HERE §9, decision 19). The same applies to update, delete, and the
+  nested `assignments` and `warnings` routes; a warning is in scope when its
+  employee is (`هذا الإنذار يخص موظفًا خارج نطاق صلاحياتك.`).
+- **Where a person is put must be in scope too.** Creating an employee, or
+  changing `department_id` through update or a recorded posting, into a unit
+  outside the caller's scope answers `403` —
+  `لا يمكنك إسناد موظف إلى وحدة تنظيمية خارج نطاق صلاحياتك.`
+- **An employee with no unit is visible only to a company-wide grant.**
+- **Pay and identity are gated per row too.** The pay block and `national_id`
+  appear only on rows the caller's `viewSalary` / `viewIdentity` grant reaches —
+  a company-wide `view` beside a section-scoped `viewSalary` lists everyone and
+  shows pay for that section only. Writing those fields follows the same rule
+  (422 naming the field), and a transfer must stay inside the grant on both
+  ends.
+- **The audit trail's before/after values** for a record type need that type's
+  permissions held **company-wide**, because the trail itself is not scoped.
+- The `manager` embed is **not** scoped: a section head still sees who their
+  own manager is, even though that person sits outside their subtree.
+- `super_admin` is unaffected.
+
+**List query parameters**
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `status` | int | `1` نشط · `2` موقوف · `3` منتهي الخدمة |
+| `department_id` | int | must exist and not be deleted |
+| `job_title_id` | int | must exist and not be deleted |
+| `activity_type` | int | 1–5. ⚙️ **Gated by `hr.employees.viewSalary` (2026-09-26)** — it is a pay input, and a filter reads it. Without the permission: **422** on `activity_type` (`لا تملك صلاحية التصفية حسب حقول الرواتب ومعاييرها.`). With it over some units only: the rows are limited to those units, as with every other scoped read (see Row scope below) |
+| `search` | string | matches any name part or `employee_number` |
+| `sort` | string | `employee_number`, `first_name`, `last_name`, `hire_date`, `created_at`; prefix `-` for descending |
+
+⚠️ An unknown `sort` or an invalid filter is a **422**, not a silent fallback —
+quietly ignoring one returns a correct-looking page of the wrong rows.
+(`per_page` is the exception: it is clamped to 1–100 rather than rejected.)
+
+**Request body (create / update).** Fields are `sometimes` unless marked
+required; required applies on create only.
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `first_name` / `middle_name` / `last_name` | string | **required on create**, max 255 |
+| `gender` | int | **required on create**, `1` ذكر · `2` أنثى |
+| `employee_number` | string | optional, max 50, unique — **auto-generated when omitted**, and a supplied value is kept as-is |
+| `national_id` | string | optional, nullable, max 50, unique |
+| `mother_name` | string | optional, nullable, max 255 |
+| `nickname` | string | optional, nullable, max 100 — اللقب, the kunya (`أبو عبد الرحمن`). Added 2026-10-14; not gated |
+| `birth_date` | date | optional, nullable, must be before today |
+| `birth_place` | string | optional, nullable, max 255 |
+| `origin_governorate` / `residence_governorate` | int | optional, nullable, 1–14 |
+| `nationality` / `second_nationality` | string | optional, max 60 (`nationality` defaults to `سوري`) |
+| `marital_status` | int | optional, nullable, `1` عازب · `2` متزوج · `3` مطلق · `4` أرمل |
+| `wives_count` | int | optional, 0–4 — **only for a married employee** |
+| `sons_count` / `daughters_count` | int | optional, 0–50. `children_count` is derived and read-only |
+| `phone` / `phone_secondary` | string | optional, nullable, max 50 |
+| `email` | string | optional, nullable, email, max 255 |
+| `address` | string | optional, nullable, max 1000 |
+| `did_military_service` | bool | optional, nullable |
+| `military_discharge_date` | date | optional, nullable |
+| `education_level` | int | optional, nullable, 1–13 (see §8.5) |
+| `qualification` / `specialization` | string | optional, nullable, max 255 |
+| `is_graduated` | bool | optional, nullable |
+| `graduation_date` | date | optional, nullable |
+| `activity_type` | int | optional, nullable, 1–5 |
+| `organizational_grade` | int | optional, nullable, **1–5** |
+| `experience_level` | int | optional, nullable, **1–5** |
+| `engineering_rank` | int | optional, nullable, one of the values in §8.5 (1–8, 10–13) — **only when `activity_type` = 1 (هندسي)** |
+| `industrial_experience_years` | int | optional, nullable, 0–60 — **only when `activity_type` = 2 (صناعي)** |
+| `has_hazard_pay` / `has_scarcity_pay` / `has_dual_role_pay` | bool | optional |
+| `distinction_grade` | int | optional, nullable, 0–255 |
+| `department_id` | int | optional, nullable, existing **non-deleted** department |
+| `job_title_id` | int | optional, nullable, existing **non-deleted** title |
+| `employment_type` | int | optional, nullable, `1` متعاقد · `2` يحتاج تثبيت · `3` جماعة · `4` مثبت |
+| `workplace` | string | optional, nullable, max 255 |
+| `hire_date` / `termination_date` | date | optional, nullable — termination may not precede hire. **Correcting `hire_date` moves the opening تعيين posting with it** (see below) |
+| `status` | int | optional, 1–3 |
+| `sham_cash_account` | string | optional, nullable, **exactly 16 digits**, unique |
+| `payroll_location` | string | optional, nullable, max 150 — مكان الراتب, the payroll cost centre (`الآليات الثقيلة`, `مكتب رئيسي - هندسي`, a project site). Added 2026-10-14. **Read and write need `hr.employees.viewSalary`** |
+| `salary_mode` | int | optional, `1` نظام رواتب (default) · `2` إتفاق |
+| `agreed_salary` | numeric | **required when `salary_mode` = 2, must be absent/null when = 1** |
+
+**`hire_date` and the posting history (2026-09-28, GAP-19).** The opening
+تعيين posting is dated from the hire, so a corrected `hire_date` **moves that
+posting's `from_date` with it** — earlier or later, open or already closed. The
+move is audited on the posting. It is a **422 on `hire_date`** when the history
+cannot follow:
+
+- the new date is after the opening posting's own end (the person has been
+  transferred since) — a correction that deep is made on the assignments
+  history: `لا يمكن نقل تاريخ التعيين إلى ما بعد نهاية التعيين الأول (…)…`
+- the first posting is not a تعيين (hired with no unit, placed later) and the
+  new date falls after it: `لا يمكن أن يكون تاريخ التعيين بعد بداية أول تعيين مسجّل للموظف (…).`
+
+**Cross-field rules (422).** These are enforced for every writer, not just HTTP:
+
+- `الرتبة الهندسية تُحدَّد للموظفين ذوي النشاط الهندسي فقط.`
+- `سنوات الخبرة الصناعية تُحدَّد للموظفين ذوي النشاط الصناعي فقط.`
+- `الراتب المتفق عليه مطلوب عندما يكون نظام الراتب «إتفاق».`
+- `لا يجوز تحديد راتب متفق عليه ضمن «نظام الرواتب»؛ الراتب يُحتسب من المعايير.`
+- `عدد الزوجات يُحدَّد للموظف المتزوج فقط.`
+- `تاريخ انتهاء العمل لا يمكن أن يسبق تاريخ التعيين.`
+- `رقم الشام كاش يجب أن يتكون من 16 رقماً.`
 
 **Messages:** index `تم جلب الموظفين.` · show `تم جلب بيانات الموظف.` · create `تم إنشاء الموظف.` · update `تم تحديث بيانات الموظف.` · delete `تم حذف الموظف.`
-**422** — missing name: `اسم الموظف مطلوب.` · unknown/deleted department: `القسم المحدد غير موجود أو تم حذفه.` · duplicate number: `الرقم الوظيفي مستخدم بالفعل.` · duplicate national id: `رقم الهوية مستخدم بالفعل.` · bad status: `يجب أن تكون الحالة واحدة من: active أو inactive أو terminated.`
 
-> Deletes are **soft**: the person's record (identity, history, audit trail) survives; they simply stop appearing in lists. A linked user account keeps its `employee_id`, but the account's `name` resolves to `null` while the employee is deleted.
+> Deletes are **soft**: identity, history and audit trail survive. A linked user
+> account keeps its `employee_id`, but the account's `name` resolves to `null`
+> while the employee is deleted.
+
+### 8.2 Job titles — دليل المسميات الوظيفية
+
+**One shared, company-wide catalogue.** `name` is unique on its own and there is
+**no `department_id`**: `محاسب` is a single row with a single job description
+whichever divisions employ accountants. "Which divisions use this title?" is
+answered by filtering employees on `job_title_id`.
+
+```json
+{
+  "id": 7,
+  "name": "مهندس مدني",
+  "default_organizational_grade": 3,
+  "default_activity_type": 1,
+  "default_activity_type_label": "هندسي",
+  "is_described": false,
+  "description": null,
+  "is_active": true,
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
+}
+```
+
+The two `default_*` values are **suggestions** that pre-fill the employee form,
+not constraints: a section head and a division head can hold one title at
+different grades, so the employee's own columns remain the fact.
+
+| Method & path | Permission | Notes |
+| --- | --- | --- |
+| `GET /api/hr/job-titles` | `hr.job_titles.view` | Paginated, ordered by name. `?search=`, `?is_described=`, `?is_active=`, `?sort=name\|-name\|created_at\|-created_at` |
+| `POST /api/hr/job-titles` | `hr.job_titles.create` | 201 |
+| `GET /api/hr/job-titles/{jobTitle}` | `hr.job_titles.view` | |
+| `PUT\|PATCH /api/hr/job-titles/{jobTitle}` | `hr.job_titles.update` | |
+| `DELETE /api/hr/job-titles/{jobTitle}` | `hr.job_titles.delete` | 200, **soft** delete — **409** if held |
+
+The boolean filters accept `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`, in
+any case. Anything else is a **422** — as is an unknown `sort` — never a silent
+fallback: a filter that is quietly ignored returns a correct-looking page of the
+wrong rows.
+
+⚠️ **`409 Conflict`** — `لا يمكن حذف المسمى الوظيفي لأنه مرتبط بموظفين أو بسجلات تعيين.`
+A title is undeletable while anyone holds it **or ever held it**, because a
+historical posting that cannot resolve its title cannot explain the payslip
+computed from it.
+
+⚠️ **A deleted title keeps its name reserved.** The unique index counts
+soft-deleted rows, so `محاسب` cannot be recreated until the old row is
+force-deleted. Same trade-off as `users.email`.
+
+`?is_described=0` is قسم التحليل والتوصيف's worklist: the titles still awaiting
+a job description.
+
+### 8.3 Posting history — سجل التعيين
+
+One employee's placements over time. The row with `to_date: null` is the current
+one; the earliest row is their initial posting.
+
+```json
+{
+  "id": 12,
+  "employee_id": 1,
+  "department_id": 2,
+  "department": { "id": 2, "name": "الإدارة الهندسية" },
+  "job_title_id": 7,
+  "job_title": { "id": 7, "name": "مهندس مدني" },
+  "organizational_grade": 3,
+  "from_date": "2026-06-01",
+  "to_date": null,
+  "is_current": true,
+  "reason": 3,
+  "reason_label": "ترقية",
+  "legacy_workplace": null,
+  "legacy_manager_name": null,
+  "legacy_job_title": null,
+  "notes": "قرار رقم 41",
+  "created_at": "2026-09-13T10:00:00+03:00"
+}
+```
+
+| Method & path | Permission | Notes |
+| --- | --- | --- |
+| `GET /api/hr/employees/{employee}/assignments` | `hr.assignments.view` | Paginated, newest first |
+| `POST /api/hr/employees/{employee}/assignments` | `hr.assignments.create` | 201 — records a transfer |
+
+⚠️ **There is no update and no delete, and no permission that could reach one.**
+The history is append-only: a posting recorded wrongly is corrected by recording
+the correction, the way a ledger is. Editing last year's posting would change
+what a payslip was computed against, with no trace of the original.
+
+**Request body**
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `from_date` | date | **required**, may be back-dated, **may not be in the future**, **nor before the employee's `hire_date`** (422 `تاريخ بدء التعيين لا يمكن أن يسبق تاريخ تعيين الموظف (…).`, 2026-09-28) |
+| `reason` | int | **required, no default** — `1` تعيين · `2` نقل داخلي · `3` ترقية · `4` تعديل مسمى وظيفي · `5` إعادة هيكلة · `6` إنهاء عمل |
+| `department_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |
+| `job_title_id` | int | optional, nullable, existing non-deleted — **omit to carry forward** |
+| `organizational_grade` | int | optional, nullable, 1–5 — **omit to carry forward**. **Must be absent** unless the caller's `hr.employees.viewSalary` reaches the employee's unit, and the new unit too if `department_id` is sent (422 `لا تملك صلاحية تعديل حقول الرواتب ومعاييرها.`) |
+| `notes` | string | optional, nullable, max 2000 |
+
+⚠️ **An omitted field carries forward; an explicit `null` clears it.** These are
+different instructions and they behave differently. A promotion states only the
+new grade and a تعديل مسمى only the new title — neither restates the department,
+and neither should un-assign the person from it. Send `"department_id": null`
+only when you actually mean "no unit".
+
+**What recording a posting does**, in one transaction: closes the current posting
+**the day before** the new one starts (so "which unit were they in on date D?"
+has exactly one answer), opens the new one, and updates the employee's
+`department_id` / `job_title_id` / `organizational_grade` to match. A posting
+dated on or before the current one's start is treated as an **amendment** and
+updates it in place rather than stacking a zero-length row in front of it.
+
+> The reverse also holds: changing `department_id`, `job_title_id` or
+> `organizational_grade` through `PUT /api/hr/employees/{employee}` records the
+> transfer automatically, with `reason: 2 (نقل داخلي)`, closing the outgoing
+> posting the day before in exactly the same way. Use this endpoint when you
+> know the real reason or the real date.
+
+**Messages:** index `تم جلب سجل التعيين.` · create `تم تسجيل التعيين.`
+
+### 8.4 Warnings — الإنذارات
+
+```json
+{
+  "id": 4,
+  "employee_id": 1,
+  "type": "تأخر متكرر",
+  "number": "W-2026-14",
+  "issued_on": "2026-04-01",
+  "sequence": 2,
+  "issued_by": 9,
+  "issuer": { "id": 9, "full_name": "سامر خالد الحلبي", "employee_number": "E-0009" },
+  "notes": "إنذار ثانٍ.",
+  "created_at": "2026-09-13T10:00:00+03:00",
+  "updated_at": "2026-09-13T10:00:00+03:00"
+}
+```
+
+🆕 `issuer` now carries `employee_number` as well as `{ id, full_name }`, so an
+embedded person has the same three keys here as everywhere else
+([Embedded objects](#embedded-objects-an-fk-and-the-thing-it-points-at)).
+Purely additive — nothing was removed or renamed. It is `null` when no issuer is
+recorded.
+
+`sequence` is **computed, not stored** — it is this warning's position in the
+employee's sequence, counted from the live rows. Withdrawing warning #2 of 3
+renumbers the third to #2; filing a back-dated one puts it in its rightful place.
+Do not send it.
+
+| Method & path | Permission | Notes |
+| --- | --- | --- |
+| `GET /api/hr/employees/{employee}/warnings` | `hr.warnings.view` | Paginated, newest first |
+| `POST /api/hr/employees/{employee}/warnings` | `hr.warnings.create` | 201 |
+| `PUT\|PATCH /api/hr/warnings/{warning}` | `hr.warnings.update` | **Not** nested — the row's employee is fixed by its FK |
+| `DELETE /api/hr/warnings/{warning}` | `hr.warnings.delete` | 200, **soft** delete (withdrawn ≠ never happened) |
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `type` | string | **required on create**, max 255 |
+| `issued_on` | date | **required on create**, **may not be in the future** |
+| `number` | string | optional, nullable, max 50 — رقم كتاب الإنذار |
+| `issued_by` | int | optional, nullable — an **employee** id (a manager may have no login) |
+| `notes` | string | optional, nullable, max 5000 |
+
+**Messages:** index `تم جلب الإنذارات.` · create `تم تسجيل الإنذار.` · update `تم تحديث الإنذار.` · delete `تم حذف الإنذار.`
+
+### 8.5 Enum reference
+
+Every enum below ships as an int with a matching `_label`. Render the label,
+filter on the int.
+
+| Enum | Values |
+| --- | --- |
+| `gender` | 1 ذكر · 2 أنثى |
+| `marital_status` | 1 عازب · 2 متزوج · 3 مطلق · 4 أرمل |
+| `status` | 1 نشط · 2 موقوف · 3 منتهي الخدمة |
+| `employment_type` | 1 متعاقد · 2 يحتاج تثبيت · 3 جماعة · 4 مثبت |
+| `salary_mode` | 1 نظام رواتب · 2 إتفاق |
+| `activity_type` | 1 هندسي · 2 صناعي · 3 إداري · 4 مالي · 5 أمني |
+| `education_level` | 1 لا يوجد · 2 ابتدائي · 3 تاسع · 4 بكالوريا · 5 سنة 1 · 6 سنة 2 · 7 معهد · 8 سنة 3 · 9 سنة 4 · 10 سنة 5 · 11 كلية · 12 ماجستير · 13 دكتوراه |
+| `engineering_rank` | **in pay order:** 1 لا يوجد · 2 متدرب · 3 مراقب فني · 4 مساعد مهندس · 5 مشارك · 10 مشارك1 · 11 مشارك2 · 12 مشارك3 · 13 مشارك4 · 6 ممارس · 7 رأي · 8 استشاري |
+| `governorate` | 1 دمشق · 2 ريف دمشق · 3 حلب · 4 حمص · 5 حماة · 6 اللاذقية · 7 طرطوس · 8 إدلب · 9 درعا · 10 السويداء · 11 القنيطرة · 12 دير الزور · 13 الرقة · 14 الحسكة |
+| `reason` (assignments) | 1 تعيين · 2 نقل داخلي · 3 ترقية · 4 تعديل مسمى وظيفي · 5 إعادة هيكلة · 6 إنهاء عمل |
+
+`education_level` is an **ordered scale** — the int ascends with attainment,
+so `>=` comparisons are meaningful. ⚠️ The int is an ORDER, not an amount: سنة 4،
+سنة 5 and كلية are three distinct rungs carrying one identical pay value. Never
+compute pay from a case number.
+
+⚠️ **`engineering_rank` is NOT ordered by its int since 2026-10-14.** مشارك1–4
+were approved and added as 10–13, between مشارك (5) and ممارس (6); ركن (9) was
+retired. Every other rank kept its number, so the int is an identity only: show
+the ranks in the order listed above (the server's options list is in that
+order), and never compare them with `>` / `<`. 9 is never reused — an old audit
+row holding it reads as unknown.
 
 ---
 
-## 9. Endpoint quick reference
+## 9. Audit log — سجل التدقيق
+
+Read-only access to `audit_logs`: who changed what, when, and from where.
+
+```
+GET /api/auth/audit-logs        → paginated list   (auth.audit.view)
+GET /api/auth/audit-logs/{id}   → one row in full  (auth.audit.view)
+```
+
+**There is no write endpoint and there will not be one.** The table is
+append-only by design — no create, no update, no delete, no restore, no purge,
+and no permission that could authorize one. Render zero mutation affordances: a
+destructive-looking control on an audit trail advertises a power that does not
+exist.
+
+> ⚠️ **Reading it writes to it.** `AuditLogMiddleware` records every
+> authenticated request, so each page of this screen appends one `api_request`
+> row to the table it is showing. That is deliberate — "who read the audit
+> trail" is itself worth recording. **Do not poll this endpoint**, do not
+> auto-refresh it, and do not refetch it on window focus. One explicit refresh
+> control, and nothing else.
+
+### 9.1 List
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `page`, `per_page` | int | Standard: default 15, clamped 1–100 (§1) |
+| `user_id` | int | The actor |
+| `actor_type` | `user` \| `system` | `system` selects rows with no authenticated actor — a seeder, console command or queued job. Composes with `user_id` rather than replacing it |
+| `event` | CSV of event keys | `created,updated,deleted`. An unknown key is a **422**, and so is an empty list |
+| `event_group` | CSV of `model` \| `auth` \| `request` | `request` is the `api_request` firehose. Same empty-list rule as `event` |
+| `auditable_type` | short key | `employee` · `employee_assignment` · `employee_document` · `employee_warning` · `job_title` · `department` · `user` · `role` · `permission`. **Never a PHP class name** |
+| `auditable_id` | int | Requires `auditable_type` — **422** without it |
+| `request_id` | string (≤64) | The correlation drill-down; the column is indexed, so this is cheap |
+| `ip_address` | string (≤45) | |
+| `date_from` / `date_to` | `YYYY-MM-DD` | Inclusive **to the end of** `date_to`'s day, Asia/Damascus |
+| `search` | string | Matches `description` only |
+| `sort` | `created_at` \| `-created_at` | Default `-created_at`. **Nothing else is sortable** — anything else is a **422**, because only `created_at` is indexed and this is the one table that grows without bound |
+
+`event` and `event_group` **intersect**: `?event=created&event_group=auth` asks
+for a created event in the auth group, of which there are none, and correctly
+returns an empty page.
+
+> **Omit a filter you are not using; do not send it empty.** `?event=` and
+> `?event=,,,` are **422**s, not "no filter". A discarded filter would return a
+> correct-looking page answering a different question, and on `event_group` —
+> the parameter that hides the `api_request` firehose — the page you would get
+> back is the firehose. Build query strings by omitting empty values.
+
+**List item**
+
+```json
+{
+  "id": 88412,
+  "event": "updated",
+  "event_label": "تعديل",
+  "event_group": "model",
+  "description": null,
+  "actor_type": "user",
+  "user_id": 7,
+  "user": { "id": 7, "name": "سامر خليل", "email": "samer@example.com" },
+  "auditable_type": "employee",
+  "auditable_label": "موظف",
+  "auditable_id": 42,
+  "auditable": { "id": 42, "label": "أحمد خالد الحمصي (EMP-00042)" },
+  "changed_fields": ["department_id", "organizational_grade"],
+  "ip_address": "10.0.0.14",
+  "request_id": "8f3c…",
+  "created_at": "2026-09-16T14:03:11+03:00"
+}
+```
+
+The list deliberately **does not** carry `old_values` / `new_values` — a
+`deleted` employee row holds around fifty keys, and a hundred of those per page
+is a response nobody asked for. They are on the detail endpoint only.
+
+### 9.2 Detail
+
+`GET /api/auth/audit-logs/{id}` returns everything above plus `user_agent` and,
+**for a caller permitted to read them**, `old_values` and `new_values`.
+
+Two permissions are needed for the values, not one:
+
+1. `auth.audit.viewValues` — the field-level grant, on every row.
+2. **The view permission of the module the row is about**: `hr.employees.view`
+   for an `employee` row, `auth.users.view` for a `user` row, `departments.view`
+   for a `department` row, and so on. An audit row is a copy of someone else's
+   record, and permission to read audit rows is not permission to read that
+   record — without this, `viewValues` alone reconstructed every audited table
+   in the system from `new_values`. Rows with **no target** (`login`,
+   `api_request`) need only the first: their blobs hold request and auth
+   metadata, which is nobody else's data.
+
+⚠️ **An `employee` row needs a THIRD permission since 2026-09-23:
+`hr.employees.viewSalary`.** The classification axes are stored in the trail in
+cleartext — they are ordinary integers, so the redaction list never covered them
+— and they are the inputs pay is computed from. Without this, a caller holding
+`hr.employees.view` + `viewValues` read a grade out of history that the same
+caller is refused on the employee itself. The axes are **not** redacted instead,
+on purpose: redaction on an append-only table is permanent, and it would erase
+*who changed this person's grade, and to what*. `changed_fields` still arrives
+either way, so "someone changed this employee's grade at 14:03" stays answerable
+without reading the grade.
+
+⚙️ **Since 2026-09-24 (GAP-3), the module permissions must be held
+COMPANY-WIDE.** A role grant now carries a scope (§5.4), and the trail is not
+scoped — it holds every employee's history. So the permissions in point 2 (and
+`hr.employees.viewSalary` for an `employee` row) count here only when granted
+over **the whole company**; a grant over one unit or «الوحدات التي أديرها» does
+not unlock values, even for rows about people inside that unit. Without this, a
+section-scoped `viewSalary` read the whole company's pay history. This applies
+to every record type. `auth.audit.viewValues` itself has no row scope to check.
+
+**So the same caller can get the values on one row and not the next.** Decide
+per row from what the payload actually contains; never from a remembered
+"may I see values" flag.
+
+```json
+{
+  "old_values": { "workplace": "دمشق" },
+  "new_values": { "workplace": "حلب" },
+  "user_agent": "Mozilla/5.0 …"
+}
+```
+
+**Three states, three meanings — do not collapse them:**
+
+| What you see | What it means |
+| --- | --- |
+| key **absent** | You may not read this. You lack `auth.audit.viewValues`, or a **company-wide** grant of the view permission for this row's target |
+| key **`null`** | There is nothing to read. `created` has no old values; `deleted` has no new ones |
+| value `"***REDACTED***"` | The field was redacted **before storage**. The real value was never written to this table and cannot be recovered |
+
+Reading an absent key as "nothing changed" will report an edit as an empty diff.
+This is the §1 embedded-objects rule applied to a payload: absent ≠ null.
+
+### 9.3 The three kinds of actor
+
+| `actor_type` | `user` | Means |
+| --- | --- | --- |
+| `system` | `null` | A seeder, console command or queued job — nobody was authenticated |
+| `user` | object | That account |
+| `user` | `null` | **The account has been deleted.** `user_id` still names them |
+
+The third is the case an audit is most often opened to answer, so say it
+explicitly — "مستخدم محذوف #7", not "غير معروف".
+
+⚙️ **Sign-in events carry their account (2026-09-28, GAP-18).**
+`user_logged_in`, `tokens_refreshed`, `refresh_token_replay_detected` and
+`all_tokens_revoked` are written before anyone is authenticated, and until this
+date came back as `system` with `user: null`. They now name the account signing
+in, or whose credential was presented — so filtering by `user_id` finds a
+person's sign-ins, and a replay (a possible token theft) is found by filtering on
+the victim. Rows written earlier keep `user_id` null; their `description` still
+names the account. Where an authenticated caller triggers one of these (an
+administrator revoking someone's tokens), the caller is the actor.
+
+`?actor_type=system` is how you ask for the first row of that table. `user_id`
+matches an id and no value of it expresses "no actor", so before this filter
+existed the only way to that question was paging the whole table.
+
+### 9.4 The target
+
+`auditable` is `null` for action-level events (login, `role_assigned`,
+`api_request`) and for a target that has been soft-deleted. In both cases
+`auditable_label` and `auditable_id` are still there, so render
+`{auditable_label} #{auditable_id}` unlinked rather than nothing.
+
+`auditable_type` is a **stable alias, never a class name** — the same alias
+notifications publish as `reference.type`. An unrecognised alias serialises with
+`auditable_label: null`; render the raw key and do not guess a route for it.
+
+`auditable_type` itself is **`null`** on one further case: a row written before
+the morph map was enforced (2026-09-08) whose class has since been renamed or
+removed. There is no honest public name left for it and a class name must never
+reach you (C12), so the row arrives with the type `null` and `auditable_id`
+intact. Render it as an unresolvable target; do not treat `auditable_type: null`
+with a non-null `auditable_id` as "no target".
+
+> ⚠️ **Amended from the frontend work order.** That document proposed
+> `assignment` and `warning` as the short keys. The real values are
+> **`employee_assignment`** and **`employee_warning`**, because those are the
+> aliases the enforced morph map stores in the column and already publishes on
+> notifications. One type cannot have two public names depending on which
+> endpoint you ask.
+
+`changed_fields` names **which** fields moved and is **not** gated — it ships to
+anyone holding `auth.audit.view`. What they moved from and to needs
+`auth.audit.viewValues`. Non-model events (`api_request`, the auth vocabulary)
+have `changed_fields: []`: the metadata in their `new_values` is not a record
+edit and is not presented as one.
+
+### 9.5 Event vocabulary
+
+`event_label` is the Arabic name to display. An event key the server does not
+recognise returns `event_label: null` **and** `event_group: null` — render the
+raw key rather than inventing a label, so a new backend event looks unfamiliar
+instead of looking like something else.
+
+| Group | Events |
+| --- | --- |
+| `model` | `created`, `updated`, `deleted` |
+| `auth` | `user_logged_in`, `user_logged_out`, `tokens_refreshed`, `all_tokens_revoked`, `refresh_token_replay_detected`, `user_created`, `user_updated`, `user_deleted`, `role_created`, `role_updated`, `role_deleted`, `role_assigned`, `role_unassigned` |
+| `request` | `api_request` |
+
+`refresh_token_replay_detected` is a **security signal**, not routine traffic: a
+rotated refresh token was presented twice, which is either a bug or a stolen
+token. Treat it louder than an ordinary destructive event.
+
+**`api_request` is roughly 99% of this table** — every authenticated request
+writes one. Defaulting the list to `event_group=model,auth` is the sane
+behaviour, but say so on screen: a filter that hides data invisibly is not
+acceptable on an audit tool.
+
+### 9.6 Timestamps
+
+`created_at` is ISO-8601 **carrying the `+03:00` offset**, like every other
+timestamp in this API — see §1 Timestamps, which is where the rule lives. It is
+repeated here only because on this screen the consequence is sharpest: an audit
+row read three hours early puts an event in the wrong part of someone's working
+day, which is the question the screen exists to answer.
+
+Note that timestamps *inside* `old_values` / `new_values` are the raw stored
+columns and carry no offset at all (§1). Read those as Damascus local.
+
+`date_from` / `date_to` are inclusive of the whole end day, so
+`date_from=date_to=2026-09-16` returns that day including its last hour.
+
+---
+
+## 10. Endpoint quick reference
 
 | # | Method      | Path                                         | Auth     | Permission             |
 | - | ----------- | -------------------------------------------- | -------- | ---------------------- |
 | 1 | POST        | `/api/auth/login`                            | public   | — (5/min)              |
 | 2 | POST        | `/api/auth/refresh`                          | public   | — (10/min)             |
-| 3 | POST        | `/api/auth/logout`                           | bearer   | —                      |
+| 3 | POST        | `/api/auth/logout`                           | bearer   | — (this session)       |
+| 3a| POST        | `/api/auth/logout-all`                       | bearer   | — (every session)      |
+| 3b| GET         | `/api/auth/sessions`                         | bearer   | — (self-scoped)        |
+| 3c| DELETE      | `/api/auth/sessions/{id}`                    | bearer   | — (self-scoped)        |
 | 4 | GET         | `/api/auth/me`                               | bearer   | —                      |
-| 5 | GET         | `/api/auth/users`                            | bearer   | `auth.users.view`      |
-| 6 | POST        | `/api/auth/users`                            | bearer   | `auth.users.create`    |
-| 7 | PUT/PATCH   | `/api/auth/users/{user}`                     | bearer   | `auth.users.update`    |
-| 8 | DELETE      | `/api/auth/users/{user}`                     | bearer   | `auth.users.delete`    |
-| 9 | GET         | `/api/auth/roles`                            | bearer   | `auth.roles.view`      |
-| 10| POST        | `/api/auth/roles`                            | bearer   | `auth.roles.create`    |
-| 11| PUT/PATCH   | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.update`    |
-| 12| DELETE      | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.delete`    |
-| 13| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.update`    |
-| 14| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.update`    |
-| 15| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
-| 16| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
-| 17| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
-| 18| GET         | `/api/departments`                           | bearer   | `departments.view`     |
-| 19| POST        | `/api/departments`                           | bearer   | `departments.create`   |
-| 20| GET         | `/api/departments/{department}`              | bearer   | `departments.view`     |
-| 21| PUT/PATCH   | `/api/departments/{department}`              | bearer   | `departments.update`   |
-| 22| DELETE      | `/api/departments/{department}`              | bearer   | `departments.delete`   |
-| 23| GET         | `/api/hr/employees`                          | bearer   | `hr.employees.view`    |
-| 24| POST        | `/api/hr/employees`                          | bearer   | `hr.employees.create`  |
-| 25| GET         | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.view`    |
-| 26| PUT/PATCH   | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.update`  |
-| 27| DELETE      | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.delete`  |
+| 5 | POST        | `/api/auth/password`                         | bearer   | — (self-scoped)        |
+| 6 | GET         | `/api/auth/users`                            | bearer   | `auth.users.view`      |
+| 7 | POST        | `/api/auth/users`                            | bearer   | `auth.users.create`    |
+| 8 | PUT/PATCH   | `/api/auth/users/{user}`                     | bearer   | `auth.users.update`    |
+| 9 | DELETE      | `/api/auth/users/{user}`                     | bearer   | `auth.users.delete`    |
+| 10| GET         | `/api/auth/roles`                            | bearer   | `auth.roles.view`      |
+| 11| POST        | `/api/auth/roles`                            | bearer   | `auth.roles.create`    |
+| 12| PUT/PATCH   | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.update`    |
+| 13| DELETE      | `/api/auth/roles/{role}`                     | bearer   | `auth.roles.delete`    |
+| 14| POST        | `/api/auth/roles/assign`                     | bearer   | `auth.roles.assign`    |
+| 15| POST        | `/api/auth/roles/unassign`                   | bearer   | `auth.roles.assign`    |
+| 16| GET         | `/api/auth/notifications`                    | bearer   | — (owner‑scoped)       |
+| 17| GET         | `/api/auth/notifications/unread-count`       | bearer   | — (owner‑scoped)       |
+| 18| POST        | `/api/auth/notifications/{notification}/read`| bearer   | — (owner‑scoped)       |
+| 18a| POST       | `/api/auth/notifications/read-all`           | bearer   | — (owner‑scoped)       |
+| 18b| POST/DELETE| `/api/me/device-tokens`                      | bearer   | — (self-scoped)        |
+| 18c| GET        | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
+| 18d| POST       | `/api/me/attendance`                         | bearer   | — (self-scoped, §12)   |
+| 18e| POST       | `/api/me/attendance/sync`                    | bearer   | — (self-scoped, §12)   |
+| 18f| GET        | `/api/me/attendance/{record}/selfie`         | bearer   | — (self-scoped, §12.4) |
+| 18g| GET        | `/api/attendance/records`                    | bearer   | `attendance.records.view` (§13) |
+| 18h| GET        | `/api/attendance/records/{record}/selfie`    | bearer   | `attendance.records.view` |
+| 18i| PATCH      | `/api/attendance/records/{record}/checkout`  | bearer   | `attendance.records.correct` |
+| 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
+| 18k| GET        | `/api/attendance/report`                     | bearer   | `attendance.records.view` (§14) |
+| 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
+| 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
+| 18n| GET        | `/api/attendance/absent-today`               | bearer   | `attendance.records.view` |
+| 18o| GET        | `/api/me/approvals`                          | bearer   | — (self-scoped, §15.2) |
+| 18p| GET        | `/api/approvals/{approval}`                  | bearer   | — (on the chain, or `approvals.view`; §15.3) |
+| 18q| POST       | `/api/approvals/{approval}/steps/{step}/approve` | bearer | — (the step's approver; §15.4) |
+| 18r| POST       | `/api/approvals/{approval}/steps/{step}/reject`  | bearer | — (the step's approver; §15.4) |
+| 18s| PATCH      | `/api/approvals/{approval}/steps/{step}/assignee` | bearer | `approvals.reassign` (§15.5) |
+| 18t| POST       | `/api/approvals/{approval}/withdraw`         | bearer   | — (the requester; §15.6) |
+| 18u| GET        | `/api/leave/types`                           | bearer   | — (any account; §16.1) |
+| 18v| POST       | `/api/leave/types`                           | bearer   | `leave.types.create` |
+| 18w| PATCH/DELETE| `/api/leave/types/{type}`                   | bearer   | `leave.types.update` / `.delete` |
+| 18x| GET        | `/api/me/leave-balance`                      | bearer   | — (self-scoped, §16.2) |
+| 18y| GET        | `/api/leave/balances`                        | bearer   | `leave.balances.view` |
+| 18z| PUT        | `/api/leave/balances/{employee}/{year}`      | bearer   | `leave.balances.update` |
+| 18za| GET/POST  | `/api/me/leave-requests`                     | bearer   | — (self-scoped, §16.3) |
+| 18zb| POST      | `/api/me/leave-requests/{id}/cancel`         | bearer   | — (self-scoped, §16.3) |
+| 18zc| GET       | `/api/leave/requests/{leaveRequest}`         | bearer   | — (the employee, the chain) or `leave.requests.view` (§16.4) |
+| 18zd| GET       | `/api/leave/requests/{leaveRequest}/attachments/{attachment}` | bearer | as 18zc |
+| 18ze| POST      | `/api/leave/excuses`                         | bearer   | `leave.excuses.create` (§16.5) |
+| 18zf| DELETE    | `/api/leave/excuses/{leaveRequest}`          | bearer   | `leave.excuses.delete` (§16.6) |
+| 18zg| POST      | `/api/leave/requests/{leaveRequest}/return-to-work` | bearer | `leave.requests.returnToWork` (§16.7) |
+| 18zh| GET       | `/api/leave/requests`                        | bearer   | `leave.requests.view` (§16.8) |
+| 18zi| GET       | `/api/me/profile`                            | bearer   | — (self-scoped, §17.1) |
+| 18zj| POST/GET  | `/api/me/photo`                              | bearer   | — (self-scoped, §17.2) |
+| 18zk| GET       | `/api/me/summary`                            | bearer   | — (self-scoped, §17.3) |
+| 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
+| 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
+| 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
+| 22| POST        | `/api/departments`                           | bearer   | `departments.create`   |
+| 23| GET         | `/api/departments/{department}`              | bearer   | `departments.view`     |
+| 24| PUT/PATCH   | `/api/departments/{department}`              | bearer   | `departments.update`   |
+| 25| DELETE      | `/api/departments/{department}`              | bearer   | `departments.delete`   |
+| 26| GET         | `/api/hr/employees`                          | bearer   | `hr.employees.view`    |
+| 27| POST        | `/api/hr/employees`                          | bearer   | `hr.employees.create`  |
+| 28| GET         | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.view`    |
+| 29| PUT/PATCH   | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.update`  |
+| 30| DELETE      | `/api/hr/employees/{employee}`               | bearer   | `hr.employees.delete`  |
+| 31| GET         | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.view`   |
+| 32| POST        | `/api/hr/job-titles`                         | bearer   | `hr.job_titles.create` |
+| 33| GET         | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.view`   |
+| 34| PUT/PATCH   | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.update` |
+| 35| DELETE      | `/api/hr/job-titles/{jobTitle}`              | bearer   | `hr.job_titles.delete` |
+| 36| GET         | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.view`  |
+| 37| POST        | `/api/hr/employees/{employee}/assignments`   | bearer   | `hr.assignments.create`|
+| 38| GET         | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.view`     |
+| 39| POST        | `/api/hr/employees/{employee}/warnings`      | bearer   | `hr.warnings.create`   |
+| 40| PUT/PATCH   | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.update`   |
+| 41| DELETE      | `/api/hr/warnings/{warning}`                 | bearer   | `hr.warnings.delete`   |
+
+⚙️ **88 routes** under `/api` in `route:list` (2026-10-20): the 41 above, the
+sessions and device-token routes of work order §4.3 (3a–3c, 18a, 18b — six
+routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t),
+sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
+2026-10-20, from the parity audit — `GET /api/approvals` (§15.7) and
+`GET /api/leave/on-leave` (§16.9). The count below is the one from before
+them.
+
+**40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
+history (2, read and append only), and warnings (4). سجل التدقيق added the two
+above, both reads: there is no third, because the table is append-only.
+
+> There are **no employee-document endpoints yet**, on purpose. The
+> `employee_documents` table exists so the data import can attach the intake
+> form's four images per hire, but upload, storage and signed downloads belong to
+> the Documents module being ported from the legacy system. Building a second
+> file pipeline here and unifying it later is the duplication the merge plan's
+> stage ordering exists to prevent.
 
 ---
 
-## 10. Frontend integration checklist
+## 11. Frontend integration checklist
 
 1. **HTTP client:** set base URL `{APP_URL}/api`, default headers `Accept: application/json` + `Content-Type: application/json`.
 2. **Auth interceptor:** attach `Authorization: Bearer {access_token}` on every request.
-3. **Refresh flow:** trigger on the HTTP **`401` status** (the expired-token body is `{ "message": "Unauthenticated." }` and has no `success` key). Call `/api/auth/refresh` once with the stored refresh token, swap in the new pair, and retry the failed request. If refresh fails (any `401`), clear tokens and route to login. Do **not** refresh on `403` (that's a permission denial or a disabled account, not an expired token).
+3. **Refresh flow:** trigger on the HTTP **`401` status** — still the status, not the body, even though `401` now carries the envelope like everything else. Call `/api/auth/refresh` once with the stored refresh token, swap in the new pair, and retry the failed request. If refresh fails (any `401`), clear tokens and route to login. Do **not** refresh on `403` (that's a permission denial or a disabled account, not an expired token) — and note that `403` also has `success: false`, which is exactly why the trigger is the status code.
 4. **Single‑use refresh:** persist the new `refresh_token` returned by **both** login and refresh; never reuse an old one. Store it where your JS can read it — it is sent in the request body, not a cookie.
 5. **Session bootstrap:** on app start, if a token exists, call `/api/auth/me` to validate it and (re)load the user **and their `permissions`**.
-6. **Error handling:** for most responses, read `success`; on `false`, show `message` and, if `errors` exists, map field errors to inputs. Treat `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, since those two don't carry `success`.
+6. **Error handling:** read `success` on **every** response — there are no longer any exceptions. On `false`, show `message` (always Arabic and display-ready) and, if `errors` exists, map field errors to inputs. Still route `401` (→ refresh) and `429` (→ back off via `Retry-After`) by **status code**, because what you do about them depends on the status, not on `success`.
 7. **Permission‑aware UI:** gate actions on the `permissions` array from login/`me` (e.g. `permissions.includes('hr.employees.create')`); hide/disable what the user can't do to avoid `403`s. No extra request needed — it works for non‑admins too.
-8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval.
-9. **Lists:** paginated endpoints return items in `data` plus a `meta` block (`current_page`, `last_page`, `total`, …); use `?page=N` to page and `meta.last_page` to build the pager.
+8. **Notification badge:** poll `/api/auth/notifications/unread-count` on an interval. It is one of exactly **two** endpoints meant to be polled — the other is the notification list itself, and both are excluded from the audit trail for that reason. **Never poll anything else**, and least of all `/api/auth/audit-logs`, which records every read of itself (§9).
+9. **Lists:** **all twelve** list endpoints are paginated — the three attendance reports (§14) are computed objects, not lists, and are not and page identically — items in `data`, a sibling `meta` block of exactly six keys. Use `?page=N` and `?per_page=N` (default 15, clamped 1–100), and build the pager from `meta.last_page`. Read `meta.per_page` back rather than assuming your requested size was applied. Roles and users were unpaginated before 2026-09-08 and are not any more.
+10. **Correlation:** send an `X-Request-Id` per user action and log the one that comes back on every response — it is recorded server-side on the matching audit rows, which turns a vague bug report into an exact lookup.
+
+---
+
+## 12. Attendance — الحضور (self-service)
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 1). The employee's own
+attendance, ported from legacy's `/api/attendance/record`, `/sync` and
+`/my-records` with legacy's rules and Arabic messages. Build notes:
+[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md).
+
+**Who may call them:** any authenticated account **linked to an employee**. No
+permission — the routes are self-scoped and always act on the caller's own
+employee. An account with no employee gets **403**. Recording also needs the
+employee to be **active**: a suspended employee gets **422** on record and
+sync, but can still read their history.
+
+**Differences from legacy a client must know:**
+
+- `type` is an **int**: `1` حضور (check-in), `2` انصراف (check-out) — not the
+  strings `check_in` / `check_out`. Every enum ships as `{field}` +
+  `{field}_label`.
+- Responses use the standard envelope.
+- **There is no selfie URL.** Selfies are private; `has_selfie` says whether one
+  exists. (An authorised endpoint to view one comes with the HR side.)
+- **`client_uuid`** — optional, a UUID the phone generates per record. Send it:
+  a retry of a submission that did save comes back as **success with the saved
+  record** instead of "already checked in". Without it, behaviour is legacy's.
+
+### 12.1 Record a check-in or check-out
+
+```
+POST /api/me/attendance        multipart/form-data
+```
+
+| Field | Rules |
+|---|---|
+| `type` | required, `1` (check-in) or `2` (check-out) |
+| `latitude` | required, number, −90…90 |
+| `longitude` | required, number, −180…180 |
+| `selfie` | required, image, ≤ 10 MB |
+| `recorded_at` | required, date-time — the moment on the phone; an offset is honoured and normalised to Asia/Damascus. ⚙️ 2026-10-20: at most **10 minutes** ahead of the server's clock (`ATTENDANCE_MAX_CLOCK_AHEAD`) |
+| `client_uuid` | optional, UUID |
+
+**201** → `{ success, message: "تم تسجيل الحضور بنجاح.", data: <record> }`.
+**200** → `{ success, message: "هذا السجل محفوظ مسبقاً.", data: <the saved record> }`
+when that `client_uuid` was already saved.
+
+**422 — the business rules** (legacy's, unchanged; `message` is display-ready):
+
+| Rule | `message` |
+|---|---|
+| a second check-in the same day — even after checking out | لديك تسجيل حضور قائم بالفعل لهذا اليوم. |
+| check-in on approved leave | لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم. |
+| check-out with no check-in that day, or a second check-out | لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم. |
+| check-out at or before the check-in | وقت الانصراف يجب أن يكون بعد وقت الحضور. |
+| check-out within 60 minutes of the check-in | لا يمكن تسجيل الانصراف قبل مرور 60 دقيقة على الحضور. |
+| a non-working day / outside the check-in window — **not reachable as configured**: every day is a working day and the window is open (decisions Q8, Q9) | لا يمكن تسجيل الحضور في يوم عطلة. / … قبل الساعة … / … بعد الساعة … |
+| a suspended employee | لا يمكن تسجيل الحضور لموظف ليس على رأس عمله. |
+| ⚙️ 2026-10-20 — `recorded_at` more than 10 minutes in the future (parity audit S-6; legacy accepted it) | وقت التسجيل لا يمكن أن يكون في المستقبل. |
+
+A refused event stores no selfie.
+
+⚙️ **2026-10-20 (parity audit S-2):** a check-out for a day that already
+closed — an offline queue synced the next morning — clears the check-in's
+missing-check-out flag (`status` back to `null`), so every report agrees the
+day was completed. Legacy left the flag.
+
+**The record object:**
+
+```json
+{
+  "id": 41,
+  "employee_id": 7,
+  "type": 2,
+  "type_label": "انصراف",
+  "status": null,
+  "status_label": null,
+  "source": 1,
+  "source_label": "تسجيل مباشر",
+  "recorded_at": "2026-06-21T16:00:00+03:00",
+  "work_hours": 8,
+  "work_hours_formatted": "8h 0m",
+  "latitude": 33.5,
+  "longitude": 36.3,
+  "has_selfie": true,
+  "client_uuid": "7d0f6f2e-3b1a-4c5e-9a8b-1f2e3d4c5b6a",
+  "is_corrected": false,
+  "corrected_at": null,
+  "correction_note": null,
+  "is_rejected": false,
+  "rejected_at": null,
+  "rejection_reason": null,
+  "rejection_reason_label": null,
+  "rejection_note": null,
+  "created_at": "2026-06-21T16:00:02+03:00"
+}
+```
+
+- `work_hours` is on the **check-out** row only; `null` on a check-in.
+- `status` is `1` («انصراف مفقود») on a check-in the day closed on without a
+  check-out, `null` otherwise.
+- `source`: `1` تسجيل مباشر · `2` مزامنة بعد انقطاع · `3` تصحيح من الموارد البشرية.
+- A **rejected** row (`is_rejected: true`) was refused by HR: it no longer
+  counts, and the employee may record that day again.
+
+### 12.2 Sync the offline queue
+
+```
+POST /api/me/attendance/sync   multipart/form-data
+```
+
+`records[]` — each with `type`, `latitude`, `longitude`, `recorded_at` and
+optional `client_uuid`, as above — and `selfies[]`, matched to `records[]` **by
+index**.
+
+Each entry is recorded **on its own**: one refusal does not stop the others.
+
+**200** →
+
+```json
+{
+  "success": true,
+  "message": "تمت مزامنة السجلات.",
+  "data": {
+    "succeeded": [ <record>, ... ],
+    "failed": [ { "index": 1, "entry": { ...as sent... }, "error": "لديك تسجيل حضور قائم بالفعل لهذا اليوم." } ]
+  }
+}
+```
+
+- A missing selfie fails **that entry** with «الصورة الشخصية مطلوبة لكل سجل.».
+- An entry whose `client_uuid` is already saved is in `succeeded`, as the saved
+  record — so a queue re-sent after a dropped connection empties cleanly.
+- `error` is display-ready. An unexpected server failure reads «تعذر حفظ هذا
+  السجل، يرجى المحاولة لاحقاً.» and is logged server-side; nothing about the
+  server leaks into it.
+- A malformed request (a missing field in an entry) is a **422** for the whole
+  request, naming the field as `records.N.field`.
+
+### 12.3 My records
+
+```
+GET /api/me/attendance
+```
+
+Paginated (the standard `meta`). **Without a date filter it lists today**, as
+legacy does.
+
+| Query | |
+|---|---|
+| `date` | one day, `Y-m-d` |
+| `from`, `to` | a range (`to` ≥ `from`) |
+| `month` (+ `year`) | a month; `year` defaults to this year |
+| `year` | a year |
+| `type` | `1` or `2` |
+| `missing_checkout`, `is_corrected`, `rejected` | `0`/`1`/`true`/`false` |
+| `work_hours_min`, `work_hours_max` | an hours range (max ≥ min) |
+| `sort` | `recorded_at`, `date`, `type`, `status`, `work_hours`, `created_at`, `rejected_at`, `id`; `-` prefix for descending. Default newest first. An unknown key is a **422** |
+
+Date filters apply in that order of precedence: `date`, then `from`/`to`, then
+`month`, then `year`.
+
+### 12.4 My selfie
+
+```
+GET /api/me/attendance/{record}/selfie
+```
+
+Streams the image of one of the caller's **own** records (`Cache-Control:
+private, no-store`). A colleague's record id is a **404** — whether it exists
+is not the caller's to learn. **404** «لا توجد صورة لهذا السجل.» when the record
+has no selfie (an HR-corrected check-out) or its file was deleted after three
+months.
+
+---
+
+## 13. Attendance — oversight (HR and managers)
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 2a). Legacy's `/attendance/records`,
+`/records/{record}/checkout`, `/records/{record}/reject`.
+
+**Scope.** Every route is row-scoped through the employee's **current** unit
+(GAP-3, decision D6): a company-wide grant reaches everyone, a unit grant that
+unit and everything under it, a «الوحدات التي أديرها» grant the units its holder
+manages. After a transfer the new unit's reach covers the person's whole
+history and the old unit's none of it. An out-of-reach record is **403**
+`out_of_scope`, before any body is read; an unknown id is **404**.
+
+⚙️ **2026-10-20 (parity audit C-3):** correcting, refusing and un-refusing a
+record of an employee who is **not on duty** — suspended or terminated — is
+**422** «لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس عمله.». Their records
+stay readable.
+
+| Permission | Allows |
+|---|---|
+| `attendance.records.view` | the list and the selfie |
+| `attendance.records.correct` | recording a forgotten check-out |
+| `attendance.records.reject` | refusing a record and undoing a refusal |
+
+Rows are the record object of §12.1, plus:
+
+```json
+"employee": { "id": 7, "full_name": "نور أحمد الشامي", "employee_number": "EMP-00007" },
+"corrected_by": null,
+"rejected_by": { "id": 4, "name": "سامر خالد الحلبي" }
+```
+
+`corrected_by` / `rejected_by` are the **accounts** that acted — `name` is their
+employee's name, or the account's email for an account with no employee.
+
+### 13.1 The records list
+
+```
+GET /api/attendance/records        (attendance.records.view)
+```
+
+Paginated (15 by default, as everywhere in this API — legacy paged by 25).
+**Without a date filter it lists today.** Every filter of §12.3, plus:
+
+| Query | |
+|---|---|
+| `employee_id`, `employee_ids` | one or several employees (`employee_ids=3,7` or an array) |
+| `department_id`, `department_ids` | one or several units — **each with every unit under it**, as legacy's department filter covered its sections |
+| `search` | a name part or the staff number; `%` and `_` match themselves |
+| `rejection_reason` | `1` location · `2` selfie · `3` other |
+| `created_from`, `created_to` | when the server received the record |
+| `sort` | §12.3's keys plus `employee_name`, `employee_number` |
+
+A filter naming a unit outside the caller's reach returns nothing — it never
+widens the reach.
+
+### 13.2 A record's selfie
+
+```
+GET /api/attendance/records/{record}/selfie        (attendance.records.view)
+```
+
+As §12.4, for a record in reach.
+
+### 13.3 Record a forgotten check-out
+
+```
+PATCH /api/attendance/records/{record}/checkout    (attendance.records.correct)
+```
+
+| Field | Rules |
+|---|---|
+| `checked_out_at` | required, date-time |
+| `note` | optional, ≤ 500 |
+
+`{record}` is the day's **check-in**. A check-out row is written — `source: 3`,
+`is_corrected: true`, the corrector, the note, no selfie, the day's hours — and
+the check-in's missing-check-out flag is cleared. The 60-minute guard does not
+apply.
+
+**200** → `{ data: { check_in: <record>, check_out: <record> }, message: "تم تصحيح الانصراف بنجاح." }`
+
+**422:** «يجب اختيار سجل دخول لتصحيح الانصراف.» (not a check-in) · «هذا السجل لا
+يحتاج إلى تصحيح انصراف.» (the day has its check-out, or the check-in was
+refused) · «وقت الانصراف يجب أن يكون بعد وقت الحضور.» · ⚙️ 2026-10-20 (parity
+audit S-3): «وقت الانصراف يجب أن يكون في يوم الحضور نفسه.» (another date) ·
+«وقت الانصراف لا يمكن أن يكون في المستقبل.»
+
+### 13.4 Refuse a record
+
+```
+PATCH /api/attendance/records/{record}/reject      (attendance.records.reject)
+```
+
+| Field | Rules |
+|---|---|
+| `reason` | required: `1` الموقع المسجَّل لا يطابق موقع العمل · `2` الصورة الشخصية غير صحيحة أو غير واضحة · `3` مخالفة تعليمات تسجيل الحضور |
+| `note` | ≤ 500; **required** with reason `3` |
+
+The record is kept as evidence and stops counting everywhere; the employee may
+record the day again. **Refusing a check-in refuses that day's check-out with
+it** — one decision. The employee is notified (`attendance.record_rejected`,
+referencing the record): «لم يتم قبول تسجيل حضورك بتاريخ …: <the reason>.», plus
+the note.
+
+**200** → `{ data: { record: <record>, rejected_records: [<record>, ...] }, message: "تم رفض التسجيل وإشعار الموظف." }`
+— every row the decision took down, so the day can be redrawn.
+
+**422** «تم رفض هذا السجل مسبقاً.»
+
+### 13.5 Undo a refusal
+
+```
+DELETE /api/attendance/records/{record}/reject     (attendance.records.reject)
+```
+
+Brings back **the whole decision, and only it** — from either of its rows.
+No notification is sent (as legacy).
+
+**200** → `{ data: { record: <the decision's first row>, restored_records: [...] }, message: "تم التراجع عن رفض التسجيل." }`
+
+**422:** «هذا السجل غير مرفوض.» · «لا يمكن التراجع عن الرفض: يوجد تسجيل حضور قائم
+لهذا اليوم بالفعل.» · «… يوجد تسجيل انصراف قائم لهذا اليوم بالفعل.» — the day
+was recorded again after the refusal, and restoring it would leave two.
+
+---
+
+## 14. Attendance — reports
+
+⚙️ **New 2026-10-16** (work order §4.5, slice 2b). Legacy's `/attendance/report`,
+`/report/monthly`, `/report/employee` and `/absent-today`. All four need
+**`attendance.records.view`** and see only what the caller's grant reaches
+(§13), through the employee's **current** unit.
+
+**Who a report is about.** The daily board reads every employee in reach
+**still on the roll** — ⚙️ 2026-10-20 (parity audit C-8): a departed employee,
+soft-deleted or terminated, is not counted, as legacy left deleted users out.
+The employee grid reads one employee in reach, and a departed one is **404**.
+The monthly report and absent-today read those **expected to attend**: active
+employees with an active account (decision Q7 — legacy's `attendance_check`
+flag is gone). A suspended employee, or one with no account, has no monthly
+row and is never absent.
+
+**The days so far** — ⚙️ 2026-10-20 (parity audit S-1). The monthly report
+and the grid count only up to **today**: a day after today is neither
+expected nor absent (legacy counted it absent), and today counts for a person
+only once something is recorded or covers it — a check-in, a refusal, leave —
+as `/api/me/summary` already read it. Both say where they stopped in
+`counted_to` (`null` when the window starts after today); `working_days` still
+names the whole window.
+
+**The person filters**, on every report: `employee_id` / `employee_ids`,
+`department_id` / `department_ids` (each unit with everything under it),
+`search` (a name part or the staff number) — as §13.1.
+
+**Day states** (`status`, with `status_label`):
+
+| | | |
+|---|---|---|
+| `1` حاضر (لم ينصرف بعد) — checked in, not out | `2` حاضر — in and out | `3` انصراف مفقود |
+| `4` في إجازة | `5` غياب بعذر — an HR excuse | `6` غائب |
+| `7` عطلة — not a working day | `8` تسجيل مرفوض — refused by HR | `9` لم يُسجَّل بعد — after today, or today with nothing yet (2026-10-20) |
+
+Legacy used two names for a completed day (`checked_out` on the board,
+`present` in the grid); both are `2` here. Every day is a working day today
+(decision Q8), so `7` does not occur as configured, and until the Leave module
+exists nobody is `4` or `5`.
+
+**Not paginated, on purpose.** The three reports are computed objects whose
+totals must cover every row — a page of a monthly report with totals for the
+page would be a different report. They keep legacy's shape. absent-today is a
+list and pages as everywhere (15 by default).
+
+### 14.1 The daily board
+
+```
+GET /api/attendance/report?date=2026-06-21
+```
+
+`date` defaults to today. `sort` (every section): `employee_name`, `department`,
+`status`, `check_in_time`, `check_out_time`, `work_hours`, `-` for descending.
+
+```json
+{
+  "date": "2026-06-21",
+  "working_day": true,
+  "checked_in": [ <row> ], "checked_out": [ <row> ], "present": [ <row> ],
+  "missing_checkout": [ <row> ], "rejected": [ <row> ],
+  "on_leave": [ <leave row> ], "excused": [ <leave row> ],
+  "summary": { "checked_in": 1, "checked_out": 1, "present": 2, "on_leave": 0, "excused": 0, "missing_checkout": 1, "rejected": 0 }
+}
+```
+
+`present` is `checked_in` + `checked_out`. The sections are otherwise disjoint:
+`rejected` lists a refused day only when the employee did not record it again
+and no leave covers it.
+
+**A row** (keyed on the day's check-in):
+
+```json
+{
+  "record_id": 41, "check_out_record_id": 42,
+  "employee": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+  "department": { "id": 3, "name": "قسم أ-1" },
+  "status": 2, "status_label": "حاضر",
+  "check_in_time": "2026-06-21T08:00:00+03:00", "check_out_time": "2026-06-21T16:30:00+03:00",
+  "work_hours": 8.5, "work_hours_formatted": "8h 30m",
+  "check_in_location": { "latitude": 33.5, "longitude": 36.3 }, "check_out_location": { … },
+  "check_in_has_selfie": true, "check_out_has_selfie": true,
+  "correction": null,
+  "rejection": null
+}
+```
+
+`record_id` is what §13.3 (correct) and §13.4 (refuse) take; the selfies are
+§13.2's, by record id. `correction`: `{by, at, note}` on a corrected check-out.
+`rejection`: `{record_id, recorded_at, reason, reason_label, note, rejected_at,
+rejected_by}` on a refused day.
+
+**A leave row:** `leave_request_id`, `employee`, `department`, `status` (`4` or
+`5`), `leave_type`, `leave_type_name`, `is_excuse`, `deducts_balance`, `excuse`
+(the details, on an excuse only), `approved_by` (on a request only),
+`start_date`, `end_date`.
+
+### 14.2 The monthly report
+
+```
+GET /api/attendance/report/monthly?from=2026-06-01&to=2026-06-30
+GET /api/attendance/report/monthly?month=6&year=2026
+```
+
+`from` and `to` are required (or `month`, with `year` defaulting to this year);
+at most **92 days**. `has_absences`, `has_missing_checkouts` narrow the rows —
+and the totals are recomputed over what is left. `sort`: `employee_name`,
+`department`, and every count below.
+
+```json
+{
+  "from": "2026-06-01", "to": "2026-06-30", "working_days": 30, "counted_to": "2026-06-30",
+  "rows": [ {
+    "employee": { … }, "department": { … },
+    "expected_days": 30, "present_days": 2, "on_leave_days": 2,
+    "excused_days": 0, "excused_deducted_days": 0, "excused_not_deducted_days": 0,
+    "absent_days": 26, "rejected_days": 0, "missing_checkouts": 0,
+    "total_work_hours": 15.5, "total_work_hours_formatted": "15h 30m",
+    "attendance_rate": 6.7
+  } ],
+  "totals": { "employees": 1, "expected_days": 30, "present_days": 2, … }
+}
+```
+
+`expected = present + on_leave + excused + absent`, always. Leave counts working
+days inside the window, and a day the employee worked is never also a leave
+day. `rejected_days` are refusals that became absences — already inside
+`absent_days`.
+
+⚙️ **2026-10-20:** `expected_days` is **per row** — the working days from
+`from` to `counted_to`, less today for someone with nothing for it yet — and
+`totals.expected_days` is their sum. `missing_checkouts` no longer counts a
+flagged check-in whose day has an accepted check-out (parity audit S-2), so it
+agrees with the grid.
+
+### 14.3 One employee's days
+
+```
+GET /api/attendance/report/employee?employee_id=7&from=2026-06-01&to=2026-06-30
+```
+
+`employee_id` required; `from`/`to` or `month` + `year`, at most 92 days. An
+employee outside the caller's reach is **403** `out_of_scope`; a departed one
+(soft-deleted or terminated) is **404** — ⚙️ 2026-10-20, parity audit C-8. `status` (a day
+state) and `working_days_only` narrow `days` — not `summary`, which always
+covers the whole range. `sort`: `date`, `status`, `work_hours`.
+
+Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `status`,
+`status_label`, `check_in_id` (for §13.3), `check_in_time`, `check_out_time`,
+`work_hours`, `work_hours_formatted`, `leave_type` (whenever leave covers the
+day), `rejection` (whenever the day had a refused check-in — even when leave or
+a later check-in outranks it), `correction`, `excuse` (on an excused day).
+
+A day's state, by precedence: an accepted check-in (`2` / `1` / `3`), else a
+day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
+else absent (`6`) — ⚙️ 2026-10-20: else, after today or today with nothing
+yet, `9` لم يُسجَّل بعد. A day after today keeps its leave or day-off state
+for the calendar but is not counted. `summary` carries the monthly report's
+counts plus `off_days`, over `from`…`counted_to`; the response also carries
+`working_days` (the whole window) and `counted_to`.
+
+### 14.4 Absent today
+
+```
+GET /api/attendance/absent-today?date=2026-06-21
+```
+
+Paginated. Expected employees with no accepted check-in that day — a refused
+check-in is not one — and no approved leave over it (unless the config allows
+attendance during leave). A day off lists nobody. `sort`: `employee_name`,
+`employee_number`; by name by default.
+
+```json
+{ "success": true, "data": [ { "employee": { … }, "department": { "id": 2, "name": "إدارة أ" } } ], "meta": { … } }
+```
+
+---
+
+## 15. Approvals — الاعتمادات
+
+⚙️ **New 2026-10-18** (work order §4.6, `APPROVALS_ENGINE_DESIGN.md` §7). One
+engine approves every kind of request — leave from §4.7, documents in
+November. A request carries its approval (the leave request will embed it);
+these routes are the approver's inbox and the request screen, shared by the
+app and the dashboard.
+
+**Approving is not a permission.** You approve or reject a step because **you
+are its approver** — the step names your employee. Being an administrator does
+not make it your turn (legacy's rule). The two permissions are for people
+**not** on the chain, both scoped through the requester's **current** unit
+(as §13):
+
+| Permission | Allows |
+|---|---|
+| `approvals.view` | reading a chain you are not on (HR seeing where a request is stuck) |
+| `approvals.reassign` | handing a pending step to someone else (§15.5) |
+
+**Who reads an approval:** the requester, anyone holding a step on it
+(decided and skipped steps included), and `approvals.view` within reach.
+Everyone else is **403** on every route below, before any body is read; a
+holder of `approvals.view` whose grant does not reach the requester is **403
+`out_of_scope`** «طلب الاعتماد هذا لموظف خارج نطاق صلاحياتك.». An unknown
+approval, or a step that belongs to another approval, is **404**.
+
+### 15.1 The approval object — the live state
+
+Every route except the inbox answers with it, read fresh **after** the action:
+redraw the screen from it, never from a cached copy.
+
+```json
+{
+  "id": 17,
+  "status": 1, "status_label": "قيد الاعتماد",
+  "rejection_policy": 1,
+  "subject": { "type": "leave_request", "id": 9, "title": "إجازة سنوية", "summary": "3 أيام · 2026-10-20 → 2026-10-22" },
+  "requested_by": 5,
+  "requester": { "id": 5, "full_name": "نور أحمد الشامي", "employee_number": "EMP-00005" },
+  "submitted_at": "2026-10-18T09:12:00+03:00",
+  "decided_at": null,
+  "current_order": 1,
+  "current_step_id": 41,
+  "can_act": true,
+  "can_withdraw": false,
+  "can_reassign": false,
+  "steps": [
+    {
+      "id": 41, "step_order": 1,
+      "resolver": 1, "resolver_label": "المدير المباشر", "resolver_ref": null,
+      "approver_id": 12, "approver": { "id": 12, "full_name": "…", "employee_number": "…" },
+      "decisive": false,
+      "status": 1, "status_label": "بانتظار القرار", "is_current": true,
+      "skip_reason": null, "skip_reason_label": null,
+      "acted_by": null, "acted_at": null, "note": null
+    }
+  ],
+  "reassignments": [
+    { "id": 3, "step_id": 41, "step_order": 1, "from": { … }, "to": { … },
+      "performed_by": { "id": 4, "name": "…" }, "reason": "المدير في إجازة",
+      "created_at": "…" }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `status` | `1` قيد الاعتماد · `2` موافق عليه · `3` مرفوض · `4` مسحوب |
+| `rejection_policy` | `1` any rejection ends it (leave) · `2` a rejection is recorded and the approval goes on; only the `decisive` step's decision ends it (documents) |
+| `subject` | what is being approved: `type` + `id` open it (the same pair a notification's `reference` carries); `title` / `summary` are its own words, `null` if it no longer exists |
+| `current_order` | the stage whose steps may act now; `null` once decided. Steps sharing a `step_order` are parallel |
+| `can_act`, `current_step_id` | **the caller's** step that is theirs to decide now — show approve / reject only when `can_act` |
+| `can_withdraw` | the caller is the requester and nobody has decided yet |
+| `can_reassign` | the caller's `approvals.reassign` reaches this request, and it is pending |
+| `steps[].resolver` | how the approver was found: `1` المدير المباشر · `2` مدير وحدة محددة (`resolver_ref` is its code) · `3` موظف محدد |
+| `steps[].status` | `1` بانتظار القرار · `2` موافقة · `3` رفض · `4` لم تُطلب |
+| `steps[].skip_reason` | with status `4`: `1` the same approver as the step before · `2` the approver is the requester · `3` closed by a rejection · `4` closed by a withdrawal |
+| `steps[].acted_by` | the **account** that decided — `name` is its employee's name, or its email |
+
+### 15.2 My inbox
+
+```
+GET /api/me/approvals                    — what waits on me now
+GET /api/me/approvals?status=decided     — what I decided, most recent first
+```
+
+Self-scoped: your steps, found from your account's employee. Paginated (15 by
+default). Only steps you can decide **now** are listed — a later step of a
+chain arrives when its turn comes (with an `approval.step_pending`
+notification). An account with no employee gets an empty list. Any other
+`status` is **422**.
+
+```json
+{
+  "step_id": 41, "approval_id": 17, "step_order": 1,
+  "status": 1, "status_label": "بانتظار القرار",
+  "acted_at": null, "note": null,
+  "approval_status": 1, "approval_status_label": "قيد الاعتماد",
+  "subject": { "type": "leave_request", "id": 9, "title": "إجازة سنوية", "summary": "3 أيام · 2026-10-20 → 2026-10-22" },
+  "requester": { "id": 5, "full_name": "…", "employee_number": "…" },
+  "submitted_at": "2026-10-18T09:12:00+03:00"
+}
+```
+
+A row opens the request screen: `GET /api/approvals/{approval_id}`.
+
+⚙️ **Filters — 2026-10-20 (parity audit C-4)**, legacy's queue filters, on both
+halves of the inbox:
+
+| Query | |
+|---|---|
+| `search` | a part of the requester's name, or their staff number |
+| `department_id`, `department_ids` | the requester's current unit — each with everything under it (`department_ids=3,7` or an array) |
+| `subject_type` | the request's kind: `leave_request` |
+| `submitted_from`, `submitted_to` | the day it was filed, `YYYY-MM-DD` |
+| `leave_type_id`, `leave_type_ids` | a leave's type — narrows to leave requests |
+| `date_from`, `date_to` | days the leave overlaps, `YYYY-MM-DD` — narrows to leave requests |
+| `sort` | `submitted_at`, `employee_name`; `-` for descending. Default: newest first |
+
+An unknown value is a **422** naming the field.
+
+### 15.3 The request screen
+
+```
+GET /api/approvals/{approval}
+```
+
+**200** → the approval object (§15.1).
+
+### 15.4 Approve, reject
+
+```
+POST /api/approvals/{approval}/steps/{step}/approve
+POST /api/approvals/{approval}/steps/{step}/reject
+```
+
+| Field | Rules |
+|---|---|
+| `note` | optional on both, ≤ 500 |
+
+`{step}` is `current_step_id`. Approving the last pending step approves the
+request; under policy `1` a rejection ends it at once and closes the steps
+behind it. The next approver(s) are notified (`approval.step_pending`); the
+requester's outcome notification is the request's own (`leave.approved`, …).
+
+**200** → `{ data: <approval>, message: "تمت الموافقة." }` / `"تم الرفض."`
+
+**422:** «ليس دورك في اعتماد هذا الطلب.» (not your step, or not its turn yet —
+also for an HR reader) · «يمكن اتخاذ القرار في الطلبات قيد الاعتماد فقط.» · the
+request's own refusal of its final approval, in its words (leave: the balance
+re-check).
+
+### 15.5 Reassign a step
+
+```
+PATCH /api/approvals/{approval}/steps/{step}/assignee      (approvals.reassign)
+```
+
+| Field | Rules |
+|---|---|
+| `employee_id` | required — an employee who has not left |
+| `reason` | required, 3–500 |
+
+For an approver who can no longer act. It moves the step and never decides.
+The new approver must be an **active employee with an active account**, not the
+requester and not already on the chain. Every hop is logged in
+`reassignments`; the new approver is notified — `approval.step_pending` if the
+step is current, `approval.step_assigned` («أصبحت ضمن مسار اعتماد») if it is a
+later one.
+
+**200** → `{ data: <approval>, message: "تمت إعادة إسناد الخطوة." }`
+
+**403:** without the permission, the plain refusal; with it but out of reach,
+`out_of_scope`. **422:** «يمكن إعادة إسناد خطوة بانتظار القرار فقط.» · «هذه
+الخطوة مسندة إلى هذا الموظف أصلاً.» · «لا يمكن إسناد الاعتماد إلى مُقدِّم الطلب
+نفسه.» · «هذا الموظف يحمل خطوة أخرى في مسار اعتماد هذا الطلب.» · «لا يمكن الإسناد
+إلا إلى موظف نشط لديه حساب فعّال.» · «يمكن إعادة إسناد الطلبات قيد الاعتماد فقط.»
+
+The employee picker reads `GET /api/hr/employees`, which needs
+`hr.employees.view` — grant it beside `approvals.reassign`.
+
+### 15.6 Withdraw a request
+
+```
+POST /api/approvals/{approval}/withdraw
+```
+
+The **requester**, while no step has been decided. The request becomes
+`4` مسحوب and its pending steps close. Show it only when `can_withdraw`. (The
+leave request will offer the same as its own cancel.)
+
+**200** → `{ data: <approval>, message: "تم سحب الطلب." }`
+
+**403** «لا يمكن سحب طلب لم تقدّمه.» (on the chain, but not the requester) ·
+**422** «لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب طلب ليس قيد
+الاعتماد.»
+
+---
+
+### 15.7 Every approval — HR's list
+
+⚙️ **New 2026-10-20 (parity audit C-4)** — legacy's admin saw the whole queue
+and reassigned from it.
+
+```
+GET /api/approvals        (approvals.view)
+```
+
+Every approval whose requester's **current** unit the caller's
+`approvals.view` reaches, **every status by default**, paginated. `status` /
+`statuses` narrow it (`1` pending · `2` approved · `3` rejected · `4`
+cancelled); the filters of §15.2; `sort`: `submitted_at`, `decided_at`,
+`employee_name`, `-` for descending — newest first by default.
+
+```json
+{
+  "id": 12, "status": 1, "status_label": "قيد الاعتماد",
+  "subject": { "type": "leave_request", "id": 31, "title": "إجازة سنوية", "summary": "2 أيام · 2026-06-21 → 2026-06-22" },
+  "requester": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+  "department": { "id": 3, "name": "قسم أ-1" },
+  "submitted_at": "2026-06-18T09:12:00+03:00", "decided_at": null,
+  "current_steps": [ { "id": 40, "step_order": 1, "approver": { "id": 4, "full_name": "…", "employee_number": "EMP-00004" } } ],
+  "can_reassign": true
+}
+```
+
+`current_steps` is whose turn it is — empty once decided — so a request stuck
+on an absent approver shows at a glance. A row opens §15.3, where it is
+reassigned (§15.5).
+
+**Skip reasons** (§15.1 `steps[].skip_reason`): ⚙️ 2026-10-20 adds `5`
+«لا يوجد مدير أعلى من مقدِّم الطلب» — المدير العام's own request: nobody stands
+above them, so the direct-manager step is skipped and the rest of the route
+decides (parity audit C-1). For leave, مدير الموارد decides alone — the mirror
+of the HR manager's own leave.
+
+## 16. Leave — الإجازات
+
+⚙️ **New 2026-10-18** (work order §4.7, `LEAVE_BUILD.md`). Legacy's leave
+module on ERP employees: **types and balances (16.1–16.2), requests on the
+approvals engine (16.3–16.4), HR's excuses, return to work and the register
+(16.5–16.8)**.
+
+Every HR route is row-scoped through the employee's **current** unit, as
+attendance (§13): out of reach is **403 `out_of_scope`** «هذا الموظف خارج نطاق
+صلاحياتك.».
+
+| Permission | Allows | Reach |
+|---|---|---|
+| `leave.types.create`, `.update`, `.delete` | the type catalogue | company-wide only |
+| `leave.balances.view` | HR's balances list | row-scoped |
+| `leave.balances.update` | setting an employee's allocation and adjustment | row-scoped |
+| `leave.requests.view` | reading other people's leave (§16.4) and the register (§16.8) | row-scoped |
+| `leave.excuses.create`, `.delete` | filing and undoing an HR excuse (§16.5–16.6) | row-scoped |
+| `leave.requests.returnToWork` | cutting an approved leave short (§16.7) | row-scoped |
+
+⚙️ **2026-10-20 (parity audit C-3):** an employee who is **not on duty** —
+suspended or terminated — takes no action and has none taken on them. Filing
+or withdrawing their own leave, and HR's excuse, its undo, a return to work
+and a balance change, are **422** «لا يمكن تنفيذ هذا الإجراء: الموظف ليس على رأس
+عمله.». Their leave stays readable.
+
+### 16.1 Leave types
+
+```
+GET    /api/leave/types                 any authenticated caller
+POST   /api/leave/types                 leave.types.create
+PATCH  /api/leave/types/{type}          leave.types.update
+DELETE /api/leave/types/{type}          leave.types.delete
+```
+
+The nine the system ships with, in this order (the order is the id — new
+types land last):
+
+| `code` | `name_ar` | Deducts | Requests | Excuses | Reason | Attachment |
+|---|---|---|---|---|---|---|
+| `annual` | إجازة سنوية | ✓ | ✓ | ✓ | | |
+| `emergency` | إجازة طارئة | ✓ | ✓ | ✓ | | |
+| `sick` | إجازة مرضية | | ✓ | ✓ | ✓ | ✓ |
+| `unpaid` | إجازة بدون راتب | | ✓ | ✓ | ✓ | |
+| `official_mission` | مأمورية رسمية | | | ✓ | ✓ | |
+| `bereavement` | إجازة وفاة | | | ✓ | ✓ | |
+| `attendance_excused` | حضور مبرر | | | ✓ | ✓ | |
+| `external_task` | مهمة خارجية | | | ✓ | ✓ | |
+| `study_leave` | إجازة دراسة | | | ✓ | | |
+
+**List** — active types, not paginated. `?for=requests` (the employee's form)
+or `?for=excuses` (HR's), `?deducts_balance=1|0`. `?active=0` lists the
+**retired** ones and needs `leave.types.update`.
+
+```json
+{ "id": 1, "code": "annual", "name_ar": "إجازة سنوية", "name_en": "Annual leave",
+  "deducts_balance": true, "for_requests": true, "for_excuses": true,
+  "requires_reason": false, "requires_attachment": false, "is_active": true,
+  "created_at": "…", "updated_at": "…" }
+```
+
+**Create** — `code` (required, `a-z`, `0-9`, `_`, ≤ 50, unique), `name_ar`
+(required, ≤ 100, unique), `name_en` (≤ 100, unique), `deducts_balance`
+(required), `for_requests`, `for_excuses`, `requires_reason`,
+`requires_attachment`, `is_active` (booleans). **201** «تم إنشاء نوع الإجازة.»
+
+**Update** — any of those; a type keeps its own code and names. Changing
+`deducts_balance` never changes leave already filed: each leave keeps the
+policy it was filed under. **200** «تم تعديل نوع الإجازة.»
+
+**Delete** — **200** «تم حذف نوع الإجازة.»; a type any leave was filed under
+is **deactivated** instead: **200** «نوع الإجازة مستخدم، فتم إيقافه بدلاً من
+حذفه.» with the type (`is_active: false`).
+
+### 16.2 Balances
+
+A balance is **computed, never stored**: the allocation for the year (HR's,
+or **15** by default) plus HR's adjustment, minus the **approved,
+balance-deducting** days of leave that **start** in that year — a leave from 30
+December to 2 January counts wholly in the first year. Pending requests reserve
+nothing: the balance is checked when a request is filed and again at its final
+approval.
+
+```json
+{ "year": 2026, "allocated_days": 22, "adjustment_days": 2, "used_days": 4,
+  "remaining_days": 18, "over_balance_days": 0, "non_deducting_days": 2,
+  "is_custom": true, "note": "رصيد افتتاحي" }
+```
+
+| Field | |
+|---|---|
+| `allocated_days` | allocation + adjustment (never below 0) |
+| `remaining_days` | never below 0; `over_balance_days` is non-zero only after HR forced an excuse past the balance |
+| `non_deducting_days` | approved days under a type that costs nothing (sick, a mission) — shown, never subtracted |
+| `is_custom` | `false`: no allocation set, the default applies |
+
+```
+GET /api/me/leave-balance?year=2026                         self
+GET /api/leave/balances?year=2026                           leave.balances.view
+PUT /api/leave/balances/{employee}/{year}                   leave.balances.update
+```
+
+**Mine** — the caller's own (this year by default). An account with no
+employee: **403** «لا يوجد موظف مرتبط بهذا الحساب.»
+
+**HR's list** — paginated, every employee in reach, each row
+`{ employee, department: {id, name}, …the figures above }`, and beside `meta`:
+`year` and `default_days`. Filters as attendance's lists: `employee_id(s)`,
+`department_id(s)` (each with every unit under it), `search` (a name part or
+the staff number). `sort`: `employee_name` (default), `employee_number`, with
+`-` for descending.
+
+**Set** — `allocated_days` (required, 0–365), `adjustment_days` (−365…365, 0
+when omitted), `note` (≤ 255). One row per person and year, updated in place.
+This is where HR enters each person's **opening balance** at their switch
+date. **200** «تم تحديث رصيد الإجازات.» with the row. **422** «لا يمكن أن يقل
+الرصيد عن الأيام المعتمدة لهذه السنة (N يوم).»
+
+### 16.3 Leave requests — filing, my list, withdrawing
+
+⚙️ **Slice 2, 2026-10-18.** An employee's request goes through the approvals
+engine (§15) on a **resolved** chain: their direct manager, then مدير الموارد
+(the manager of the unit coded `HR`). **Approvers are never sent** —
+`approver_ids` / `manager_id` are ignored. A step that resolves to the
+requester, or repeats the step before it, is skipped (§15.1 `skip_reason`).
+
+```
+POST /api/me/leave-requests                       self (multipart/form-data)
+GET  /api/me/leave-requests                       self
+POST /api/me/leave-requests/{id}/cancel           self
+```
+
+**File** — `leave_type_id` (required: an active type `for_requests`),
+`start_date`, `end_date` (≥ start), `reason` (≤ 2000; required where the
+type says), `attachments[]` (up to **5** files, PDF / JPG / PNG, ≤ 10 MB each;
+**at least one where the type requires it — sick leave**). Then, in order:
+
+| Refusal (422) | When |
+|---|---|
+| «نوع الإجازة (…) غير متاح لطلبات الموظفين.» (on `leave_type_id`) | an HR-only type (a mission) or a retired one |
+| «نوع الإجازة (…) يتطلب ذكر السبب.» (on `reason`) | |
+| «نوع الإجازة (…) يتطلب إرفاق مستند.» (on `attachments`) | sick leave with no file |
+| «الفترة المحددة لا تتضمن أيام عمل.» | |
+| «طلب الإجازة يتجاوز رصيد الإجازات المتبقي (المتبقي N يوم).» | a deducting type over the balance — sick and unpaid are never blocked |
+| «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | a pending or approved leave over any of the days |
+| «لا يمكن تقديم الطلب: منصب مدير «…» شاغر.» and the engine's other chain refusals (§15) | the chain cannot resolve — **nothing is saved, no file kept** |
+
+`requested_days` is the **working** days in the span (every day today). The
+first approver is notified («طلب إجازة جديد»); **the requester gets no
+receipt** — the request is in their list at once.
+
+**201** «تم تقديم طلب الإجازة.» → `{ leave_request, balance }` (§16.2's
+figures for the start year; a pending request reserves nothing).
+
+**The leave request object:**
+
+```json
+{
+  "id": 9, "employee_id": 5, "employee": { "id": 5, "full_name": "…", "employee_number": "…" },
+  "leave_type_id": 3, "leave_type": { "id": 3, "code": "sick", "name_ar": "إجازة مرضية", "deducts_balance": false },
+  "origin": 1, "origin_label": "طلب موظف", "is_excuse": false,
+  "deducts_balance": false, "reason": "زكام",
+  "start_date": "2026-06-21", "end_date": "2026-06-22", "requested_days": 2,
+  "status": 1, "status_label": "قيد الاعتماد", "decided_at": null,
+  "created_by": null,
+  "cancelled_at": null, "cancelled_by": null, "cancellation_reason": null,
+  "returned_to_work_on": null, "original_end_date": null,
+  "shortened_at": null, "shortened_by": null, "shortening_reason": null,
+  "attachments": [ { "id": 4, "name": "تقرير.pdf", "mime_type": "application/pdf", "size": 102400, "created_at": "…" } ],
+  "approval": { …§15.1, the live state… },
+  "created_at": "…"
+}
+```
+
+`status`: `1` قيد الاعتماد · `2` معتمدة · `3` مرفوضة · `4` ملغاة. `origin`: `1`
+the employee's request · `2` an HR excuse (`approval: null`). `deducts_balance`
+is the type's policy **when the leave was filed** — editing the type later
+does not change it.
+
+**My list** — paginated, newest first; HR's excuses for the caller included.
+Filters (legacy's): `status` or `statuses` (CSV or array), `leave_type_id(s)`,
+`year` (the start year), `month` (with `year`, or this year), `date_from` /
+`date_to` (leave **overlapping** the window), `is_excuse`. `sort`:
+`created_at`, `start_date`, `end_date`, `requested_days`, `status`,
+`decided_at`, `id`, with `-` for descending.
+
+**Cancel** — the engine's withdrawal (§15.6), while **no step has been
+decided**: the request and its approval become cancelled, and the days are free
+to file again. **200** «تم سحب طلب الإجازة.» with the request. **422**
+«لا يمكن سحب الطلب بعد أن اتُّخذ فيه قرار.» · «لا يمكن سحب عذر سجّلته الموارد
+البشرية.» A colleague's id is **404**.
+
+⚙️ **2026-10-20 (parity audit C-5):** a withdrawn request carries
+`cancelled_at` and `cancelled_by` (the requester's account), as HR's
+cancellations do. Nobody is notified; the approver who opens it from an
+earlier `approval.step_pending` reads status `4` and, on the approval, «مسحوب»
+with their step «أُغلقت بسحب الطلب».
+
+The outcome reaches the employee as `leave.approved` («تمت الموافقة على طلب
+إجازتك من … إلى …») or `leave.rejected`, referencing the request.
+
+### 16.4 One leave, and its files
+
+```
+GET /api/leave/requests/{leaveRequest}
+GET /api/leave/requests/{leaveRequest}/attachments/{attachment}
+```
+
+Readable by the **employee**, **anyone holding a step on its chain**, and
+`leave.requests.view` within reach of the employee's current unit — what an
+approver opens from the inbox (§15.2: `subject.type` `leave_request`,
+`subject.id`). Anyone else: **403**; a holder of `leave.requests.view` for
+other units: **403 `out_of_scope`** «طلب الإجازة هذا لموظف خارج نطاق صلاحياتك.».
+
+A file is **streamed** (`Cache-Control: private, no-store`, under its original
+name) to exactly those readers — never a URL. A file of another request under
+this one's path is **404**.
+
+**Attendance now sees leave**: an approved leave refuses a check-in that day
+(§12.1), and the daily board, the monthly report and the day grid (§14) count
+it, with who approved it (the last approver) or, for an excuse, who recorded
+it.
+
+### 16.5 HR excuses — file one
+
+⚙️ **Slice 3, 2026-10-18.** An excuse records an **absence that already
+happened**: it is **approved at once**, with no chain, and reclassifies those
+days across every attendance report (§14).
+
+```
+POST /api/leave/excuses              leave.excuses.create  (multipart/form-data)
+```
+
+`employee_id` (required, in reach), `leave_type_id` (an active type
+`for_excuses`), `start_date`, `end_date`, `reason` (required where the type
+says), `force` (boolean), `attachments[]` (**optional** for HR — even on sick
+leave — up to 5, PDF / JPG / PNG, ≤ 10 MB).
+
+| Refusal (422) | When |
+|---|---|
+| «نوع الإجازة (…) غير متاح للأعذار.» (on `leave_type_id`) | |
+| «نوع الإجازة (…) يتطلب ذكر السبب.» (on `reason`) | |
+| «الفترة المحددة لا تتضمن أيام عمل.» | |
+| «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | |
+| «للموظف حضور مسجّل في بعض هذه الأيام، فلا يوجد غياب لتبريره: 2026-06-22.» | an **accepted** check-in on any of the days — a refused one does not count; `force` never overrides this |
+| «العذر يتجاوز رصيد الإجازات المتبقي للموظف (المتبقي N يوم). أرسل force لتسجيله رغم ذلك.» | a deducting type past the balance; `force: true` records it and the balance shows `over_balance_days` |
+| «لا يمكن تسجيل عذر لأيام لم تأتِ بعد.» | ⚙️ 2026-10-20 (parity audit S-5): `end_date` after today — an excuse justifies an absence that happened; today is allowed. Legacy took future days, which then blocked checking in on them |
+
+**201** «تم تسجيل العذر.» → `{ leave_request, balance }`; the request has
+`origin: 2`, `status: 2`, `approval: null`, `created_by` the filer. The
+employee is told (`leave.excuse_filed`): «سجّلت إدارة الموارد البشرية (…) من … إلى
+…، وقد تم خصمها من رصيد إجازاتك.» — or «… ولا تُخصم من رصيد إجازاتك.».
+
+### 16.6 HR excuses — undo one
+
+```
+DELETE /api/leave/excuses/{leaveRequest}     leave.excuses.delete
+```
+
+For an excuse filed in error. `reason` (optional, ≤ 2000). Everything unwinds
+from the one status change: the days are absences again, a deducted day comes
+back, the period can be excused again at once. The row is **kept**,
+`status: 4`, with `cancelled_by`, `cancelled_at`, `cancellation_reason`.
+
+**200** «تم التراجع عن العذر.» → `{ leave_request, balance }`. The employee is
+told (`leave.excuse_cancelled`): «تم التراجع عن (…) المسجّلة من … إلى …، وعاد
+الغياب كما كان.» (+ «وقد أُعيد يوم الرصيد المخصوم.» when it deducted, + «السبب: …»).
+
+**422** «يمكن التراجع هنا عن الأعذار التي سجّلتها الموارد البشرية فقط؛ طلب الموظف
+يُقرَّر عبر مسار اعتماده.» · «تم التراجع عن هذا العذر مسبقاً.» · «يمكن التراجع عن عذر
+قائم فقط.»
+
+### 16.7 Return to work
+
+```
+POST /api/leave/requests/{leaveRequest}/return-to-work     leave.requests.returnToWork
+```
+
+The employee came back **before their approved leave was over**.
+`returned_on` (a date inside the leave; **today** by default), `reason`
+(optional). The leave is cut back to end the day before; the days after it are
+free for a check-in and their balance days return. **Back on the first day**,
+the leave is cancelled instead. **The approval is untouched** — the decision
+stands for the days it covered. `original_end_date` keeps the span that was
+granted, however many times it is shortened.
+
+**200** → `{ leave_request, cancelled, days_returned, balance }`, message
+«تم تقصير الإجازة إلى الأيام المأخوذة فعلاً.» or «أُلغيت الإجازة لعودة الموظف في
+يومها الأول.». `days_returned` is 0 for a non-deducting type, and — ⚙️
+2026-10-20 (parity audit S-4) — counts only the days THIS act handed back: a
+second return to work on the same leave reports what the first did not
+(legacy counted again from the original end). The employee is
+told (`leave.returned_to_work`): «تم إنهاء (…) المعتمدة بتاريخ … بدلاً من … لعودتك
+إلى العمل بتاريخ ….» / «تم إلغاء (…) …» (+ «وأُعيد إلى رصيدك N يوم.», + «السبب: …»).
+
+**422** «يمكن إنهاء الإجازة المعتمدة فقط بالعودة إلى العمل.» · «هذا عذر غياب
+سجّلته الموارد البشرية، وليس إجازة جارية. تراجع عنه بدلاً من ذلك.» · «يجب أن يقع
+تاريخ العودة ضمن فترة الإجازة.»
+
+### 16.8 The register
+
+```
+GET /api/leave/requests          leave.requests.view
+```
+
+Every leave in reach that **overlaps a window**: `from` / `to` (written in
+full, `YYYY-MM-DD`), or `month` + `year` for that month, or `year` alone for
+that whole year, or **the current month** by default; at most **366
+days**, never inverted (422 on `to`). **Approved rows by default** — excuses
+are approved, so they are in; `status` / `statuses` widen it. Also: §16.3's
+`leave_type_id(s)` and `is_excuse`, and the employee filters
+(`employee_id(s)`, `department_id(s)` with their subtree, `search`). `sort`:
+`start_date` (default), `end_date`, `requested_days`, `created_at`,
+`employee_name`, `id`, with `-` for descending.
+
+Each row is the leave request object plus **`days_in_range`** (working days
+inside the window) and **`calendar_days_in_range`** — a leave from 28 May to 3
+June counts 3 days in June's register. Beside `meta`: `from`, `to`, and a
+**`summary` over the whole filtered set**, not the page:
+
+```json
+"summary": {
+  "employees": 2, "requests": 3, "days": 5, "calendar_days": 5,
+  "deducted_days": 3, "excuses": 1,
+  "by_type": [ { "leave_type_id": 1, "name": "إجازة سنوية", "deducts_balance": true,
+                 "requests": 2, "employees": 2, "days": 3 } ],
+  "by_status": { "2": 3 }
+}
+```
+
+`by_type` is ordered by days, most first.
+
+---
+
+### 16.9 Who is on approved leave on a day
+
+⚙️ **New 2026-10-20 (parity audit X2)** — legacy's `/approved-leave-users`.
+
+```
+GET /api/leave/on-leave?date=2026-06-21        (attendance.records.view)
+```
+
+Every **approved** request and HR excuse whose span covers `date` (today in
+the attendance timezone by default), for the employees the caller's
+`attendance.records.view` reaches through their current unit — an attendance
+roster, as legacy gated it on the attendance reports. Departed employees
+(soft-deleted or terminated) are left out (parity audit C-8). Paginated.
+
+| Query | |
+|---|---|
+| `date` | `YYYY-MM-DD` |
+| `leave_type_id`, `leave_type_ids` | the type(s) — CSV or an array |
+| `is_excuse` | `1` HR excuses only · `0` requests only |
+| `employee_id(s)`, `department_id(s)`, `search` | the person filters of §13.1 |
+| `sort` | `start_date` (default), `end_date`, `employee_name`; `-` for descending |
+
+Rows are the leave request of §16.3. Beside `meta`: `date` and `working_day`.
+
+---
+
+## 17. Me — profile, photo and the home screen
+
+⚙️ **New 2026-10-19** (work order §4.8; requirements §6). The rest of the
+employee app's self-service surface: who I am, my photo, and the home screen.
+
+**Who may call them:** any authenticated account **linked to an employee**. No
+permission — the routes are self-scoped and always act on the caller's own
+employee; no id is read from the request. An account with no employee gets
+**403** «لا يوجد موظف مرتبط بهذا الحساب.»
+
+### 17.1 My profile
+
+```
+GET /api/me/profile
+```
+
+The employee object of §8.1 — `department`, `job_title` and the resolved
+`manager` embedded — **with the caller's own pay block and national id**
+(decision 17; D10 = B, 2026-10-19): every key `hr.employees.viewSalary` and
+`hr.employees.viewIdentity` unlock in §2, present for the owner without either
+permission. Plus:
+
+| Key | |
+|---|---|
+| `photo` | `{ "uploaded_at": "…" }`, or `null` when there is none — never omitted. The image is §17.2's `GET`, never a URL |
+
+No documents list in v1 (documents move onto the engine in November).
+
+### 17.2 My photo
+
+```
+POST /api/me/photo     multipart/form-data
+GET  /api/me/photo
+```
+
+**Upload** — `photo`: **JPG or PNG, at most 5 MB**. Kept on the private disk.
+**A new upload replaces the old one** (the old one is kept in the trail, its
+file removed); nobody approves it. **201**:
+
+```json
+{ "success": true, "message": "تم حفظ الصورة الشخصية.", "data": { "uploaded_at": "2026-10-19T09:00:00+03:00" } }
+```
+
+**422** «الصورة مطلوبة.» · «الصورة يجب أن تكون JPG أو PNG.» · «حجم الصورة يجب ألا
+يتجاوز 5 ميغابايت.»
+
+**Read** — streams the image (`Cache-Control: private, no-store`). **404**
+«لا توجد صورة شخصية.» when there is none: show initials.
+
+### 17.3 The home screen
+
+```
+GET /api/me/summary
+```
+
+One object of **cards, each `null` until its module can answer** (requirements
+§6.2). Today only `salary` is null — there is no payroll before Stage 4.
+
+```json
+{
+  "employee": {
+    "id": 12, "full_name": "…", "employee_number": "EMP-00012",
+    "job_title": { "id": 3, "name": "محاسب" },
+    "department": { "id": 4, "name": "قسم أ-1" },
+    "workplace": "…",
+    "manager": { "id": 7, "full_name": "…", "employee_number": "EMP-00007" },
+    "has_photo": true
+  },
+  "attendance_today": {
+    "date": "2026-10-19", "status": 1, "status_label": "حاضر (لم ينصرف بعد)",
+    "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": null,
+    "work_hours": null, "work_hours_formatted": null, "leave_type": null
+  },
+  "attendance_month": {
+    "from": "2026-10-01", "to": "2026-10-19",
+    "expected_days": 19, "present_days": 15, "on_leave_days": 2, "excused_days": 0,
+    "absent_days": 2, "total_work_hours": 118.5, "total_work_hours_formatted": "118:30"
+  },
+  "leave_balance": { "year": 2026, "allocated_days": 15, "remaining_days": 11, "…": "§16.2" },
+  "notifications": { "unread_count": 3 },
+  "approvals": { "pending_count": 1 },
+  "leave_requests": { "pending_count": 1 },
+  "salary": null
+}
+```
+
+- `employee` — `job_title`, `department` and `manager` are `null` when there
+  is none. No pay key here: the pay block is §17.1's.
+- `attendance_today` — today's day from the day grid (§14.3's states).
+  ⚠️ **Before anything is recorded today, `status` is `null`** with
+  «لم يُسجَّل بعد», not غائب: the day is not over and check-in is open all day
+  (the owner's answer of 2026-10-19).
+- `attendance_month` — the 1st of this month to today, the grid's figures. A
+  today with nothing recorded yet is left out of `expected_days` and
+  `absent_days` alike, so the two cards agree.
+- `leave_balance` — this year's, exactly `GET /api/me/leave-balance` (§16.2).
+- `approvals.pending_count` — the steps waiting on me now (`GET
+  /api/me/approvals`, §15.2).
+- `leave_requests.pending_count` — my own leave still in the chain.

@@ -34,7 +34,10 @@ class NotificationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $notifications = $this->notificationService->listForUser($request->user());
+        $notifications = $this->notificationService->listForUser(
+            $request->user(),
+            $this->perPage($request),
+        );
 
         return $this->paginated(
             data: NotificationResource::collection($notifications),
@@ -50,9 +53,29 @@ class NotificationController extends Controller
         );
     }
 
-    public function markRead(Request $request, string $notification): JsonResponse
+    /**
+     * The id is passed to the service rather than route-model bound, and that is
+     * deliberate. Binding would load the row for ANY caller and leave ownership
+     * to be re-checked afterwards; the service instead resolves it through
+     * $user->notifications(), so someone else's id is indistinguishable from a
+     * nonexistent one and yields a 404 — which is what §6 requires of row
+     * scoping, since a 403 would confirm the row exists. The route constrains
+     * the segment to digits, so a non-numeric id never reaches here.
+     */
+    /**
+     * POST /api/auth/notifications/read-all
+     */
+    public function markAllRead(Request $request): JsonResponse
     {
-        $marked = $this->notificationService->markAsRead($request->user(), (int) $notification);
+        return $this->success(
+            data: ['marked' => $this->notificationService->markAllAsRead($request->user())],
+            message: 'تم وضع علامة "مقروء" على جميع الإشعارات.',
+        );
+    }
+
+    public function markRead(Request $request, int $notification): JsonResponse
+    {
+        $marked = $this->notificationService->markAsRead($request->user(), $notification);
 
         return $this->success(
             data: new NotificationResource($marked),

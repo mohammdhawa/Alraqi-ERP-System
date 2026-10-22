@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Departments\Exceptions;
 
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Shared\Exceptions\DomainException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -19,11 +18,12 @@ use Symfony\Component\HttpFoundation\Response;
  *   children); a leaf root or an emptied tree would delete cleanly. So the root
  *   needs its own explicit guard in the model's `deleting` hook.
  *
- * Mirrors DepartmentHasChildrenException: a self-rendering domain exception with
- * a 409 (the request conflicts with the resource's protected state), covering
- * every delete path — controller, service, seeder, tinker, future modules.
+ * Mirrors DepartmentHasChildrenException: a domain exception carrying a 409 (the
+ * request conflicts with the resource's protected state) as data, covering every
+ * delete path — controller, service, seeder, tinker, future modules. Rendering
+ * belongs to ApiExceptionRenderer (C17).
  */
-class DepartmentIsRootException extends \RuntimeException
+class DepartmentIsRootException extends \RuntimeException implements DomainException
 {
     public function __construct(
         string $message = 'لا يمكن حذف الإدارة العامة، فهي الوحدة الجذر لهيكل الشركة.',
@@ -32,18 +32,8 @@ class DepartmentIsRootException extends \RuntimeException
         parent::__construct($message);
     }
 
-    /**
-     * Render as the project's standard error envelope for API clients.
-     */
-    public function render(Request $request): ?JsonResponse
+    public function statusCode(): int
     {
-        if (! $request->is('api/*') && ! $request->expectsJson()) {
-            return null;
-        }
-
-        return response()->json([
-            'success' => false,
-            'message' => $this->getMessage(),
-        ], $this->statusCode);
+        return $this->statusCode;
     }
 }

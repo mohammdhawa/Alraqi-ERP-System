@@ -6,56 +6,213 @@ namespace App\Modules\HR\Models;
 
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Enums\ActivityType;
+use App\Modules\HR\Enums\AssignmentReason;
+use App\Modules\HR\Enums\EducationLevel;
+use App\Modules\HR\Enums\EmployeeDocumentType;
+use App\Modules\HR\Enums\EmployeeStatus;
+use App\Modules\HR\Enums\EmploymentType;
+use App\Modules\HR\Enums\EngineeringRank;
+use App\Modules\HR\Enums\Gender;
+use App\Modules\HR\Enums\Governorate;
+use App\Modules\HR\Enums\MaritalStatus;
+use App\Modules\HR\Enums\SalaryMode;
+use App\Modules\HR\Exceptions\AssignmentConflictException;
+use App\Modules\HR\Exceptions\EmployeeClassificationException;
+use App\Modules\HR\Policies\EmployeePolicy;
+use App\Modules\HR\Support\EmployeeClassificationGuard;
+use App\Modules\HR\Support\HireDateGuard;
 use App\Shared\Traits\HasAuditLog;
+use Database\Factories\EmployeeFactory;
+use Illuminate\Database\Eloquent\Attributes\UsePolicy;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Employee Model
  *
- * The HR profile of a person: contact details, department, role, pay, and
- * employment status. An employee may or may not have a matching User login.
+ * Every person who works at the company, whether or not they ever log in.
+ * `users` holds only those with system access, and `User belongsTo Employee`
+ * through a nullable-unique `users.employee_id`: every user is an employee, not
+ * every employee is a user.
  *
- * WHY HasAuditLog:
- * - Employee records carry sensitive, change-worthy data (salary, status,
- *   department). The audit trail must capture who changed what (§16.6, §16.14).
+ * ───────────────────────────────────────────────────────────────────────────
+ * WHAT THIS ROW HOLDS, AND WHAT IT DELIBERATELY DOES NOT
+ * ───────────────────────────────────────────────────────────────────────────
+ * It holds the person (identity, contact, family, education), their current
+ * posting as a denormalised pointer, and the CRITERIA their pay is computed
+ * from. It does not hold their pay.
  *
- * WHY SoftDeletes:
- * - A person is FK'd to by users (employee_id), departments (manager_id), and
- *   later modules (payroll, attendance, projects). Hard-deleting them would null
- *   those links and destroy history payroll/audit still need. Deletion sets
- *   deleted_at; the row survives and every reference stays resolvable.
+ * There is no `salary` column. For the large majority — `salary_mode = scale` —
+ * the number is not a stored fact but the output of the criteria calculation,
+ * and caching a derived value with no invalidation strategy means one change to
+ * the company scale factor silently makes every row wrong (P1/C25). Only the
+ * إتفاق track has a real negotiated amount, in `agreed_salary`, and
+ * EmployeeClassificationGuard refuses to let the two tracks blur.
  *
- * IDENTITY:
- * - employee_number is the stable, unique staff identifier. It is auto-generated
- *   (EMP-00001, …) by the creating hook when a writer omits it, so EVERY path —
- *   API, seeder, factory, tinker — produces one; a caller may still supply an
- *   externally-assigned number, which is kept as-is.
+ * There is no `seniority_years` either: it is `hire_date` and the payroll
+ * period. Storing it needs a nightly job to keep hundreds of rows honest, and
+ * the day that job fails every payslip is wrong.
  *
- * RELATIONS:
- * - department(): the department this employee belongs to.
- * - user(): the login account linked to this employee (inverse of
- *   User::employee()). hasOne because a user holds the employee_id FK.
+ * ⚠️ `organizational_grade` (السوية التنظيمية) IS NOT `departments.level`.
+ * Both are integers 1–5; they are different facts. A section head (السوية 3)
+ * can sit in a division (level 2) row. Conflating them corrupts every payslip,
+ * and nothing complains.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * INVARIANTS — enforced here, where every writer crosses (P2, C4)
+ * ───────────────────────────────────────────────────────────────────────────
+ * `saving`  runs EmployeeClassificationGuard: axis exclusivity, the pay-track
+ *           pairing, grade ranges, the Sham Cash shape, family coherence, date
+ *           order. EmployeeRequest runs the SAME guard for a friendly 422; this
+ *           hook is what binds the Batch 4 importer, the seeders and tinker.
+ *
+ * `creating` assigns `employee_number` when the writer omits one.
+ *
+ * `saved`   keeps the posting history in step with the pointer columns — see
+ *           `recordPostingChange()` and the EmployeeAssignment docblock, which
+ *           together describe the two-way synchronisation and how its recursion
+ *           is broken.
+ *
+ * WHY SoftDeletes: a person is FK'd to by `users.employee_id`,
+ * `departments.manager_id`, their own postings, warnings and documents, and
+ * every future module. Their identity must stay resolvable after they leave.
+ *
+ * ROW-LEVEL AUTHORIZATION (GAP-3) is `EmployeePolicy`, registered by the
+ * attribute below so the module needs no provider edit.
  */
+#[UsePolicy(EmployeePolicy::class)]
 class Employee extends Model
 {
     use HasAuditLog;
+
+    /** @use HasFactory<EmployeeFactory> */
+    use HasFactory;
+
     use SoftDeletes;
 
+    /**
+     * The prefix and width of a generated staff number.
+     */
+    private const NUMBER_PREFIX = 'EMP-';
+
+    private const NUMBER_WIDTH = 5;
+
+    /**
+     * The manager `ManagementChain::attachTo()` resolved from the tree.
+     *
+     * A PLAIN PROPERTY, NOT A RELATION. It used to be set with setRelation(),
+     * but there is no relation method behind it, and `refresh()` reloads every
+     * key in `$relations` by name — so refreshing an employee that had been
+     * through the walk threw RelationNotFoundException. Kept out of the
+     * attribute bag too, so it can never be saved.
+     */
+    private ?Employee $managerFromTree = null;
+
+    /**
+     * Defaults that mirror the column defaults in the migration.
+     *
+     * These are NOT decoration and NOT a second copy of the schema's defaults
+     * in any harmful sense — they exist because a database default is applied
+     * by the INSERT, which is far too late for the `saving` hook. Without them,
+     * `Employee::create(['agreed_salary' => 500])` reaches
+     * EmployeeClassificationGuard with no `salary_mode` at all, the pay-track
+     * rule finds nothing to check, and the row lands as نظام رواتب carrying a
+     * stored salary — exactly the state that rule exists to forbid.
+     *
+     * Stated once here so the guard always sees the row as it will actually be.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'status'            => 1,   // نشط
+        'salary_mode'       => 1,   // نظام رواتب
+        'nationality'       => 'سوري',
+        'wives_count'       => 0,
+        'sons_count'        => 0,
+        'daughters_count'   => 0,
+        'has_hazard_pay'    => false,
+        'has_scarcity_pay'  => false,
+        'has_dual_role_pay' => false,
+    ];
+
+    /**
+     * Point Eloquent at the factory explicitly.
+     *
+     * Required because this model lives in a module rather than under
+     * App\Models, so Laravel's convention-based discovery would look for
+     * Database\Factories\Modules\HR\Models\EmployeeFactory and find nothing.
+     * The same reason User declares one.
+     */
+    protected static function newFactory(): Factory
+    {
+        return EmployeeFactory::new();
+    }
+
     protected $fillable = [
+        // Identity
         'employee_number',
-        'name',
+        'first_name',
+        'middle_name',
+        'last_name',
+        'mother_name',
+        'nickname',
         'national_id',
+        'gender',
+        'birth_date',
+        'birth_place',
+        'origin_governorate',
+        'residence_governorate',
+        'nationality',
+        'second_nationality',
+        'marital_status',
+        'wives_count',
+        'sons_count',
+        'daughters_count',
+        // Contact
         'phone',
+        'phone_secondary',
         'email',
         'address',
+        // Military service
+        'did_military_service',
+        'military_discharge_date',
+        // Education
+        'education_level',
+        'qualification',
+        'specialization',
+        'is_graduated',
+        'graduation_date',
+        // Classification — pay-determining
+        'activity_type',
+        'organizational_grade',
+        'experience_level',
+        'engineering_rank',
+        'industrial_experience_years',
+        'has_hazard_pay',
+        'has_scarcity_pay',
+        'has_dual_role_pay',
+        'distinction_grade',
+        // Employment
         'department_id',
-        'job_title',
+        'job_title_id',
+        'employment_type',
+        'workplace',
         'hire_date',
-        'salary',
+        'termination_date',
         'status',
+        // Pay reference
+        'sham_cash_account',
+        'payroll_location',
+        'salary_mode',
+        'agreed_salary',
     ];
 
     /**
@@ -64,22 +221,68 @@ class Employee extends Model
     protected function casts(): array
     {
         return [
-            'hire_date' => 'date',
-            'salary'    => 'decimal:2',
+            'birth_date'                  => 'date',
+            'military_discharge_date'     => 'date',
+            'graduation_date'             => 'date',
+            'hire_date'                   => 'date',
+            'termination_date'            => 'date',
+            'gender'                      => Gender::class,
+            'marital_status'              => MaritalStatus::class,
+            'origin_governorate'          => Governorate::class,
+            'residence_governorate'       => Governorate::class,
+            'education_level'             => EducationLevel::class,
+            'activity_type'               => ActivityType::class,
+            'engineering_rank'            => EngineeringRank::class,
+            'employment_type'             => EmploymentType::class,
+            'status'                      => EmployeeStatus::class,
+            'salary_mode'                 => SalaryMode::class,
+            'is_graduated'                => 'boolean',
+            'did_military_service'        => 'boolean',
+            'has_hazard_pay'              => 'boolean',
+            'has_scarcity_pay'            => 'boolean',
+            'has_dual_role_pay'           => 'boolean',
+            'wives_count'                 => 'integer',
+            'sons_count'                  => 'integer',
+            'daughters_count'             => 'integer',
+            'organizational_grade'        => 'integer',
+            'experience_level'            => 'integer',
+            'industrial_experience_years' => 'integer',
+            'distinction_grade'           => 'integer',
+            'agreed_salary'               => 'decimal:2',
         ];
     }
 
     /**
-     * Auto-assign employee_number on any create that omits it, so the number is
-     * present on every write path (not just the service/API). Lives in the model
-     * — the one layer all writers cross — mirroring how the Department hierarchy
-     * guard is enforced in a model hook rather than only in the form request.
-     *
-     * A supplied number is respected. The generated form is EMP- + the next id,
-     * zero-padded; withTrashed() so a soft-deleted employee's number is never
-     * reissued. The UNIQUE index is the final backstop against a concurrent
-     * collision (the loser's insert fails rather than duplicating a number).
+     * True only inside correct(): tells recordPostingChange() that a change to
+     * the unit, title or grade is a correction, not a move.
      */
+    private bool $correcting = false;
+
+    /**
+     * Save $attributes as a CORRECTION of the record, not as an event in the
+     * person's working life.
+     *
+     * An ordinary update of the unit, title or grade closes the open posting
+     * and opens a نقل داخلي dated today — right for a real move. When the
+     * source was simply wrong (the importer re-running against HR's
+     * corrections), that would invent a transfer on the day of the re-run. Here
+     * the open posting is amended in place instead, keeping its date and
+     * reason. Everything else is an ordinary save: the guards run, and
+     * HasAuditLog records the change.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function correct(array $attributes): void
+    {
+        $this->correcting = true;
+
+        try {
+            $this->fill($attributes)->save();
+        } finally {
+            $this->correcting = false;
+        }
+    }
+
     protected static function booted(): void
     {
         static::creating(function (self $employee): void {
@@ -87,20 +290,295 @@ class Employee extends Model
                 $employee->employee_number = self::nextEmployeeNumber();
             }
         });
+
+        static::saving(function (self $employee): void {
+            // Raw attributes, so the guard judges what this row would STORE.
+            $violations = (new EmployeeClassificationGuard)->violations($employee->getAttributes());
+
+            if ($violations !== []) {
+                throw new EmployeeClassificationException($violations[0]->message);
+            }
+
+            // GAP-19: judged BEFORE the write, so a refused correction leaves
+            // the row and its history exactly as they were.
+            if ($employee->isDirty('hire_date')) {
+                $violation = (new HireDateGuard)->hireDateViolation($employee, $employee->hire_date);
+
+                if ($violation !== null) {
+                    throw new AssignmentConflictException($violation->message);
+                }
+            }
+        });
+
+        // ⚙️ `created` and `updated`, NOT `saved` + `wasRecentlyCreated` (fixed
+        // 2026-09-28, found with GAP-19). Laravel leaves `wasRecentlyCreated`
+        // true for the instance's whole life, so any later save of a model
+        // created in the same process — a phone edit, say — was read as the
+        // insert, and wrote a spurious نقل داخلي posting dated today. The two
+        // events fire only on a real insert and a real update.
+        static::created(function (self $employee): void {
+            $employee->recordPostingChange(created: true);
+        });
+
+        static::updated(function (self $employee): void {
+            // Hire date first: a correction and a transfer in one save must
+            // see the opening posting already on its corrected date.
+            $employee->followHireDate();
+            $employee->recordPostingChange(created: false);
+
+            // Termination disables the account (EMPLOYEE_APP_REQUIREMENTS.md
+            // §7.1 C), on every path — the importer included. On the change to
+            // terminated only: a later edit of a terminated row must not
+            // overrule an administrator who re-enabled the account, and a
+            // rehire does not re-enable it either. That is a person's decision.
+            if ($employee->wasChanged('status') && $employee->status === EmployeeStatus::Terminated) {
+                $employee->user?->disable();
+            }
+
+            // Suspension ends the sessions already open, and AuthService
+            // refuses the next sign-in while it lasts (owner, 2026-10-20,
+            // parity audit C-3). The account itself stays enabled: a
+            // suspension is temporary, and back on duty the same account works.
+            if ($employee->wasChanged('status') && $employee->status === EmployeeStatus::Suspended) {
+                $employee->user?->endAllSessions();
+            }
+        });
     }
 
     /**
-     * The next sequential staff number, e.g. "EMP-00001".
+     * On duty: neither suspended nor terminated. An employee who is not takes
+     * no action and has none taken on them — records stay readable, nothing
+     * new is written (owner, 2026-10-20, parity audit C-3).
+     */
+    public function isOnDuty(): bool
+    {
+        return $this->status === EmployeeStatus::Active;
+    }
+
+    /**
+     * Carry a `hire_date` correction onto the opening تعيين posting (GAP-19).
+     *
+     * That posting is dated FROM the hire — recordPostingChange() writes it
+     * so — and until 2026-09-28 only its creation read `hire_date`: a later
+     * correction left the history saying the person was posted before they
+     * were hired, or was employed on days they held no unit. HireDateGuard,
+     * in the saving hook, has already refused any correction the posting
+     * cannot follow.
+     *
+     * Through the model, not DB::table(): the moved date is an event worth an
+     * audit row ("the history was corrected to match"), and the posting's own
+     * guards run on it. Called from `updated` only: a new employee's opening
+     * posting is written from the hire date already.
+     */
+    private function followHireDate(): void
+    {
+        if (! $this->wasChanged('hire_date') || $this->hire_date === null) {
+            return;
+        }
+
+        $first = HireDateGuard::earliestPosting($this);
+
+        if ($first === null || ! HireDateGuard::followsHireDate($first)
+            || $first->from_date?->isSameDay($this->hire_date)) {
+            return;
+        }
+
+        $first->update(['from_date' => $this->hire_date->toDateString()]);
+    }
+
+    /**
+     * The next free staff number, e.g. "EMP-00001".
+     *
+     * ⚙️ A SUPPLIED NUMBER IS ALWAYS RESPECTED (project owner, 2026-09-13): HR
+     * may type a staff number by hand — to continue the company's own M024333
+     * series, or to correct one — and only uniqueness is enforced, by the index
+     * and by EmployeeRequest.
+     *
+     * That decision is what makes the loop below necessary rather than
+     * decorative. The generator derives its candidate from `max(id)`, so the
+     * moment someone manually assigns "EMP-00006" to employee #3, the row that
+     * eventually lands at id 6 would generate a number that is already taken and
+     * the insert would fail with a raw integrity error. The loop steps past any
+     * number already in use — including soft-deleted rows, whose numbers are
+     * never reissued, because a departed employee's identifier must keep meaning
+     * what it meant in the audit trail.
+     *
+     * The UNIQUE index remains the final backstop for a concurrent collision:
+     * the loser's insert fails rather than duplicating a number.
      */
     private static function nextEmployeeNumber(): string
     {
-        $next = (int) (self::withTrashed()->max('id') ?? 0) + 1;
+        $candidate = (int) (self::withTrashed()->max('id') ?? 0) + 1;
 
-        return 'EMP-' . str_pad((string) $next, 5, '0', STR_PAD_LEFT);
+        while (self::withTrashed()->where('employee_number', self::formatNumber($candidate))->exists()) {
+            $candidate++;
+        }
+
+        return self::formatNumber($candidate);
+    }
+
+    private static function formatNumber(int $sequence): string
+    {
+        return self::NUMBER_PREFIX.str_pad((string) $sequence, self::NUMBER_WIDTH, '0', STR_PAD_LEFT);
     }
 
     /**
-     * The department this employee belongs to.
+     * Keep the posting history in step with the pointer columns.
+     *
+     * This is the employee -> assignment half of the synchronisation pair
+     * described in EmployeeAssignment's docblock. It fires only when one of the
+     * three mirrored columns actually changed, so an ordinary edit to a phone
+     * number writes no history.
+     *
+     * Three cases, and the third is the one worth reading twice:
+     *
+     *   no open posting      -> open one, reason تعيين, dated from `hire_date`.
+     *                           This is the row that replaces the workbook's
+     *                           three frozen `بداية التعيين` columns, and it is
+     *                           created automatically so the Batch 4 importer
+     *                           gets it by writing the employee alone.
+     *
+     *   open posting that    -> nothing but an amendment in place. Keeps the
+     *   has not yet elapsed     hook idempotent, which is what lets the
+     *                           assignment hook write back without a ping-pong,
+     *                           and what makes a same-day correction a
+     *                           correction rather than a transfer with a
+     *                           zero-day posting in front of it. "Not yet
+     *                           elapsed" rather than "started today" so that a
+     *                           future `hire_date` — which EmployeeRequest
+     *                           permits — is amended too, instead of being
+     *                           closed on a date before it began and refused by
+     *                           EmployeeAssignment's own date guard.
+     *
+     *   open posting, older  -> close it YESTERDAY and open a new one today. A
+     *                           change of unit, title or grade IS a transfer,
+     *                           and the previous posting stays readable with the
+     *                           dates it really had.
+     *
+     * ⚠️ THE OUTGOING POSTING CLOSES THE DAY BEFORE THE NEW ONE OPENS, exactly
+     * as EmployeeAssignmentService::record() does it, and for the same reason.
+     * `scopeOnDate()` matches `from_date <= D AND (to_date IS NULL OR
+     * to_date >= D)`, so closing the old row on the new row's start date makes
+     * BOTH match on that date and "which unit were they in on D?" has two
+     * answers. Payroll asks that question for every employee every month, and
+     * this hook is the path the Batch 4 importer and every plain employee edit
+     * take — so a discrepancy here would be the common case, not the rare one.
+     *
+     * WHY reason = نقل داخلي for the automatic case: it is the truthful default
+     * for "something about this posting changed". A caller who knows it was a
+     * ترقية says so through the assignments endpoint, which writes the history
+     * row directly and leaves this hook nothing to do.
+     */
+    private function recordPostingChange(bool $created): void
+    {
+        $changed = $created
+            ? array_filter(EmployeeAssignment::SYNCED_COLUMNS, fn (string $column): bool => $this->{$column} !== null)
+            : array_filter(EmployeeAssignment::SYNCED_COLUMNS, fn (string $column): bool => $this->wasChanged($column));
+
+        if ($changed === []) {
+            return;
+        }
+
+        $open = $this->currentAssignment()->first();
+
+        $posting = [
+            'department_id'        => $this->department_id,
+            'job_title_id'         => $this->job_title_id,
+            'organizational_grade' => $this->organizational_grade,
+        ];
+
+        if (! $open instanceof EmployeeAssignment) {
+            $this->assignments()->create($posting + [
+                'from_date' => $this->hire_date ?? now()->toDateString(),
+                'reason'    => AssignmentReason::Hire,
+            ]);
+
+            return;
+        }
+
+        // A correction (see correct()) amends the open posting in place: the
+        // person did not move, the record was wrong.
+        if ($this->correcting) {
+            $open->update($posting);
+
+            return;
+        }
+
+        $effective = now()->startOfDay();
+
+        // The open posting never covered an elapsed period, so there is no
+        // history to preserve: amend it instead of stacking a zero-length one
+        // in front of it.
+        if ($open->from_date !== null && $open->from_date->gte($effective)) {
+            $open->update($posting);
+
+            return;
+        }
+
+        $open->update(['to_date' => $effective->copy()->subDay()->toDateString()]);
+
+        $this->assignments()->create($posting + [
+            'from_date' => $effective->toDateString(),
+            'reason'    => AssignmentReason::Transfer,
+        ]);
+    }
+
+    /**
+     * The three name parts joined — الاسم الثلاثي.
+     *
+     * An ACCESSOR, never a column. Storing the parts and the joined string is
+     * two columns for one fact, and the workbook shows where that ends: it
+     * carries الإسم الثلاثي, الاسم القديم *and* a مقارنة الأسماء column whose
+     * only job is to flag where the two disagree (P1).
+     *
+     * ⚠️ NOT SEARCHABLE IN SQL. `WHERE full_name LIKE ?` does not exist, because
+     * the column does not. Search the parts — EmployeeService::paginate() does.
+     */
+    protected function fullName(): Attribute
+    {
+        return Attribute::get(fn (): string => trim(implode(' ', array_filter([
+            $this->first_name,
+            $this->middle_name,
+            $this->last_name,
+        ]))));
+    }
+
+    /**
+     * Total children — عدد الأبناء.
+     *
+     * Derived, because the intake form counts sons and daughters separately and
+     * those two are the facts. A third stored column would be the same number
+     * twice, and the first edit that updated one without the other would make
+     * the row disagree with itself.
+     */
+    protected function childrenCount(): Attribute
+    {
+        return Attribute::get(fn (): int => (int) $this->sons_count + (int) $this->daughters_count);
+    }
+
+    /**
+     * Set by `ManagementChain::attachTo()` only; nothing else knows the rules.
+     */
+    public function setResolvedManager(?Employee $manager): void
+    {
+        $this->managerFromTree = $manager;
+    }
+
+    /**
+     * This employee's manager as the tree gives it, or null — at the top of
+     * the tree, with no unit, or when nobody called `ManagementChain` first.
+     *
+     * A method, not a property: `$employee->resolvedManager` would be read by
+     * Eloquent as a relation and fail.
+     */
+    public function resolvedManager(): ?Employee
+    {
+        return $this->managerFromTree;
+    }
+
+    /**
+     * The unit this employee currently belongs to — the denormalised pointer,
+     * kept in step with the open assignment by the hook pair.
      */
     public function department(): BelongsTo
     {
@@ -108,12 +586,99 @@ class Employee extends Model
     }
 
     /**
-     * The login account linked to this employee, if any.
-     *
-     * The FK (employee_id) lives on the users table, so this is a hasOne.
+     * The catalogue title this employee currently holds.
+     */
+    public function jobTitle(): BelongsTo
+    {
+        return $this->belongsTo(JobTitle::class);
+    }
+
+    /**
+     * The import-source rows that resolve to this employee — more than one
+     * for a rehire, who appears in both إنهاء عمل and قاعدة البيانات.
+     */
+    public function importSources(): HasMany
+    {
+        return $this->hasMany(EmployeeImportSource::class);
+    }
+
+    /**
+     * The login account linked to this employee, if any. The FK lives on
+     * `users`, so this is a hasOne.
      */
     public function user(): HasOne
     {
         return $this->hasOne(User::class);
+    }
+
+    /**
+     * Every posting this person has held, newest first.
+     */
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(EmployeeAssignment::class)->orderByDesc('from_date')->orderByDesc('id');
+    }
+
+    /**
+     * The posting in force now — the row with `to_date IS NULL`.
+     */
+    public function currentAssignment(): HasOne
+    {
+        return $this->hasOne(EmployeeAssignment::class)->whereNull('to_date');
+    }
+
+    /**
+     * Files held on this person.
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(EmployeeDocument::class);
+    }
+
+    /**
+     * The personal photo (الصورة الشخصية) — the newest live one. An upload
+     * replaces the previous one (work order §4.8, 2026-10-19), so there is
+     * normally one; the newest wins if two ever coexist.
+     */
+    public function personalPhoto(): HasOne
+    {
+        return $this->hasOne(EmployeeDocument::class)->ofMany(
+            ['id' => 'max'],
+            static fn (Builder $query) => $query->where('type', EmployeeDocumentType::PersonalPhoto->value),
+        );
+    }
+
+    /**
+     * Disciplinary warnings, most recent first.
+     */
+    public function warnings(): HasMany
+    {
+        return $this->hasMany(EmployeeWarning::class)->orderByDesc('issued_on')->orderByDesc('id');
+    }
+
+    /**
+     * Only staff who still work here — نشط or موقوف, but not منتهي الخدمة.
+     *
+     * Reads the enum's own `isEmployed()` rather than listing cases, so a future
+     * state is classified in one place (P4).
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeEmployed(Builder $query): void
+    {
+        $query->whereIn('status', array_map(
+            static fn (EmployeeStatus $status): int => $status->value,
+            array_filter(EmployeeStatus::cases(), static fn (EmployeeStatus $status): bool => $status->isEmployed()),
+        ));
+    }
+
+    /**
+     * Only staff at a given status.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeWithStatus(Builder $query, EmployeeStatus $status): void
+    {
+        $query->where('status', $status->value);
     }
 }

@@ -11,6 +11,7 @@ use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -67,7 +68,7 @@ class NotificationSendTest extends TestCase
      */
     private function makeMember(Department $department, string $name, bool $activeAccount = true): array
     {
-        $employee = Employee::create(['name' => $name, 'department_id' => $department->id]);
+        $employee = Employee::factory()->named($name)->create(['department_id' => $department->id]);
         $user = User::factory()->create([
             'employee_id' => $employee->id,
             'is_active'   => $activeAccount,
@@ -79,7 +80,7 @@ class NotificationSendTest extends TestCase
     public function test_send_to_user_creates_exactly_one_row(): void
     {
         $user = User::factory()->create();
-        $reference = Employee::create(['name' => 'Subject Person']);
+        $reference = Employee::factory()->named('Subject Person')->create();
 
         $created = $this->service->sendToUser(
             $user,
@@ -95,7 +96,11 @@ class NotificationSendTest extends TestCase
             'user_id'        => $user->id,
             'title'          => 'تمت إضافة موظف جديد',
             'type'           => 'employee_created',
-            'reference_type' => Employee::class,
+            // The stable public alias from the enforced morph map, not the
+            // class name — see AppServiceProvider. Asserted as a literal so a
+            // rename of the alias, which is a published contract and a stored
+            // value, fails here rather than silently reaching clients.
+            'reference_type' => 'employee',
             'reference_id'   => $reference->id,
             'is_read'        => false,
         ]);
@@ -136,7 +141,7 @@ class NotificationSendTest extends TestCase
         $eligible = $this->makeMember($tree['division'], 'Eligible');
 
         // No account at all.
-        Employee::create(['name' => 'No Login', 'department_id' => $tree['division']->id]);
+        Employee::factory()->named('No Login')->create(['department_id' => $tree['division']->id]);
 
         // Account disabled.
         $this->makeMember($tree['division'], 'Disabled Account', activeAccount: false);
@@ -195,7 +200,7 @@ class NotificationSendTest extends TestCase
 
         $this->service->sendToDepartment($tree['division'], title: 'إشعار جديد', type: 'announcement');
 
-        \Laravel\Sanctum\Sanctum::actingAs($member['user']);
+        Sanctum::actingAs($member['user']);
 
         $this->getJson('/api/auth/notifications/unread-count')
             ->assertOk()

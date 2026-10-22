@@ -49,23 +49,46 @@ class DepartmentService
     /**
      * Paginated list of departments, newest first.
      *
+     * withAncestors() is not decoration: DepartmentResource exposes the
+     * resolved `sector`, which walks up the tree, so without it every row on
+     * the page issues its own chain of parent lookups.
+     *
+     * `manager` is loaded for the same reason one tier down: the Resource
+     * embeds the managing employee, so without this the page costs one
+     * `employees` query per managed unit — an N+1 that only shows up once real
+     * departments have managers, which the seeded tree mostly does.
+     *
+     * ORDERING IS DETERMINISTIC (C29). This is not pedantry here — it is the
+     * live case. All 119 seeded department rows share a SINGLE created_at
+     * value, because the seeder writes them in one run. ->latest() is ORDER BY
+     * created_at DESC, so for 118 of 119 rows the sort key carries no ordering
+     * information whatsoever, and paging over eight pages of a fully tied sort
+     * has no guarantee of returning each row exactly once. It happens not to
+     * misbehave under SQLite (rows come back in rowid order once the sort key
+     * is exhausted), but that is an accident of a storage engine, not a promise
+     * InnoDB has any reason to keep. The tie-break makes it a promise.
+     *
      * @return LengthAwarePaginator<Department>
      */
     public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return Department::query()
+            ->withAncestors()
+            ->with('manager')
             ->latest()
+            ->orderByDesc('id')
             ->paginate($perPage);
     }
 
     /**
-     * All departments (unpaginated). Useful for select inputs.
+     * All departments (unpaginated). For select inputs only — deliberately NOT
+     * wired to a route, and it must stay that way or gain a hard cap (C27).
      *
      * @return Collection<int, Department>
      */
     public function all(): Collection
     {
-        return Department::query()->latest()->get();
+        return Department::query()->withAncestors()->with('manager')->latest()->orderByDesc('id')->get();
     }
 
     /**

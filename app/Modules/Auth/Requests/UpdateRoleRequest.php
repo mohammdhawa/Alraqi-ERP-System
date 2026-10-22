@@ -38,6 +38,12 @@ class UpdateRoleRequest extends FormRequest
         ];
     }
 
+    // ⚙️ Adding `auth.roles.assign` to a role already held over a unit or a
+    // managed scope was refused here from 2026-09-26 while GAP-16 was open.
+    // RoleService now bounds what any assigner may hand out, so a scoped
+    // assigner is legitimate, and what an EDITOR may add or remove is bounded
+    // in RoleService::update() (2026-09-28).
+
     public function messages(): array
     {
         return [

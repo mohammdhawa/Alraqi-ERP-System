@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Departments\Models;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
+use App\Modules\Departments\Enums\Sector;
 use App\Modules\Departments\Exceptions\DepartmentHasChildrenException;
 use App\Modules\Departments\Exceptions\DepartmentHierarchyException;
 use App\Modules\Departments\Exceptions\DepartmentIsRootException;
@@ -12,6 +13,7 @@ use App\Modules\Departments\Support\DepartmentHierarchyGuard;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -23,7 +25,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * An organizational unit at ANY tier of the company tree:
  *
  *   الإدارة العامة (GeneralAdministration, level 1) -> إدارة (Division, level 2)
- *     -> قسم (Section, level 3) -> [future tiers…]
+ *     -> قسم (Section, level 3) -> مكتب (Office, level 4)
  *
  * NAMING (deliberate): "Department" is the superordinate term for a unit at any
  * tier — it is NOT the Arabic "الإدارة العامة" (level 1) specifically. A row
@@ -76,6 +78,7 @@ class Department extends Model
         'is_active',
         'parent_id',
         'level',
+        'sector',
         'manager_id',
     ];
 
@@ -84,11 +87,17 @@ class Department extends Model
      */
     protected function casts(): array
     {
-        // The column stays an unsignedTinyInteger in the schema; the cast is
-        // what makes it a tier in PHP. $department->level->label() reads the
-        // Arabic name without a lookup table.
+        // The columns stay unsignedTinyIntegers in the schema; the casts are
+        // what make them a tier and a sector in PHP. $department->level->label()
+        // reads the Arabic name without a lookup table.
+        //
+        // The `sector` cast governs WRITES only. Reads go through the accessor
+        // below, which takes precedence over a cast in Eloquent — deliberately,
+        // because the stored value and the effective value are different facts
+        // for every row that is not an إدارة.
         return [
             'level'     => DepartmentLevel::class,
+            'sector'    => Sector::class,
             'is_active' => 'boolean',
         ];
     }
@@ -106,9 +115,16 @@ class Department extends Model
      *
      * saving — runs the shared DepartmentHierarchyGuard against the pending
      *   attributes and throws on the first broken invariant. The SAME rules the
-     *   form requests validate, owned once and enforced everywhere. Raw
-     *   attributes are read (not the cast accessor) so an undefined level
-     *   surfaces as our domain exception rather than the enum cast's ValueError.
+     *   form requests validate, owned once and enforced everywhere.
+     *
+     *   It reads RAW attributes rather than the cast accessor, because by the
+     *   time this hook runs the cast has already had its say: assigning an
+     *   undefined level (`level => 9`) throws the enum cast's ValueError inside
+     *   setAttribute, before any save begins. That is a loud, correct refusal —
+     *   nothing invalid persists — it simply is not OUR exception. The guard's
+     *   defined-level branch still matters for the paths the cast never sees:
+     *   setRawAttributes, and rows already in the table when a tier is removed
+     *   from the enum.
      *
      * deleting — two refusals:
      *   1. The single root (الإدارة العامة) may never be deleted by ANY path,
@@ -131,7 +147,12 @@ class Department extends Model
             $parentId = isset($attributes['parent_id']) ? (int) $attributes['parent_id'] : null;
             $subjectId = $department->exists ? (int) $department->getKey() : null;
 
-            $violations = (new DepartmentHierarchyGuard())->violations($level, $parentId, $subjectId);
+            // Raw, so the guard judges what this row would STORE. Reading
+            // $department->sector here would hand it the inherited value and
+            // every section would look like it was declaring a sector.
+            $sector = isset($attributes['sector']) ? (int) $attributes['sector'] : null;
+
+            $violations = (new DepartmentHierarchyGuard)->violations($level, $parentId, $subjectId, $sector);
 
             if ($violations !== []) {
                 throw new DepartmentHierarchyException($violations[0]->message);
@@ -141,7 +162,7 @@ class Department extends Model
         static::deleting(function (self $department): void {
             // The root is undeletable on every path, including force-delete.
             if ($department->level === DepartmentLevel::root()) {
-                throw new DepartmentIsRootException();
+                throw new DepartmentIsRootException;
             }
 
             // Below is the soft-delete-only children guard; a hard delete is
@@ -151,7 +172,7 @@ class Department extends Model
             }
 
             if ($department->children()->exists()) {
-                throw new DepartmentHasChildrenException();
+                throw new DepartmentHasChildrenException;
             }
         });
     }
@@ -191,6 +212,38 @@ class Department extends Model
     }
 
     /**
+     * الجهة this unit belongs to — its own if it declares one, otherwise its
+     * nearest ancestor's.
+     *
+     * This is the READ path the P1 rule depends on. Only an إدارة stores a
+     * sector; a قسم or مكتب stores NULL and gets its answer from up the tree, so
+     * re-parenting a section into the other sector is a single UPDATE to
+     * `parent_id` and every unit beneath it starts answering differently on the
+     * next read. Nothing to keep in step, so nothing that can fall out of step.
+     *
+     * WHY it shadows the column of the same name: an Eloquent accessor takes
+     * precedence over a cast, so `$department->sector` is the EFFECTIVE sector
+     * everywhere in the application, while writes still go to the column and
+     * `getAttributes()['sector']` still reads what this row actually stores.
+     * Callers that need the stored value — the saving hook, the form request's
+     * fallback, the guard — must read it raw and say so.
+     *
+     * COST: one query per hop when `parent` is not loaded, bounded by the tier
+     * count. `scopeWithAncestors()` collapses it for list endpoints. The walk
+     * cannot loop: DepartmentHierarchyGuard rejects cycles at write time.
+     */
+    protected function sector(): Attribute
+    {
+        return Attribute::get(function (mixed $value): ?Sector {
+            if ($value !== null) {
+                return $value instanceof Sector ? $value : Sector::from((int) $value);
+            }
+
+            return $this->parent?->sector;
+        });
+    }
+
+    /**
      * Only divisions (إدارة, level 2). A division sits directly under the
      * general administration; it is never a root.
      *
@@ -220,5 +273,102 @@ class Department extends Model
     public function scopeAtLevel(Builder $query, DepartmentLevel $level): void
     {
         $query->where('level', $level->value);
+    }
+
+    /**
+     * The nested relation path covering every ancestor: `parent.parent.…`,
+     * one hop shorter than the tier count (the root has no parent).
+     *
+     * Derived from the enum rather than written out, so appending a tier does
+     * not quietly reintroduce the N+1 this exists to remove. It is a named
+     * method rather than an inline expression because BOTH loading paths need
+     * it — the query scope below for result sets, and loadAncestors() for a
+     * single already-bound row — and two hand-written copies of "how deep is
+     * the tree" is exactly the drift P1 forbids.
+     */
+    public static function ancestorRelationPath(): string
+    {
+        return implode('.', array_fill(0, count(DepartmentLevel::cases()) - 1, 'parent'));
+    }
+
+    /**
+     * Eager-load the ancestor chain, so reading sector() across a result set
+     * costs a fixed number of queries instead of one per hop per row.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeWithAncestors(Builder $query): void
+    {
+        $query->with(self::ancestorRelationPath());
+    }
+
+    /**
+     * The same eager-load for a single row that is already in hand — a
+     * route-model-bound department, typically.
+     *
+     * WHY THIS EXISTS: DepartmentResource exposes a RESOLVED `sector`, and
+     * resolving it walks up the tree one query per hop (see the sector()
+     * accessor). The list endpoint was covered by the scope; `show()` used bare
+     * route-model binding and so performed that walk from inside the Resource —
+     * the one layer whose contract forbids queries outright. Whoever hands a
+     * Department to the Resource owes it this call.
+     *
+     * ⚠️ THIS IS NOT A QUERY-COUNT OPTIMISATION for a single row, and should
+     * not be sold as one. Preloading costs one query per ancestor level, while
+     * the lazy walk stopped at the first stored sector — so rendering one
+     * level-4 office went from 3 queries to 4. What it buys is that the cost is
+     * paid by the caller, is bounded by the tier count, and cannot change
+     * because someone edited a Resource. The real saving is on lists, where the
+     * scope turns N walks into a fixed few.
+     */
+    public function loadAncestors(): self
+    {
+        return $this->load(self::ancestorRelationPath());
+    }
+
+    /**
+     * Every unit AT OR BENEATH the given units — the downward twin of the
+     * ancestor walk, and the extent of a manager's scope (START_HERE §9,
+     * decision 14: the whole subtree, not the unit row alone).
+     *
+     * ONE QUERY PER TIER, NOT PER UNIT. Each pass fetches the children of the
+     * whole frontier at once (`WHERE parent_id IN (…)`), so the cost is bounded
+     * by the depth of the tree — never by how many units sit in it — and it
+     * needs no recursive CTE, which keeps it identical on MySQL and the SQLite
+     * test driver. The bound is derived from `DepartmentLevel`, the same source
+     * as `ancestorRelationPath()`, so adding a tier cannot leave this walk one
+     * hop short. The visited set means a cycle that reached the data by some
+     * other path ends the walk rather than hanging it.
+     *
+     * ⚙️ SOFT-DELETED UNITS ARE WALKED. Nothing stops an office that still has
+     * staff from being soft-deleted, and those employees keep pointing at it.
+     * Their division head is still the person responsible for them, so they
+     * stay in that head's subtree rather than falling out of everyone's view
+     * except a company-wide one. The trashed unit's `parent_id` still says
+     * where it sat.
+     *
+     * @param  array<int, int>  $rootIds
+     * @return array<int, int> ids, unordered, each once
+     */
+    public static function subtreeIds(array $rootIds): array
+    {
+        $found = array_fill_keys(array_map('intval', $rootIds), true);
+        $frontier = array_keys($found);
+
+        for ($hop = 1; $hop < count(DepartmentLevel::cases()) && $frontier !== []; $hop++) {
+            $children = self::withTrashed()
+                ->whereIn('parent_id', $frontier)
+                ->pluck('id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->all();
+
+            $frontier = array_values(array_filter($children, static fn (int $id): bool => ! isset($found[$id])));
+
+            foreach ($frontier as $id) {
+                $found[$id] = true;
+            }
+        }
+
+        return array_keys($found);
     }
 }

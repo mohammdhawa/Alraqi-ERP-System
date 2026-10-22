@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Departments\Exceptions;
 
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Shared\Exceptions\DomainException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -20,13 +19,13 @@ use Symfony\Component\HttpFoundation\Response;
  *   job, factory. Silent failure on a foundation table is worse than an error,
  *   so the model throws rather than returning false.
  *
- * It mirrors DepartmentHasChildrenException: a self-rendering domain exception
- * whose JSON envelope matches ApiRespond::error() exactly, so clients that do
- * reach it (a hypothetical non-form-request HTTP write) see no difference. The
- * status is 422 because an invariant violation is the same class of failure the
- * form request reports as Unprocessable Entity.
+ * It mirrors DepartmentHasChildrenException: a domain exception carrying its
+ * status as data and rendered centrally, so clients that do reach it (a
+ * hypothetical non-form-request HTTP write) see the same envelope as everything
+ * else. The status is 422 because an invariant violation is the same class of
+ * failure the form request reports as Unprocessable Entity.
  */
-class DepartmentHierarchyException extends \RuntimeException
+class DepartmentHierarchyException extends \RuntimeException implements DomainException
 {
     public function __construct(
         string $message = 'الوحدة التنظيمية تخالف قواعد الهيكل التنظيمي.',
@@ -35,18 +34,8 @@ class DepartmentHierarchyException extends \RuntimeException
         parent::__construct($message);
     }
 
-    /**
-     * Render as the project's standard error envelope for API clients.
-     */
-    public function render(Request $request): ?JsonResponse
+    public function statusCode(): int
     {
-        if (! $request->is('api/*') && ! $request->expectsJson()) {
-            return null;
-        }
-
-        return response()->json([
-            'success' => false,
-            'message' => $this->getMessage(),
-        ], $this->statusCode);
+        return $this->statusCode;
     }
 }

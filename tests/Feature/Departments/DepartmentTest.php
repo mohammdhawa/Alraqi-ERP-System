@@ -6,6 +6,7 @@ namespace Tests\Feature\Departments;
 
 use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -99,6 +100,171 @@ class DepartmentTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.id', $department->id)
             ->assertJsonPath('data.name', 'Engineering');
+    }
+
+    /**
+     * show() must not leave the ancestor walk to the Resource layer.
+     *
+     * DepartmentResource exposes a RESOLVED `sector`, which the model finds by
+     * walking up to the first non-null ancestor — one query per hop when
+     * `parent` is not loaded. The list endpoint was covered by the service's
+     * withAncestors(); show() used bare route-model binding, so rendering one
+     * level-4 office cost 3 queries against `departments`, two of them issued
+     * from inside the Resource — the one layer whose contract forbids queries.
+     *
+     * ⚠️ NOTE THE COUNT GOES UP, NOT DOWN: 3 before, 4 after. Preloading a
+     * nested chain costs one query PER LEVEL, while the lazy walk stopped as
+     * soon as it found a stored sector. So this is not a performance fix and
+     * must not be described as one — it is a LAYER fix. What it buys is that
+     * the cost is now paid in the controller, is bounded by the tier count, and
+     * does not vary with what a Resource happens to dereference. The place this
+     * genuinely saves queries is the list endpoint, where the same walk ran once
+     * per row; that was already handled by the service's withAncestors().
+     *
+     * Asserting the exact count still discriminates: the lazy version stops at
+     * the division that stores the sector (3), the eager version walks to the
+     * root (4).
+     */
+    public function test_show_loads_the_ancestor_chain_rather_than_walking_it_lazily(): void
+    {
+        $this->actingAsAdmin();
+
+        $root     = Department::create(['name' => 'الإدارة العامة', 'level' => 1]);
+        $division = Department::create(['name' => 'إدارة', 'level' => 2, 'parent_id' => $root->id, 'sector' => 1]);
+        $section  = Department::create(['name' => 'قسم', 'level' => 3, 'parent_id' => $division->id]);
+        $office   = Department::create(['name' => 'مكتب', 'level' => 4, 'parent_id' => $section->id]);
+
+        $queries = [];
+        \DB::listen(function ($query) use (&$queries) {
+            if (str_contains($query->sql, 'from "departments"')) {
+                $queries[] = $query->sql;
+            }
+        });
+
+        $this->getJson("/api/departments/{$office->id}")
+            ->assertOk()
+            // The sector still resolves — it is preloaded now, not walked.
+            ->assertJsonPath('data.sector', 1);
+
+        // 1 binding + one per ancestor level, all issued by the controller
+        // before the Resource ever runs.
+        $this->assertCount(
+            4,
+            $queries,
+            'expected the binding plus a preloaded ancestor chain; got '.count($queries)
+                .' — the Resource is probably walking ancestors lazily again',
+        );
+    }
+
+    /**
+     * `manager_id` stays exactly as it is — it is the write contract — and
+     * `manager` is the same person as an object beside it (C31), so a client
+     * rendering "who runs this unit" no longer walks the Employees endpoint to
+     * find out.
+     */
+    public function test_show_embeds_the_manager(): void
+    {
+        $this->actingAsAdmin();
+        $manager    = Employee::factory()->named('سامر خليل')->create();
+        $department = Department::create([
+            'name'       => 'الإدارة العامة',
+            'level'      => DepartmentLevel::GeneralAdministration->value,
+            'manager_id' => $manager->id,
+        ]);
+
+        $this->getJson("/api/departments/{$department->id}")
+            ->assertOk()
+            ->assertJsonPath('data.manager_id', $manager->id)
+            ->assertJsonPath('data.manager.id', $manager->id)
+            ->assertJsonPath('data.manager.full_name', 'سامر خليل')
+            // The staff number is what tells two managers with the same
+            // الاسم الثلاثي apart.
+            ->assertJsonPath('data.manager.employee_number', $manager->employee_number);
+    }
+
+    /**
+     * ⚠️ NULL, NOT ABSENT, for a unit with no manager. An omitted key in this
+     * API means "you may not see this field" (C11), so an embed that vanished
+     * when there is nobody to embed would report a permission problem that does
+     * not exist.
+     */
+    public function test_manager_is_null_rather_than_absent_when_the_unit_has_none(): void
+    {
+        $this->actingAsAdmin();
+        $department = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        $data = $this->getJson("/api/departments/{$department->id}")->assertOk()->json('data');
+
+        $this->assertNull($data['manager_id']);
+        $this->assertArrayHasKey('manager', $data, 'the embed must be present even with nobody to embed');
+        $this->assertNull($data['manager']);
+    }
+
+    /**
+     * Reassigning the manager reassigns the embedded object with it — the
+     * controller reloads the relation after the write instead of echoing the
+     * employee the bound model was already holding.
+     */
+    public function test_reassigning_the_manager_updates_the_embedded_object(): void
+    {
+        $this->actingAsAdmin();
+        $first      = Employee::factory()->named('المدير الأول')->create();
+        $second     = Employee::factory()->named('المدير الثاني')->create();
+        $department = Department::create([
+            'name'       => 'الإدارة العامة',
+            'level'      => DepartmentLevel::GeneralAdministration->value,
+            'manager_id' => $first->id,
+        ]);
+
+        $this->putJson("/api/departments/{$department->id}", ['manager_id' => $second->id])
+            ->assertOk()
+            ->assertJsonPath('data.manager_id', $second->id)
+            ->assertJsonPath('data.manager.id', $second->id)
+            ->assertJsonPath('data.manager.full_name', 'المدير الثاني');
+    }
+
+    /**
+     * The list resolves every manager in ONE query, not one per unit.
+     *
+     * This matters more here than almost anywhere else: the seeded tree is 119
+     * units and most of them have a manager, so a lazy load is ~15 extra
+     * queries on every page of the departments list.
+     */
+    public function test_the_index_embeds_managers_without_an_n_plus_one(): void
+    {
+        $this->actingAsAdmin();
+        $root = Department::create([
+            'name'  => 'الإدارة العامة',
+            'level' => DepartmentLevel::GeneralAdministration->value,
+        ]);
+
+        foreach (range(1, 3) as $i) {
+            Department::create([
+                'name'       => "إدارة {$i}",
+                'level'      => DepartmentLevel::Division->value,
+                'parent_id'  => $root->id,
+                'manager_id' => Employee::factory()->named("مدير {$i}")->create()->id,
+            ]);
+        }
+
+        $queries = [];
+        \DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'from "employees"')) {
+                $queries[] = $query->sql;
+            }
+        });
+
+        $this->getJson('/api/departments')->assertOk();
+
+        $this->assertCount(
+            1,
+            $queries,
+            'expected ONE employees query for the whole page; got '.count($queries)
+                .' — managers are probably being resolved per department again',
+        );
     }
 
     public function test_update_modifies_a_department(): void

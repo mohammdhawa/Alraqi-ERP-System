@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
 
 /**
  * ModuleServiceProvider
@@ -73,7 +73,7 @@ class ModuleServiceProvider extends ServiceProvider
         $modules = File::directories($modulesPath);
 
         foreach ($modules as $modulePath) {
-            $routesFile = $modulePath . '/routes.php';
+            $routesFile = $modulePath.'/routes.php';
 
             if (File::exists($routesFile)) {
                 $moduleName = strtolower(basename($modulePath));

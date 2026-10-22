@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Models;
 
+use App\Modules\Auth\Enums\DevicePlatform;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -26,6 +27,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * - If a revoked token is used, it's a replay attack indicator.
  * - The `revoked` field enables immediate invalidation without waiting for expiry.
  *
+ * SESSIONS (2026-10-10): rows sharing a `session_id` are one signed-in device —
+ * login starts the chain, every rotation continues it, and the one row of it
+ * that is not revoked and not expired is the session's live head. The access
+ * token is named after the session (AuthService::accessTokenName()).
+ *
  * NOTE: No HasAuditLog trait here. Refresh token CRUD is high-frequency and
  * already logged at the action level in AuthService. Model-level audit would
  * create excessive noise.
@@ -38,6 +44,10 @@ class RefreshToken extends Model
 
     protected $fillable = [
         'user_id',
+        'session_id',
+        'device_name',
+        'platform',
+        'signed_in_at',
         'token_hash',
         'expires_at',
         'revoked',
@@ -46,9 +56,11 @@ class RefreshToken extends Model
     protected function casts(): array
     {
         return [
-            'expires_at' => 'datetime',
-            'revoked'    => 'boolean',
-            'created_at' => 'datetime',
+            'expires_at'   => 'datetime',
+            'revoked'      => 'boolean',
+            'created_at'   => 'datetime',
+            'signed_in_at' => 'datetime',
+            'platform'     => DevicePlatform::class,
         ];
     }
 

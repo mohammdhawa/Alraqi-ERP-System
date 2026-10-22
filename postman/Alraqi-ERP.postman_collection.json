@@ -281,7 +281,7 @@
 							"host": [ "{{baseUrl}}" ],
 							"path": [ "api", "auth", "roles", "assign" ]
 						},
-						"description": "Assign an existing role to an existing user. Requires `auth.roles.update`.\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n\nNote: the literal `/roles/assign` route is declared before `/roles/{role}` so it always wins. Idempotent — assigning a role the user already holds does not create a duplicate. Call once per role to give a user multiple roles."
+						"description": "Assign an existing role to an existing user, over a scope. Requires `auth.roles.assign` (split out of `auth.roles.update` on 2026-09-26, GAP-15); the grant may not reach further than the caller's own `auth.roles.assign` grant (403).\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n- `scope_type` — optional: `1` company (default) · `2` unit · `3` «الوحدات التي أديرها»\n- `scope_department_id` — required when `scope_type` is 2, absent otherwise\n- a scoped grant of a role whose permissions all work company-wide only is a 422 on `scope_type`\n\nNote: the literal `/roles/assign` route is declared before `/roles/{role}` so it always wins. Idempotent — assigning a role the user already holds does not create a duplicate. Call once per role to give a user multiple roles."
 					},
 					"response": []
 				},
@@ -302,7 +302,7 @@
 							"host": [ "{{baseUrl}}" ],
 							"path": [ "api", "auth", "roles", "unassign" ]
 						},
-						"description": "Revoke a role from a user. Requires `auth.roles.update`.\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n\nIdempotent — revoking a role the user does not hold is a harmless no-op (still 200). Any other roles the user holds are untouched. Audited as `role_unassigned`."
+						"description": "Revoke a role from a user. Requires `auth.roles.assign` (split out of `auth.roles.update` on 2026-09-26, GAP-15). With `scope_type` only that grant goes; without it, every grant of the role.\n\n**Validation**\n- `user_id` — required, integer, must exist in `users`\n- `role_id` — required, integer, must exist in `roles`\n- `scope_type` / `scope_department_id` — as for assign; omit both to revoke every grant of the role\n\nIdempotent — revoking a role the user does not hold is a harmless no-op (still 200). Any other roles the user holds are untouched. Audited as `role_unassigned`."
 					},
 					"response": []
 				},

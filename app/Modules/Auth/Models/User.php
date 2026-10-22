@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Auth\Models;
 
 use App\Modules\Auth\Support\PermissionCache;
+use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\UserFactory;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -41,9 +43,22 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     use HasApiTokens;
+    use HasAuditLog;
     use HasFactory;
     use Notifiable;
-    use HasAuditLog;
+
+    /**
+     * WHY SoftDeletes (C23): four tables FK into users, and a hard delete NULLED
+     * the account's user_id across the whole append-only audit trail while
+     * cascading their notifications away. A departed user's identity has to stay
+     * resolvable for the history that references it to keep meaning anything.
+     *
+     * The global scope this adds is load-bearing for security, not just for
+     * queries: a trashed user is invisible to the auth provider, so their access
+     * tokens resolve to no tokenable and their refresh tokens resolve to no
+     * user. A deleted account cannot authenticate by any path.
+     */
+    use SoftDeletes;
 
     /**
      * The built-in role whose holders bypass every permission check. Its power
@@ -69,6 +84,7 @@ class User extends Authenticatable
         'password',
         'is_active',
         'employee_id',
+        'must_change_password',
     ];
 
     protected $hidden = [
@@ -82,11 +98,34 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'last_login_at'     => 'datetime',
-            'password'          => 'hashed',
-            'is_active'         => 'boolean',
+            'email_verified_at'    => 'datetime',
+            'last_login_at'        => 'datetime',
+            'password_changed_at'  => 'datetime',
+            'password'             => 'hashed',
+            'is_active'            => 'boolean',
+            'must_change_password' => 'boolean',
         ];
+    }
+
+    /**
+     * How this account identifies itself in a log line.
+     *
+     * WHY THIS EXISTS: `email` became nullable with the 2026-09-22 account
+     * model, and three audit descriptions interpolated it directly — so a site
+     * worker signing in would have written "User  logged in." with a hole where
+     * the identity belongs. The employee number is the login identifier, so it
+     * is the honest first choice; the email is the fallback for accounts with no
+     * employee (the technical department, `super_admin`); the id is the
+     * last resort and can never itself be null.
+     *
+     * Eager-load `employee` where this is called in a loop — it is a
+     * `belongsTo`, so an unloaded relation is one query per call.
+     */
+    public function loginIdentity(): string
+    {
+        return $this->employee?->employee_number
+            ?? $this->email
+            ?? "#{$this->id}";
     }
 
     /**
@@ -137,11 +176,89 @@ class User extends Authenticatable
     }
 
     /**
+     * Linked to an employee who is suspended. Such an account may not sign in
+     * or refresh (owner, 2026-10-20, parity audit C-3) though it stays
+     * enabled, so it works again once the employee is back on duty. An
+     * account with no employee is never one.
+     */
+    public function isSuspendedEmployee(): bool
+    {
+        return $this->employee_id !== null
+            && $this->employee()->where('status', EmployeeStatus::Suspended)->exists();
+    }
+
+    /**
+     * Disable the account and end every session it has open.
+     *
+     * Clearing `is_active` alone stops the next sign-in and the next refresh,
+     * but leaves the current access token working until it expires — and for a
+     * departed employee that is a working attendance app. So the tokens go
+     * too, the same way UserService::delete() ends a deleted account's
+     * sessions.
+     *
+     * Saved through the model, so HasAuditLog records the change.
+     */
+    public function disable(): void
+    {
+        $this->is_active = false;
+        $this->save();
+
+        $this->endAllSessions();
+    }
+
+    /**
+     * End every session on every device: access tokens, refresh tokens and
+     * the push tokens the sessions registered. The one definition of "signed
+     * out everywhere" — logout-all, deleting the account, disabling it, and an
+     * administrator's password reset all come here (GAP-20).
+     *
+     * Refresh tokens are DELETED, not marked revoked: revoked means "rotated",
+     * and a revoked token presented again reads as theft (AuthService).
+     */
+    public function endAllSessions(): void
+    {
+        $this->tokens()->delete();
+        $this->refreshTokens()->delete();
+        $this->deviceTokens()->delete();
+    }
+
+    /**
+     * This account's devices registered for push — one per device, each
+     * owned by the session that registered it.
+     */
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
+
+    /**
      * Roles granted to this user (RBAC).
+     *
+     * ⚙️ SINCE GAP-3 A ROLE CAN APPEAR MORE THAN ONCE here — the same role
+     * granted over two units is two rows. Anything listing role NAMES should
+     * de-duplicate; anything asking "how far does this reach" reads `grants()`.
+     *
+     * `using(UserRole::class)` is what makes `attach()` save through the pivot
+     * model, so its scope guard runs for seeders and tests too. An attach that
+     * names no scope is a COMPANY grant — the reach every role had before
+     * scopes existed.
      */
     public function roles(): BelongsToMany
     {
-        return $this->belongsToMany(Role::class, 'user_roles');
+        return $this->belongsToMany(Role::class, 'user_roles')
+            ->using(UserRole::class)
+            ->withPivot(['id', 'scope_type', 'scope_department_id']);
+    }
+
+    /**
+     * Every grant this user holds: role + scope, one row each (GAP-3).
+     *
+     * Grants of a soft-deleted role are excluded, matching `roles()` — a
+     * trashed role grants nothing, and showing its scope would suggest it did.
+     */
+    public function grants(): HasMany
+    {
+        return $this->hasMany(UserRole::class)->whereHas('role');
     }
 
     /**

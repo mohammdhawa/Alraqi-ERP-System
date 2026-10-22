@@ -9,7 +9,7 @@ namespace App\Modules\Departments\Enums;
  *
  * The tier of an organizational unit in the departments tree:
  *
- *   الإدارة العامة (GeneralAdministration, 1) -> إدارة (Division, 2) -> قسم (Section, 3) -> [future tiers…]
+ *   الإدارة العامة (GeneralAdministration, 1) -> إدارة (Division, 2) -> قسم (Section, 3) -> مكتب (Office, 4)
  *
  * WHY a PHP enum and NOT a database column:
  * - `departments.level` stores the int and nothing else. This enum is a lens
@@ -19,10 +19,18 @@ namespace App\Modules\Departments\Enums;
  * - Adding a tier is a ONE-LINE change here — no migration, no ALTER, no
  *   schema change, no downtime:
  *
- *       case Branch = 4;
+ *       case Branch = 5;
  *
  *   That property is the entire reason `level` is an int rather than a SQL
- *   ENUM('division','section'). Preserve it.
+ *   ENUM('division','section'). Preserve it. `Office` below was added exactly
+ *   this way once the real company chart was examined: one case, one label arm,
+ *   nothing else in the codebase touched.
+ *
+ * DEPTH IS FINAL AT FOUR. The company's own org chart, HR workbook, and new-hire
+ * intake form all bottom out at مكتب, and the units below it (ورشة, machine
+ * groupings) are job titles and asset categories rather than organizational
+ * units — ratified decision #6, docs/phase-1.5-foundation-truth-up.md §2. A
+ * fifth case is a business change, not a refactor.
  *
  * WHY it doubles as the registry of valid depth:
  * - A department's level MUST resolve to a case here. `tryFrom()` returning
@@ -38,6 +46,7 @@ enum DepartmentLevel: int
     case GeneralAdministration = 1;
     case Division              = 2;
     case Section               = 3;
+    case Office                = 4;
 
     /**
      * Arabic display name for the tier.
@@ -48,6 +57,7 @@ enum DepartmentLevel: int
             self::GeneralAdministration => 'الإدارة العامة',
             self::Division              => 'إدارة',
             self::Section               => 'قسم',
+            self::Office                => 'مكتب',
         };
     }
 
@@ -83,7 +93,7 @@ enum DepartmentLevel: int
 
     /**
      * Whether an arbitrary int maps to a defined tier. Used by validation to
-     * reject undefined depths (e.g. level 3 while only 1 and 2 are defined).
+     * reject undefined depths (e.g. level 5, one tier past مكتب).
      */
     public static function isDefined(int $level): bool
     {

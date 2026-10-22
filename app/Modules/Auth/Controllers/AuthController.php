@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Controllers;
 
+use App\Modules\Auth\Enums\DevicePlatform;
+use App\Modules\Auth\Requests\ChangePasswordRequest;
 use App\Modules\Auth\Requests\LoginRequest;
 use App\Modules\Auth\Requests\RefreshTokenRequest;
 use App\Modules\Auth\Resources\AuthResource;
@@ -28,7 +30,11 @@ use Illuminate\Routing\Controller;
  * ENDPOINTS:
  *   POST   /api/auth/login    → Authenticate and get tokens
  *   POST   /api/auth/refresh  → Rotate tokens
- *   POST   /api/auth/logout   → Revoke all tokens
+ *   POST   /api/auth/logout     → End the caller's session
+ *   POST   /api/auth/logout-all → End every session
+ *   GET    /api/auth/sessions   → The caller's signed-in devices
+ *   DELETE /api/auth/sessions/{id} → End one of them
+ *   POST   /api/auth/password → Replace own password (self-scoped)
  *   GET    /api/auth/me       → Get authenticated user profile
  */
 class AuthController extends Controller
@@ -42,7 +48,8 @@ class AuthController extends Controller
     /**
      * POST /api/auth/login
      *
-     * Authenticates the user with email/password.
+     * Authenticates the user with `login` + password, where `login` is an
+     * employee number or an email — see LoginRequest for why it is one field.
      * Returns access token + refresh token pair.
      *
      * The client should:
@@ -57,8 +64,10 @@ class AuthController extends Controller
         // exceptions that are rendered centrally in bootstrap/app.php. This
         // keeps the controller thin and prevents internal error disclosure.
         $result = $this->authService->login(
-            email: $request->validated('email'),
+            login: $request->validated('login'),
             password: $request->validated('password'),
+            deviceName: $request->validated('device_name'),
+            platform: DevicePlatform::tryFrom((string) $request->validated('platform')),
         );
 
         // Eager-load roles + their permissions so the response carries the
@@ -73,7 +82,10 @@ class AuthController extends Controller
                 'access_token'  => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
                 'token_type'    => 'Bearer',
-                'expires_in'    => 15 * 60, // seconds — helps client set a timer
+                // Passed through from the service, not computed here. This was
+                // `15 * 60`, one of four independent copies of the token
+                // lifetime, and the only one a client could see.
+                'expires_in'    => $result['expires_in'],
             ],
             message: 'تم تسجيل الدخول بنجاح.',
         );
@@ -101,7 +113,7 @@ class AuthController extends Controller
                 'access_token'  => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
                 'token_type'    => 'Bearer',
-                'expires_in'    => 15 * 60,
+                'expires_in'    => $result['expires_in'],
             ],
             message: 'تم تحديث الرموز بنجاح.',
         );
@@ -123,6 +135,70 @@ class AuthController extends Controller
         $this->authService->logout($request->user());
 
         return $this->success(message: 'تم تسجيل الخروج بنجاح.');
+    }
+
+    /**
+     * POST /api/auth/password
+     *
+     * Replaces the caller's own password and returns a fresh token pair.
+     *
+     * WHY IT RETURNS TOKENS: the service revokes every session on a successful
+     * change, including this one — a temporary password issued by HR may be
+     * held by more than one person, and a change that left their sessions alive
+     * would lock nobody out. Handing the caller a new pair here is what keeps
+     * the person who legitimately changed it signed in.
+     *
+     * This is one of three routes reachable while `must_change_password` is
+     * set. It is the only one that clears it.
+     */
+    /**
+     * POST /api/auth/logout-all — sign out of every device.
+     */
+    public function logoutAll(Request $request): JsonResponse
+    {
+        $this->authService->logoutEverywhere($request->user());
+
+        return $this->success(message: 'تم تسجيل الخروج من جميع الأجهزة.');
+    }
+
+    /**
+     * GET /api/auth/sessions — the caller's signed-in devices.
+     */
+    public function sessions(Request $request): JsonResponse
+    {
+        return $this->success(
+            data: $this->authService->sessions($request->user()),
+            message: 'تم جلب الجلسات.',
+        );
+    }
+
+    /**
+     * DELETE /api/auth/sessions/{session} — end one of them.
+     */
+    public function revokeSession(Request $request, string $session): JsonResponse
+    {
+        $this->authService->revokeSession($request->user(), $session);
+
+        return $this->success(message: 'تم إنهاء الجلسة.');
+    }
+
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        $result = $this->authService->changePassword(
+            user: $request->user(),
+            currentPassword: $request->validated('current_password'),
+            newPassword: $request->validated('password'),
+        );
+
+        return $this->success(
+            data: [
+                'access_token'  => $result['access_token'],
+                'refresh_token' => $result['refresh_token'],
+                'token_type'    => 'Bearer',
+                'expires_in'    => $result['expires_in'],
+            ],
+            message: 'تم تغيير كلمة المرور بنجاح. تم إنهاء الجلسات الأخرى.',
+        );
     }
 
     /**

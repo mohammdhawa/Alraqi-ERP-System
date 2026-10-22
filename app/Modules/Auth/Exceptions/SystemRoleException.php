@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Exceptions;
 
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Shared\Exceptions\DomainException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -19,12 +18,12 @@ use Symfony\Component\HttpFoundation\Response;
  *   check on the literal name left a service/model path wide open, so the guard
  *   lives in RoleService — every mutation path crosses it.
  *
- * Mirrors DepartmentIsRootException: a self-rendering domain exception with a
- * 409 (the request conflicts with the resource's protected state). Assigning or
- * unassigning a system role to a user is NOT blocked — only mutating the role
- * itself is.
+ * Mirrors DepartmentIsRootException: a domain exception carrying a 409 (the
+ * request conflicts with the resource's protected state) as data, rendered
+ * centrally. Assigning or unassigning a system role to a user is NOT blocked —
+ * only mutating the role itself is.
  */
-class SystemRoleException extends \RuntimeException
+class SystemRoleException extends \RuntimeException implements DomainException
 {
     public function __construct(
         string $message = 'لا يمكن تعديل أو حذف دور نظام.',
@@ -33,18 +32,8 @@ class SystemRoleException extends \RuntimeException
         parent::__construct($message);
     }
 
-    /**
-     * Render as the project's standard error envelope for API clients.
-     */
-    public function render(Request $request): ?JsonResponse
+    public function statusCode(): int
     {
-        if (! $request->is('api/*') && ! $request->expectsJson()) {
-            return null;
-        }
-
-        return response()->json([
-            'success' => false,
-            'message' => $this->getMessage(),
-        ], $this->statusCode);
+        return $this->statusCode;
     }
 }

@@ -8,6 +8,8 @@ use App\Modules\Auth\Models\Notification;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Shared\Push\PushMessage;
+use App\Shared\Push\SendPushNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Model;
 
@@ -21,9 +23,10 @@ use Illuminate\Database\Eloquent\Model;
  * mutate another user's notifications — the scoping is the authorization.
  *
  * SEND SIDE (the fan-out layer, ratified in erp-phase1-architecture.md §7.2) —
- * the ONLY way notification rows are created. Three explicit entry points:
+ * the ONLY way notification rows are created. Four explicit entry points:
  *
  *   sendToUser()        one recipient.
+ *   sendToUsers()       a set of accounts the caller already resolved.
  *   sendToDepartment()  every current member of an organizational unit AND its
  *                       subtree (see the method docblock for the scope rule).
  *   sendToRole()        every current holder of a role.
@@ -34,7 +37,7 @@ use Illuminate\Database\Eloquent\Model;
  * retroactively receive the notification. This is why the storage schema never
  * models a department or role as a recipient: the expansion happens here, once.
  *
- * ELIGIBILITY (uniform across all three): a recipient is a user account that
+ * ELIGIBILITY (uniform across all four): a recipient is a user account that
  * EXISTS and has `is_active = true`; the department path additionally requires
  * a non-soft-deleted employee row linking the person to a unit. An employee
  * with no login can never receive a row. Empty audiences are valid and silent
@@ -51,12 +54,19 @@ class NotificationService
     /**
      * The authenticated user's notifications, newest first, paginated.
      *
+     * The id tie-break (C29) matters more here than anywhere else in the API: a
+     * department- or role-wide send writes one row per recipient in a SINGLE
+     * bulk insert sharing one `$now`, so every notification from one company
+     * announcement is exactly tied on created_at. Without the tie-break, a user
+     * paging through a burst of them has no guarantee of seeing each once.
+     *
      * @return LengthAwarePaginator<Notification>
      */
     public function listForUser(User $user, int $perPage = 15): LengthAwarePaginator
     {
         return $user->notifications()
             ->latest()
+            ->orderByDesc('id')
             ->paginate($perPage);
     }
 
@@ -90,6 +100,21 @@ class NotificationService
     }
 
     /**
+     * Mark every one of the caller's unread notifications read.
+     *
+     * One UPDATE through $user->notifications(), so it cannot reach another
+     * account's rows. No model events fire, which is fine: Notification
+     * carries no HasAuditLog, and the route is audited at the request level.
+     *
+     * @return int how many changed — the client can drop its badge without a
+     *             second request
+     */
+    public function markAllAsRead(User $user): int
+    {
+        return $user->notifications()->where('is_read', false)->update(['is_read' => true]);
+    }
+
+    /**
      * Send a notification to a single user.
      *
      * The base case of the fan-out layer: at most one row. An inactive (or
@@ -109,6 +134,32 @@ class NotificationService
 
         $recipients = User::query()
             ->whereKey($userId)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+
+        return $this->deliver($recipients, $title, $body, $type, $reference);
+    }
+
+    /**
+     * Send one notification to a given set of accounts — an audience a module
+     * has already resolved (the attendance check-out reminder: everyone still
+     * checked in). One bulk insert and one push job, rather than a send per
+     * person. Same eligibility as the others: inactive or unknown accounts
+     * receive nothing, silently.
+     *
+     * @param  array<int, int>  $userIds
+     * @return int rows created
+     */
+    public function sendToUsers(
+        array $userIds,
+        string $title,
+        ?string $body = null,
+        ?string $type = null,
+        ?Model $reference = null,
+    ): int {
+        $recipients = $userIds === [] ? [] : User::query()
+            ->whereKey($userIds)
             ->where('is_active', true)
             ->pluck('id')
             ->all();
@@ -272,6 +323,20 @@ class NotificationService
             'created_at'     => $now,
             'updated_at'     => $now,
         ], $userIds));
+
+        // The same notification, to the recipients' devices (work order §4.3).
+        // From HERE, not from a model event: the bulk insert above fires none,
+        // which is what keeps a company-wide fan-out cheap. After commit, so a
+        // rolled-back action pushes nothing — see SendPushNotification.
+        SendPushNotification::dispatch($userIds, new PushMessage(
+            title: $title,
+            body: $body,
+            data: array_filter([
+                'type'           => $type,
+                'reference_type' => $reference?->getMorphClass(),
+                'reference_id'   => $reference === null ? null : (string) $reference->getKey(),
+            ], fn (?string $value): bool => $value !== null),
+        ))->afterCommit();
 
         return count($userIds);
     }

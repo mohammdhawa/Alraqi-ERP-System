@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\Auth\Support;
 
+use App\Modules\Auth\Enums\ScopeType;
 use App\Modules\Auth\Models\Permission;
-use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Models\UserRole;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -92,31 +93,106 @@ final class PermissionCache
     }
 
     /**
+     * The user's grants, each reduced to what the scope resolver needs: how far
+     * it reaches and which permissions ride on it (GAP-3).
+     *
+     * A super admin resolves to NO grants on purpose. Their reach is the bypass,
+     * never a scope — `AccessScope` checks `isSuperAdmin()` first, and a scoped
+     * super admin would be a locked-out administrator.
+     *
+     * ⚙️ CACHED FOR THE SAME REASON AS `names()`, AND INVALIDATED THE SAME WAY.
+     * A scope is RBAC state: `RoleService::assign/unassign` bump the version,
+     * so a revoked scope stops applying on the very next request rather than
+     * when the hour-long TTL lapses. What is cached is the GRANT (type + unit),
+     * never the resolved department ids — the tree beneath a unit, and who
+     * manages what, are read fresh on each request, so moving a manager or
+     * re-parenting a section needs no cache flush to take effect.
+     *
+     * @return array<int, array{scope_type: int, department_id: int|null, permissions: array<int, string>}>
+     */
+    public static function grants(User $user): array
+    {
+        return self::resolve($user)['grants'];
+    }
+
+    /**
      * Resolve (and cache) the user's RBAC state under the version-stamped key.
      *
-     * @return array{is_super: bool, names: array<int, string>}
+     * The permission names are derived FROM the grants rather than queried
+     * separately, so the two can never disagree about which roles count.
+     *
+     * @return array{is_super: bool, names: array<int, string>, grants: array<int, array{scope_type: int, department_id: int|null, permissions: array<int, string>}>}
      */
     private static function resolve(User $user): array
     {
         return Cache::remember(self::keyFor($user), self::TTL_SECONDS, static function () use ($user): array {
-            $isSuper = $user->roles()->where('name', User::SUPER_ADMIN_ROLE)->exists();
+            // COMPANY grants only. The guard refuses a narrowed super_admin
+            // grant; one that predates that rule, or was written around it,
+            // must not become an unlimited bypass that the admin screen
+            // reports as limited. It falls through as an ordinary grant of a
+            // role with no permission rows, and reaches nothing.
+            $isSuper = $user->roles()
+                ->where('name', User::SUPER_ADMIN_ROLE)
+                ->wherePivot('scope_type', ScopeType::Company->value)
+                ->exists();
 
-            $names = $isSuper
-                ? Permission::query()->pluck('name')->all()
-                : $user->roles()
-                    ->with('permissions:id,name')
-                    ->get()
-                    ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
-                    ->unique()
-                    ->values()
-                    ->all();
+            if ($isSuper) {
+                return [
+                    'is_super' => true,
+                    'names'    => Permission::query()->pluck('name')->all(),
+                    'grants'   => [],
+                ];
+            }
 
-            return ['is_super' => $isSuper, 'names' => $names];
+            // whereHas('role') drops grants of a soft-deleted role, exactly as
+            // `$user->roles()` always has. A grant whose stored type is not a
+            // ScopeType reads as null and is dropped too: it reaches nothing,
+            // and must not take the user's every request down with it.
+            $grants = UserRole::query()
+                ->where('user_id', $user->getKey())
+                ->whereHas('role')
+                ->with('role.permissions:id,name')
+                ->get()
+                ->filter(static fn (UserRole $grant): bool => $grant->scope_type !== null)
+                // GAP-15: a grant narrower than the company confers only the
+                // permissions something enforces its scope for. The rest are
+                // dropped HERE, once, so every reader — hasPermission(), the
+                // route middleware, /auth/me, AccessScope — agrees on what a
+                // scoped grant is worth. See PermissionReach.
+                ->map(static function (UserRole $grant): array {
+                    $permissions = $grant->role->permissions->pluck('name')->all();
+
+                    return [
+                        'scope_type'    => $grant->scope_type->value,
+                        'department_id' => $grant->scope_department_id === null ? null : (int) $grant->scope_department_id,
+                        'permissions'   => $grant->scope_type === ScopeType::Company
+                            ? $permissions
+                            : PermissionReach::effectiveForScopedGrant($permissions),
+                    ];
+                })
+                ->values()
+                ->all();
+
+            $names = array_values(array_unique(array_merge([], ...array_column($grants, 'permissions'))));
+
+            return ['is_super' => false, 'names' => $names, 'grants' => $grants];
         });
     }
 
+    /**
+     * ⚙️ The suffix is part of the payload's CONTRACT, and changes whenever
+     * what a cached entry means changes — a shared cache store outlives a
+     * deploy, so an entry written by the previous release must be orphaned,
+     * not read:
+     *
+     *   `:perms` → `:rbac`   grants joined the payload (GAP-3).
+     *   `:rbac`  → `:reach`  a scoped grant's permissions are filtered through
+     *                        PermissionReach (GAP-15). An old entry still lists
+     *                        a scoped grant's company-only permissions, and
+     *                        would keep conferring them until its TTL lapsed.
+     */
     private static function keyFor(User $user): string
     {
-        return sprintf('rbac:v%d:user:%d:perms', self::version(), $user->getKey());
+        return sprintf('rbac:v%d:user:%d:reach', self::version(), $user->getKey());
     }
 }
