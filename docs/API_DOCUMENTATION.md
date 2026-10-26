@@ -2012,6 +2012,7 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zi| GET       | `/api/me/profile`                            | bearer   | — (self-scoped, §17.1) |
 | 18zj| POST/GET  | `/api/me/photo`                              | bearer   | — (self-scoped, §17.2) |
 | 18zk| GET       | `/api/me/summary`                            | bearer   | — (self-scoped, §17.3) |
+| 18zl| GET       | `/api/me/attendance/days`                    | bearer   | — (self-scoped, §17.4) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2042,7 +2043,7 @@ routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t
 sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
 2026-10-20, from the parity audit — `GET /api/approvals` (§15.7) and
 `GET /api/leave/on-leave` (§16.9). The count below is the one from before
-them.
+them. ⚙️ **89** since 2026-10-26: `GET /api/me/attendance/days` (18zl, §17.4).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2077,7 +2078,8 @@ above, both reads: there is no third, because the table is append-only.
 ⚙️ **New 2026-10-16** (work order §4.5, slice 1). The employee's own
 attendance, ported from legacy's `/api/attendance/record`, `/sync` and
 `/my-records` with legacy's rules and Arabic messages. Build notes:
-[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md).
+[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md). The employee's month of day
+states, for the app's calendar, is §17.4 (2026-10-26).
 
 **Who may call them:** any authenticated account **linked to an employee**. No
 permission — the routes are self-scoped and always act on the caller's own
@@ -3149,6 +3151,7 @@ Rows are the leave request of §16.3. Beside `meta`: `date` and `working_day`.
 
 ⚙️ **New 2026-10-19** (work order §4.8; requirements §6). The rest of the
 employee app's self-service surface: who I am, my photo, and the home screen.
+⚙️ 2026-10-26: and my days, the month calendar (§17.4).
 
 **Who may call them:** any authenticated account **linked to an employee**. No
 permission — the routes are self-scoped and always act on the caller's own
@@ -3244,3 +3247,179 @@ One object of **cards, each `null` until its module can answer** (requirements
 - `approvals.pending_count` — the steps waiting on me now (`GET
   /api/me/approvals`, §15.2).
 - `leave_requests.pending_count` — my own leave still in the chain.
+
+### 17.4 My days — the month calendar
+
+```
+GET /api/me/attendance/days?month=10&year=2026
+GET /api/me/attendance/days?from=2026-10-18&to=2026-10-25
+```
+
+⚙️ **New 2026-10-26** (employee app spec, decision A10; slice 3 «دوامي»).
+§14.3's day grid for the **caller's own employee**: the same `days`,
+`summary`, `working_days` and `counted_to`, computed by the same code as HR's
+grid and §17.3's cards. A day's state is decided once, on the server; the app
+never derives it.
+
+| Query | |
+|---|---|
+| `month` (+ `year`) | a whole month; `year` defaults to this year |
+| `from`, `to` | a range, `to` ≥ `from`; used instead of `month` when given |
+
+One of the two is required, and the window is at most **92 days**, with
+§14.3's rules and messages: **422** on `from` / `to` «تاريخ البداية مطلوب.»,
+«تاريخ النهاية يجب أن يكون بعد تاريخ البداية أو مساوياً له.», «النطاق الزمني
+المحدد طويل جداً (الحد الأقصى ٩٢ يوماً).»; on `month` «الشهر يجب أن يكون
+رقماً بين 1 و 12.».
+
+**Self-scoped**, like all of §17: no permission, and no person is read from
+the request. An `employee_id` (or `employee_ids`) sent is **ignored**: never
+honoured, never an error. An account with no employee gets **403**
+«لا يوجد موظف مرتبط بهذا الحساب.» §14.3's day filters (`status`,
+`working_days_only`, `sort`) are HR's and are not read here: `days` is every
+day of the window, oldest first.
+
+**200**, for 18–25 October 2026, read on Friday the 23rd at noon with nothing
+recorded yet that day:
+
+```json
+{
+  "success": true,
+  "message": "تمت العملية بنجاح.",
+  "data": {
+    "employee": { "id": 12, "full_name": "ليلى أحمد السيد", "employee_number": "EMP-00012" },
+    "department": { "id": 4, "name": "قسم أ-1" },
+    "from": "2026-10-18",
+    "to": "2026-10-25",
+    "working_days": 8,
+    "counted_to": "2026-10-23",
+    "days": [
+      {
+        "date": "2026-10-18", "weekday": 0, "working_day": true,
+        "status": 6, "status_label": "غائب",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-19", "weekday": 1, "working_day": true,
+        "status": 2, "status_label": "حاضر",
+        "check_in_id": 41, "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": "2026-10-19T16:32:00+03:00",
+        "work_hours": 8.5, "work_hours_formatted": "8h 30m",
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-20", "weekday": 2, "working_day": true,
+        "status": 3, "status_label": "انصراف مفقود",
+        "check_in_id": 43, "check_in_time": "2026-10-20T08:10:00+03:00", "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-21", "weekday": 3, "working_day": true,
+        "status": 8, "status_label": "تسجيل مرفوض",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": null,
+        "rejection": {
+          "record_id": 44,
+          "recorded_at": "2026-10-21T08:00:00+03:00",
+          "reason": 1,
+          "reason_label": "الموقع المسجَّل لا يطابق موقع العمل",
+          "note": "خارج الموقع",
+          "rejected_at": "2026-10-21T10:00:00+03:00",
+          "rejected_by": { "id": 4, "name": "سامر خالد الحلبي" }
+        },
+        "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-22", "weekday": 4, "working_day": true,
+        "status": 5, "status_label": "غياب بعذر",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": "حضور مبرر", "rejection": null, "correction": null,
+        "excuse": {
+          "leave_request_id": 17,
+          "leave_type": "attendance_excused",
+          "leave_type_name": "حضور مبرر",
+          "is_excuse": true,
+          "deducts_balance": false,
+          "reason": "عذر مقبول",
+          "recorded_by": "سامر خالد الحلبي"
+        }
+      },
+      {
+        "date": "2026-10-23", "weekday": 5, "working_day": true,
+        "status": 9, "status_label": "لم يُسجَّل بعد",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-24", "weekday": 6, "working_day": true,
+        "status": 4, "status_label": "في إجازة",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": "إجازة سنوية", "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-25", "weekday": 0, "working_day": true,
+        "status": 9, "status_label": "لم يُسجَّل بعد",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      }
+    ],
+    "summary": {
+      "expected_days": 5,
+      "present_days": 2,
+      "on_leave_days": 0,
+      "excused_days": 1,
+      "excused_deducted_days": 0,
+      "excused_not_deducted_days": 1,
+      "absent_days": 2,
+      "rejected_days": 1,
+      "off_days": 0,
+      "missing_checkouts": 1,
+      "total_work_hours": 8.5,
+      "total_work_hours_formatted": "8h 30m",
+      "attendance_rate": 40
+    }
+  }
+}
+```
+
+**Reading it.** Every key and state is §14.3's:
+
+- `status` is the day state (`1`–`9`, §14 "Day states"), by §14.3's
+  precedence: an accepted check-in (`2` in and out, `1` in only, `3` the day
+  closed without a check-out), else a day off `7`, else an excuse `5`, else
+  leave `4`, else a refusal `8`, else absent `6`. **`9` لم يُسجَّل بعد** is a
+  day after today, or **today with nothing recorded yet**. It is not absent:
+  the day is not over. Today turns `1` with the check-in. Show
+  `status_label`; colour by `status`.
+- A day **after today** still shows leave (`4`) or a day off (`7`), so the
+  calendar can shade booked leave. Nothing after today is counted.
+- `counted_to` is where counting stopped: today, or `to` if that is earlier.
+  It is **`null`** when the whole window is after today; every `summary`
+  count is then `0` and `attendance_rate` is `null`. `summary` covers
+  `from`…`counted_to`; `working_days` names the whole window.
+- `summary.expected_days` = present + on leave + excused + absent, and leaves
+  out a today with nothing yet. `rejected_days` are already inside
+  `absent_days`. For the 1st of the month to today these are the figures of
+  §17.3's `attendance_month` card. That card reports a today with nothing yet
+  as `status: null`; the calendar says `9`.
+- `weekday`: `0` Sunday … `6` Saturday. `working_day` is `false` only on a
+  configured day off. As configured there are none: every day is a working
+  day (decision Q8).
+- `check_in_id` is the day's check-in. Its selfie is §12.4's
+  `GET /api/me/attendance/{check_in_id}/selfie`.
+- `leave_type` names the leave over the day, whatever outranks it.
+  `rejection` is set whenever the day had a refused check-in, even when a
+  later check-in or leave outranks it. `correction` (`{by, at, note}`) is set
+  on a day whose check-out HR recorded (§13.3). `excuse` is set on an excused
+  day only.
+- `work_hours` is a number of hours (`8.5`); the `_formatted` keys are
+  display strings. A whole number arrives without a fraction (`8`, and
+  `attendance_rate` `40` above), so read `work_hours`, `total_work_hours` and
+  `attendance_rate` as numbers, not strictly as doubles.
