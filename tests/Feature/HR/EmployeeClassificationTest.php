@@ -39,6 +39,7 @@ class EmployeeClassificationTest extends TestCase
     private function payload(array $overrides = []): array
     {
         return array_merge([
+            'employee_number' => $this->nextKoboNumber(),
             'first_name'  => 'سامر',
             'middle_name' => 'خالد',
             'last_name'   => 'الحلبي',

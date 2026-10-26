@@ -22,7 +22,7 @@ use Illuminate\Validation\Rule;
  * ⚙️ THE FIELD IS `login`, NOT `email` (account model, 2026-09-22).
  * It carries either an employee number or an email, and AuthService decides
  * which by looking, so there is deliberately NO `email` rule here: requiring an
- * email shape would reject `EMP-00042`, which is how almost everyone signs in.
+ * email shape would reject `582974643` (a Kobo id), which is how almost everyone signs in.
  * The pair (employee number for staff, email for accounts with no employee)
  * is resolved in one grouped query — see AuthService::resolveByLogin().
  *

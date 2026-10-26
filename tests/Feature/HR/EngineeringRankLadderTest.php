@@ -55,6 +55,7 @@ class EngineeringRankLadderTest extends TestCase
         $this->actingAsAdmin();
 
         $this->postJson('/api/hr/employees', [
+            'employee_number'  => $this->nextKoboNumber(),
             'first_name'       => 'نور',
             'middle_name'      => 'أحمد',
             'last_name'        => 'الشامي',
@@ -69,6 +70,7 @@ class EngineeringRankLadderTest extends TestCase
         $this->actingAsAdmin();
 
         $this->postJson('/api/hr/employees', [
+            'employee_number'  => $this->nextKoboNumber(),
             'first_name'       => 'نور',
             'middle_name'      => 'أحمد',
             'last_name'        => 'الشامي',

@@ -271,7 +271,7 @@ class EmployeeScopeTest extends TestCase
     {
         $this->actingAsHeadOfA(self::EDITOR);
 
-        $payload = ['first_name' => 'جديد', 'middle_name' => 'أحمد', 'last_name' => 'موظف', 'gender' => Gender::Male->value];
+        $payload = ['employee_number' => $this->nextKoboNumber(), 'first_name' => 'جديد', 'middle_name' => 'أحمد', 'last_name' => 'موظف', 'gender' => Gender::Male->value];
 
         $this->postJson('/api/hr/employees', $payload + ['department_id' => $this->units['b1']->id])
             ->assertForbidden()

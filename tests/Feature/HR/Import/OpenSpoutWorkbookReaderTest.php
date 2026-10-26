@@ -135,26 +135,81 @@ class OpenSpoutWorkbookReaderTest extends TestCase
         $this->assertSame(['ID_Sarah', 'الإسم الثلاثي'], array_keys($rows[4]));
     }
 
+    // ── Refusals: Arabic, and never the path (design §8, C12/C20) ────────
+
     public function test_an_asked_column_the_sheet_lacks_fails_the_read(): void
     {
-        $this->expectException(WorkbookException::class);
-        $this->expectExceptionMessage('المسمى الوظيفي');
-
-        $this->read(['ID_Sarah', 'المسمى الوظيفي']);
+        $this->assertRefusal(
+            'السطر 3 من الورقة «قاعدة البيانات» ينقصه: المسمى الوظيفي',
+            fn () => $this->read(['ID_Sarah', 'المسمى الوظيفي']),
+        );
     }
 
     public function test_a_missing_sheet_names_the_sheets_there_are(): void
     {
-        $this->expectException(WorkbookException::class);
-        $this->expectExceptionMessage('الواجهة');
-
-        (new OpenSpoutWorkbookReader)->rows($this->path, 'إنهاء عمل', 3);
+        $this->assertRefusal(
+            'لا توجد ورقة باسم «إنهاء عمل». الأوراق الموجودة: الواجهة، قاعدة البيانات',
+            fn () => (new OpenSpoutWorkbookReader)->rows($this->path, 'إنهاء عمل', 3),
+        );
     }
 
     public function test_a_missing_file_fails_the_read(): void
     {
-        $this->expectException(WorkbookException::class);
+        $this->assertRefusal(
+            'تعذّر العثور على الملف.',
+            fn () => (new OpenSpoutWorkbookReader)->rows($this->path.'.nope', 'قاعدة البيانات', 3),
+        );
+    }
 
-        (new OpenSpoutWorkbookReader)->rows($this->path.'.nope', 'قاعدة البيانات', 3);
+    public function test_a_file_that_is_not_a_workbook_fails_the_read(): void
+    {
+        file_put_contents($this->path, 'not a zip');
+
+        $this->assertRefusal(
+            'تعذّر فتح الملف — تأكد أنه ملف Excel ‏(xlsx) سليم.',
+            fn () => $this->read(),
+        );
+    }
+
+    public function test_a_refused_read_releases_the_file(): void
+    {
+        // openspout closes a sheet only at its end; a refusal thrown on the
+        // header row used to leave the file open, so on Windows the upload's
+        // cleanup could not delete it — and a stored workbook with nobody's
+        // run to expire it stayed on disk for good (found 2026-10-23).
+        try {
+            $this->read(['ID_Sarah', 'المسمى الوظيفي']);
+        } catch (WorkbookException) {
+        }
+
+        $this->assertTrue(@unlink($this->path), 'the refused file can be deleted');
+    }
+
+    public function test_a_sheet_that_breaks_mid_read_is_refused_and_released(): void
+    {
+        // openspout's own failure on a later row — a corrupt sheet — used to
+        // escape as a server error and leave the file locked (final review,
+        // Part 2): now the reader's Arabic refusal, the file released.
+        $this->patchSheet(2, ['<t>سامر خالد الحلبي</t>' => '<t>سامر<b></t>']);
+
+        $this->assertRefusal(
+            'تعذّر قراءة الملف — قد يكون تالفاً؛ افتحه في Excel واحفظه ثم ارفعه مرة أخرى.',
+            fn () => $this->read(),
+        );
+        $this->assertTrue(@unlink($this->path), 'the broken file can be deleted');
+    }
+
+    private function assertRefusal(string $message, callable $read): void
+    {
+        try {
+            $read();
+        } catch (WorkbookException $e) {
+            $this->assertSame($message, $e->getMessage());
+            $this->assertStringNotContainsString(basename($this->path), $e->getMessage(), 'no path reaches a client (C12)');
+
+            return;
+        }
+
+        $this->fail('The read was not refused.');
     }
 }

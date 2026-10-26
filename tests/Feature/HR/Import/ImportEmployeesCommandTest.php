@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\HR\Import;
 
 use App\Modules\Auth\Models\User;
+use App\Modules\HR\Import\ImportReport;
+use App\Modules\HR\Import\ImportReportWriter;
 use App\Modules\HR\Import\WorkbookException;
 use App\Modules\HR\Import\WorkbookReader;
 use App\Modules\HR\Models\Employee;
@@ -44,25 +46,28 @@ class ImportEmployeesCommandTest extends TestCase
             public function rows(string $path, string $sheet, int $headerRow, ?array $columns = null): array
             {
                 if (str_contains($path, 'missing')) {
-                    throw new WorkbookException("File not found: {$path}");
+                    throw new WorkbookException('تعذّر العثور على الملف.');
                 }
 
-                return str_contains($path, 'sarh')
-                    ? [2 => ['_id' => 582974643, 'الاسم الأول' => 'نور', 'اسم الاب' => 'أحمد', 'الكنية' => 'الشامي', 'اسم الام' => 'فاطمة']]
-                    : [4 => [
-                        'ID_Sarah'       => 582974643,
-                        'الإسم الثلاثي'  => 'نور أحمد الشامي',
-                        'أسماء الإدارات' => 'الإدارة الهندسية',
-                        'القسم'          => 'قسم التخطيط والدراسات',
-                        'المكتب'         => 'المعماري',
-                        'المسمى الوظيفي' => 'مهندس معماري',
-                        'الحالة'         => 'متعاقد',
-                        'الجنس'          => 'ذكر',
-                        'تاريخ التعيين'  => new DateTimeImmutable('2022-01-01'),
-                    ], 5 => [
-                        'ID_Sarah'      => null,
-                        'الإسم الثلاثي' => 'سامر خالد الحلبي',
-                    ]];
+                return [4 => [
+                    'ID_Sarah'       => 582974643,
+                    'الإسم الثلاثي'  => 'نور أحمد الشامي',
+                    'الاسم الأول'    => 'نور',
+                    'اسم الاب'       => 'أحمد',
+                    'الكنية'         => 'الشامي',
+                    'اسم الام'       => 'فاطمة',
+                    'الرقم الوطني في الهوية' => '01234567890',
+                    'أسماء الإدارات' => 'الإدارة الهندسية',
+                    'القسم'          => 'قسم التخطيط والدراسات',
+                    'المكتب'         => 'المعماري',
+                    'المسمى الوظيفي' => 'مهندس معماري',
+                    'الحالة'         => 'متعاقد',
+                    'الجنس'          => 'ذكر',
+                    'تاريخ التعيين'  => new DateTimeImmutable('2022-01-01'),
+                ], 5 => [
+                    'ID_Sarah'      => null,
+                    'الإسم الثلاثي' => 'سامر خالد الحلبي',
+                ]];
             }
         });
     }
@@ -122,12 +127,12 @@ class ImportEmployeesCommandTest extends TestCase
     public function test_a_real_run_imports_and_writes_the_passwords_to_the_credentials_file_only(): void
     {
         $this->artisan('hr:import-employees', [
-            'workbook' => 'hr.xlsx', '--sarh' => 'sarh.xlsx',
+            'workbook' => 'hr.xlsx',
             '--report' => $this->path('r.xlsx'), '--credentials' => $this->path('c.xlsx'), '--force' => true,
         ])->assertSuccessful();
 
         $employee = Employee::sole();
-        $this->assertSame('فاطمة', $employee->mother_name);
+        $this->assertSame('فاطمة', $employee->mother_name, 'from the merged person columns');
 
         [$header, $credential] = $this->cells($this->path('c.xlsx'));
         $this->assertSame(['الرقم الوظيفي', 'الاسم', 'كلمة المرور المؤقتة'], $header);
@@ -138,6 +143,13 @@ class ImportEmployeesCommandTest extends TestCase
         $report = json_encode($this->cells($this->path('r.xlsx')), JSON_UNESCAPED_UNICODE);
         $this->assertStringNotContainsString($password, $report);
         $this->assertStringContainsString($employee->employee_number, $report);
+    }
+
+    public function test_the_sarh_option_is_gone(): void
+    {
+        $this->expectExceptionMessage('The "--sarh" option does not exist.');
+
+        $this->artisan('hr:import-employees', ['workbook' => 'hr.xlsx', '--sarh' => 'sarh.xlsx', '--force' => true]);
     }
 
     public function test_the_console_never_shows_a_password(): void
@@ -178,6 +190,40 @@ class ImportEmployeesCommandTest extends TestCase
         $this->assertFileExists($this->path('r.xlsx'));
     }
 
+    public function test_the_writer_labels_an_excluded_row(): void
+    {
+        $report = ImportReport::fromArray(['rows' => [[
+            'row' => 4, 'name' => 'نور أحمد الشامي', 'key' => 'kobo:1', 'outcome' => 'excluded', 'employee_number' => null, 'issues' => [],
+        ]]], dryRun: true);
+
+        (new ImportReportWriter)->writeReport($report, $this->path('r.xlsx'), []);
+
+        $row = array_values(array_filter($this->cells($this->path('r.xlsx')), static fn (array $r): bool => ($r[0] ?? null) === 4))[0];
+        $this->assertSame('مستبعد', $row[2]);
+    }
+
+    public function test_the_report_has_the_changes_and_missing_sheets(): void
+    {
+        $this->artisan('hr:import-employees', ['workbook' => 'hr.xlsx', '--dry-run' => true, '--report' => $this->path('r.xlsx')])
+            ->assertSuccessful();
+
+        $reader = new Reader;
+        $reader->open($this->path('r.xlsx'));
+        $headers = [];
+        foreach ($reader->getSheetIterator() as $sheet) {
+            // Read every row, never `break`: on Windows an unfinished row
+            // iterator keeps the file open, and tearDown cannot delete it.
+            foreach ($sheet->getRowIterator() as $row) {
+                $headers[$sheet->getName()] ??= $row->toArray();
+            }
+        }
+        $reader->close();
+
+        $this->assertSame(['الملخص', 'السطور', 'التغييرات', 'غير موجودين في الملف'], array_keys($headers));
+        $this->assertSame(['السطر', 'الاسم', 'الرقم الوظيفي', 'الحقل', 'القيمة في النظام', 'القيمة في الملف'], $headers['التغييرات']);
+        $this->assertSame(['الرقم الوظيفي', 'الاسم', 'الوحدة', 'المصدر'], $headers['غير موجودين في الملف']);
+    }
+
     public function test_the_report_has_a_row_per_source_row_with_its_outcome_and_issues(): void
     {
         $this->artisan('hr:import-employees', ['workbook' => 'hr.xlsx', '--dry-run' => true, '--report' => $this->path('r.xlsx')])
@@ -196,7 +242,7 @@ class ImportEmployeesCommandTest extends TestCase
     public function test_an_unreadable_workbook_fails_before_anything_is_written(): void
     {
         $this->artisan('hr:import-employees', ['workbook' => 'missing.xlsx', '--dry-run' => true, '--report' => $this->path('r.xlsx')])
-            ->expectsOutputToContain('File not found')
+            ->expectsOutputToContain('missing.xlsx: تعذّر العثور على الملف.')
             ->assertFailed();
 
         $this->assertFileDoesNotExist($this->path('r.xlsx'));

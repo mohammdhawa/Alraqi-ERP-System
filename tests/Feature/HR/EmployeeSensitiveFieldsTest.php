@@ -176,6 +176,7 @@ class EmployeeSensitiveFieldsTest extends TestCase
         $this->actingAsAdmin();
 
         $this->postJson('/api/hr/employees', [
+            'employee_number'   => $this->nextKoboNumber(),
             'first_name'        => 'موظف',
             'middle_name'       => 'جديد',
             'last_name'         => 'الشامي',

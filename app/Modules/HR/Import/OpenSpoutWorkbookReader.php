@@ -10,7 +10,9 @@ use OpenSpout\Common\Entity\Cell\FormulaCell;
 use OpenSpout\Common\Exception\IOException;
 use OpenSpout\Reader\XLSX\Options;
 use OpenSpout\Reader\XLSX\Reader;
+use OpenSpout\Reader\XLSX\RowIterator;
 use OpenSpout\Reader\XLSX\Sheet;
+use Throwable;
 
 /**
  * WorkbookReader on openspout (xlsx only — every file HR sends is one).
@@ -23,7 +25,7 @@ final class OpenSpoutWorkbookReader implements WorkbookReader
     public function rows(string $path, string $sheet, int $headerRow, ?array $columns = null): array
     {
         if (! is_file($path)) {
-            throw new WorkbookException("File not found: {$path}");
+            throw new WorkbookException('تعذّر العثور على الملف.');
         }
 
         $options = new Options;
@@ -36,14 +38,14 @@ final class OpenSpoutWorkbookReader implements WorkbookReader
         try {
             $reader->open($path);
         } catch (IOException $e) {
-            throw new WorkbookException("Cannot open {$path}: {$e->getMessage()}", previous: $e);
+            throw new WorkbookException('تعذّر فتح الملف — تأكد أنه ملف Excel ‏(xlsx) سليم.', previous: $e);
         }
 
         try {
             $names = [];
             foreach ($reader->getSheetIterator() as $candidate) {
                 if (trim($candidate->getName()) === trim($sheet)) {
-                    return $this->read($candidate, $headerRow, $columns, $path);
+                    return $this->read($candidate, $headerRow, $columns);
                 }
                 $names[] = $candidate->getName();
             }
@@ -51,46 +53,85 @@ final class OpenSpoutWorkbookReader implements WorkbookReader
             $reader->close();
         }
 
-        throw new WorkbookException("No sheet «{$sheet}» in {$path}. Sheets: ".implode('، ', $names));
+        throw new WorkbookException("لا توجد ورقة باسم «{$sheet}». الأوراق الموجودة: ".implode('، ', $names));
     }
 
     /**
      * @param  array<int, string>|null  $columns
      * @return array<int, array<string, mixed>>
      */
-    private function read(Sheet $sheet, int $headerRow, ?array $columns, string $path): array
+    private function read(Sheet $sheet, int $headerRow, ?array $columns): array
     {
         $headers = null;
         $rows = [];
+        $iterator = $sheet->getRowIterator();
 
-        foreach ($sheet->getRowIterator() as $number => $row) {
-            if ($number < $headerRow) {
-                continue;
+        try {
+            foreach ($iterator as $number => $row) {
+                if ($number < $headerRow) {
+                    continue;
+                }
+
+                $values = array_map($this->value(...), $row->getCells());
+
+                if ($number === $headerRow) {
+                    $headers = $this->headers($values, $columns, $sheet->getName(), $headerRow);
+
+                    continue;
+                }
+
+                $record = [];
+                foreach ($headers as $index => $header) {
+                    $record[$header] = $values[$index] ?? null;
+                }
+
+                if (array_filter($record, static fn (mixed $value): bool => $value !== null) !== []) {
+                    $rows[$number] = $record;
+                }
+            }
+        } catch (Throwable $e) {
+            $this->release($iterator);
+
+            if ($e instanceof WorkbookException) {
+                throw $e;
             }
 
-            $values = array_map($this->value(...), $row->getCells());
+            // A sheet openspout cannot parse — a corrupt file, not a missing
+            // column: the reader's own Arabic refusal, not a server error.
+            report($e);
 
-            if ($number === $headerRow) {
-                $headers = $this->headers($values, $columns, $path, $sheet->getName(), $headerRow);
-
-                continue;
-            }
-
-            $record = [];
-            foreach ($headers as $index => $header) {
-                $record[$header] = $values[$index] ?? null;
-            }
-
-            if (array_filter($record, static fn (mixed $value): bool => $value !== null) !== []) {
-                $rows[$number] = $record;
-            }
+            throw new WorkbookException('تعذّر قراءة الملف — قد يكون تالفاً؛ افتحه في Excel واحفظه ثم ارفعه مرة أخرى.');
         }
 
         if ($headers === null) {
-            throw new WorkbookException("Sheet «{$sheet->getName()}» in {$path} has no row {$headerRow} to read headers from.");
+            throw new WorkbookException("الورقة «{$sheet->getName()}» لا تحتوي على السطر {$headerRow} الذي تُقرأ منه العناوين.");
         }
 
         return $rows;
+    }
+
+    /**
+     * Close a sheet left part-read. openspout closes it only once it is read
+     * to the end, and an open sheet keeps the file locked on Windows — the
+     * upload's cleanup then cannot delete it, and nothing ever would
+     * (2026-10-23). Read to the end where the sheet allows it; where it
+     * cannot be (it failed to parse), close its XML reader directly.
+     */
+    private function release(RowIterator $iterator): void
+    {
+        try {
+            while ($iterator->valid()) {
+                $iterator->next();
+            }
+
+            return;
+        } catch (Throwable) {
+        }
+
+        try {
+            (fn () => $this->xmlReader->close())->call($iterator);
+        } catch (Throwable) {
+        }
     }
 
     /**
@@ -100,7 +141,7 @@ final class OpenSpoutWorkbookReader implements WorkbookReader
      * @param  array<int, string>|null  $columns
      * @return array<int, string>
      */
-    private function headers(array $values, ?array $columns, string $path, string $sheet, int $headerRow): array
+    private function headers(array $values, ?array $columns, string $sheet, int $headerRow): array
     {
         $headers = [];
         foreach ($values as $index => $value) {
@@ -109,14 +150,14 @@ final class OpenSpoutWorkbookReader implements WorkbookReader
                 continue;
             }
             if (in_array($header, $headers, true)) {
-                throw new WorkbookException("Header «{$header}» appears twice in row {$headerRow} of «{$sheet}» in {$path} — cannot tell which to read.");
+                throw new WorkbookException("العنوان «{$header}» مكرر في السطر {$headerRow} من الورقة «{$sheet}» — لا يمكن تحديد أيّهما يُقرأ.");
             }
             $headers[$index] = $header;
         }
 
         $missing = $columns === null ? [] : array_values(array_diff($columns, $headers));
         if ($missing !== []) {
-            throw new WorkbookException("Row {$headerRow} of «{$sheet}» in {$path} lacks the column(s): ".implode('، ', $missing));
+            throw new WorkbookException("السطر {$headerRow} من الورقة «{$sheet}» ينقصه: ".implode('، ', $missing));
         }
 
         return $headers;

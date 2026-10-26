@@ -36,7 +36,7 @@ class AccountModelTest extends TestCase
     /**
      * An account for a site worker: an employee number, a password, no email.
      */
-    private function siteWorker(string $number = 'EMP-00042', array $attributes = []): User
+    private function siteWorker(string $number = '582974643', array $attributes = []): User
     {
         $employee = Employee::factory()->create(['employee_number' => $number]);
 
@@ -55,11 +55,21 @@ class AccountModelTest extends TestCase
         ]);
     }
 
+    public function test_signs_in_with_the_kobo_id(): void
+    {
+        // The number is the Kobo id (KOBO_EMPLOYEE_NUMBER_DESIGN.md §1): that
+        // is the login now, and an EMP-… one is gone.
+        $this->siteWorker('582974643');
+
+        $this->login('582974643')->assertOk();
+        $this->login('EMP-00042')->assertUnauthorized();
+    }
+
     public function test_an_employee_signs_in_with_their_employee_number(): void
     {
         $this->siteWorker();
 
-        $this->login('EMP-00042')
+        $this->login('582974643')
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonStructure(['data' => ['access_token', 'refresh_token']]);
@@ -74,7 +84,7 @@ class AccountModelTest extends TestCase
         $user = $this->siteWorker();
 
         $this->assertNull($user->fresh()->email);
-        $this->login('EMP-00042')->assertOk();
+        $this->login('582974643')->assertOk();
     }
 
     /**
@@ -96,8 +106,8 @@ class AccountModelTest extends TestCase
     {
         $this->siteWorker();
 
-        $this->login('EMP-99999')->assertUnauthorized();
-        $this->login('EMP-00042', 'not-the-password')->assertUnauthorized();
+        $this->login('599999999')->assertUnauthorized();
+        $this->login('582974643', 'not-the-password')->assertUnauthorized();
     }
 
     /**
@@ -110,7 +120,7 @@ class AccountModelTest extends TestCase
         $user = $this->siteWorker();
         $user->employee->delete();
 
-        $this->login('EMP-00042')->assertUnauthorized();
+        $this->login('582974643')->assertUnauthorized();
     }
 
     // ── The forced change ────────────────────────────────────────────────
@@ -179,7 +189,7 @@ class AccountModelTest extends TestCase
         $this->assertFalse($user->must_change_password);
         $this->assertNotNull($user->password_changed_at);
 
-        $this->login('EMP-00042', 'a-password-of-my-own')->assertOk();
+        $this->login('582974643', 'a-password-of-my-own')->assertOk();
     }
 
     public function test_the_current_password_must_be_proved(): void
@@ -225,7 +235,7 @@ class AccountModelTest extends TestCase
     {
         $user = $this->siteWorker(attributes: ['must_change_password' => true]);
 
-        $stolen = $this->login('EMP-00042')->assertOk()->json('data.refresh_token');
+        $stolen = $this->login('582974643')->assertOk()->json('data.refresh_token');
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/auth/password', [

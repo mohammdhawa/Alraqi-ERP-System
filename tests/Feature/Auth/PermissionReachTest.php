@@ -350,6 +350,8 @@ class PermissionReachTest extends TestCase
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update',
+            // Writes into every unit at once (EMPLOYEE_IMPORT_UPLOAD_DESIGN.md §4.3).
+            'hr.employees.import',
             'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update',
             // A catalogue's writes (LEAVE_BUILD.md §7).
             'leave.types.create', 'leave.types.delete', 'leave.types.update',

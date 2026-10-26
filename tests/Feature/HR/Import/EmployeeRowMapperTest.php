@@ -20,8 +20,8 @@ use DateTimeImmutable;
 use Tests\TestCase;
 
 /**
- * One workbook row, plus its صرح record, to employee attributes and report
- * issues (docs/WORKBOOK_COLUMN_MAP.md). Pure: no database.
+ * One workbook row — HR's one file, the صرح columns merged in (2026-10-24) —
+ * to employee attributes and report issues (docs/WORKBOOK_COLUMN_MAP.md). Pure: no database.
  *
  * The rows below use the October workbook's real headers and real value
  * shapes, with made-up people.
@@ -44,6 +44,19 @@ class EmployeeRowMapperTest extends TestCase
             'الرتبة الهندسية'              => 'مشارك2',
             'سنوات الخبرة الصناعية'        => null,
             'الإسم الثلاثي'                => 'نور أحمد الشامي',
+            // The person columns HR merged in from the صرح export (2026-10-24).
+            'الاسم الأول'                  => 'نور',
+            'اسم الاب'                     => 'أحمد',
+            'الكنية'                       => 'الشامي',
+            'اسم الام'                     => 'فاطمة',
+            'الرقم الوطني في الهوية'       => 2010012345,
+            'عدد الأبناء الذكور'           => 1,
+            'عدد الأبناء الاناث'           => 1,
+            // Merged in too, and NEVER read (the allow-list):
+            'الديانة'                      => 'x',
+            'المذهب'                       => 'x',
+            'هل لديك أي سوابق جنائية؟'     => 'x',
+            'صورة الهوية وجه امامي_URL'    => 'https://kf.kobotoolbox.org/x',
             'اللقب'                        => ' أبو أحمد ',
             'المرحلة الدراسية'             => 'كلية',
             'المؤهل العلمي'                => 'هندسة معمارية',
@@ -74,30 +87,9 @@ class EmployeeRowMapperTest extends TestCase
         ], $override);
     }
 
-    /** @param  array<string, mixed>  $override */
-    private function sarh(array $override = []): array
+    private function map(array $row): MappedRow
     {
-        return array_merge([
-            '_id'                     => 582974643,
-            'الاسم الأول'             => 'نور',
-            'اسم الاب'                => 'أحمد',
-            'الكنية'                  => 'الشامي',
-            'اسم الام'                => 'فاطمة',
-            'تاريخ التولد'            => new DateTimeImmutable('1990-03-15'),
-            'الرقم الوطني في الهوية'  => 2010012345,
-            'عدد الأبناء الذكور'      => 1,
-            'عدد الأبناء الاناث'      => 1,
-            // Present in the file and NEVER read (the allow-list):
-            'الديانة'                 => 'x',
-            'المذهب'                  => 'x',
-            'هل لديك أي سوابق جنائية؟' => 'x',
-            'صورة الهوية وجه امامي_URL' => 'https://kf.kobotoolbox.org/x',
-        ], $override);
-    }
-
-    private function map(array $row, ?array $sarh = null): MappedRow
-    {
-        return (new EmployeeRowMapper)->map($row, $sarh);
+        return (new EmployeeRowMapper)->map($row);
     }
 
     /** @return array<int, string> */
@@ -114,6 +106,27 @@ class EmployeeRowMapperTest extends TestCase
         $this->assertSame('kobo:582974643', $this->map($this->row(['ID_Sarah' => 582974643.0]))->sourceKey);
     }
 
+    public function test_spaces_and_direction_marks_around_a_kobo_id_are_dropped(): void
+    {
+        $this->assertSame('kobo:582974643', $this->map($this->row(['ID_Sarah' => " 582974643\u{00A0}\u{200F}"]))->sourceKey);
+    }
+
+    public function test_a_kobo_id_that_is_not_one_clean_number_is_refused_not_cleaned(): void
+    {
+        // Each of these used to lose its other characters and become a
+        // different person's login: 0582974643 beside the 582974643 the API
+        // insists on, or two ids run together.
+        foreach (['0582974643', '582974643 / 582974644', '58297-4643', 582974643.5] as $cell) {
+            $mapped = $this->map($this->row(['ID_Sarah' => $cell]));
+
+            $this->assertNull($mapped->sourceKey, var_export($cell, true));
+            $this->assertSame(
+                ['رقم كوبو «'.$cell.'» غير صالح: أرقام فقط، بلا صفر في أوله — لا يُستورد الموظف حتى يُصحَّح.'],
+                $this->messages($mapped, 'error'),
+            );
+        }
+    }
+
     public function test_a_row_without_a_kobo_id_has_no_key_and_an_error(): void
     {
         $mapped = $this->map($this->row(['ID_Sarah' => null]));
@@ -124,21 +137,36 @@ class EmployeeRowMapperTest extends TestCase
 
     // ── Identity ─────────────────────────────────────────────────────────
 
-    public function test_names_come_from_the_sarh_record_when_there_is_one(): void
+    public function test_the_seven_person_columns_are_required(): void
     {
-        $a = $this->map($this->row(['الإسم الثلاثي' => 'خلدون قرنفل علي قرنفل']), $this->sarh([
-            'الاسم الأول' => 'خلدون', 'اسم الاب' => 'قرنفل', 'الكنية' => 'علي قرنفل',
-        ]))->attributes;
-
-        $this->assertSame(['خلدون', 'قرنفل', 'علي قرنفل'], [$a['first_name'], $a['middle_name'], $a['last_name']]);
+        foreach (['الاسم الأول', 'اسم الاب', 'الكنية', 'اسم الام', 'الرقم الوطني في الهوية', 'عدد الأبناء الذكور', 'عدد الأبناء الاناث'] as $column) {
+            $this->assertContains($column, EmployeeRowMapper::WORKBOOK_COLUMNS);
+        }
     }
 
-    public function test_without_sarh_a_long_name_keeps_the_rest_as_the_last_name_and_is_reported(): void
+    public function test_names_come_from_the_three_name_columns(): void
     {
-        $mapped = $this->map($this->row(['الإسم الثلاثي' => 'خلدون قرنفل علي قرنفل']));
+        $mapped = $this->map($this->row([
+            'الإسم الثلاثي' => 'خلدون قرنفل علي قرنفل',
+            'الاسم الأول'   => 'خلدون', 'اسم الاب' => 'قرنفل', 'الكنية' => 'علي قرنفل',
+        ]));
+        $a = $mapped->attributes;
 
-        $this->assertSame('علي قرنفل', $mapped->attributes['last_name']);
-        $this->assertNotEmpty($this->messages($mapped, 'warning'));
+        $this->assertSame(['خلدون', 'قرنفل', 'علي قرنفل'], [$a['first_name'], $a['middle_name'], $a['last_name']]);
+        $this->assertSame([], $this->messages($mapped, 'warning'));
+    }
+
+    public function test_without_a_first_name_the_full_name_is_split_and_reported(): void
+    {
+        $mapped = $this->map($this->row([
+            'الإسم الثلاثي' => 'خلدون قرنفل علي قرنفل',
+            'الاسم الأول'   => null, 'اسم الاب' => null, 'الكنية' => null,
+        ]));
+
+        $this->assertSame(['خلدون', 'قرنفل', 'علي قرنفل'], [
+            $mapped->attributes['first_name'], $mapped->attributes['middle_name'], $mapped->attributes['last_name'],
+        ]);
+        $this->assertContains('خانة «الاسم الأول» فارغة — أُخذ الاسم من «الإسم الثلاثي».', $this->messages($mapped, 'warning'));
     }
 
     public function test_the_nickname_and_payroll_location_are_trimmed(): void
@@ -151,51 +179,54 @@ class EmployeeRowMapperTest extends TestCase
 
     public function test_a_ten_digit_national_id_gets_its_leading_zero_back(): void
     {
-        $this->assertSame('02010012345', $this->map($this->row(), $this->sarh())->attributes['national_id']);
-        $this->assertSame('02010012345', $this->map($this->row(), $this->sarh(['الرقم الوطني في الهوية' => '02010012345']))->attributes['national_id']);
+        $this->assertSame('02010012345', $this->map($this->row())->attributes['national_id']);
+        $this->assertSame('02010012345', $this->map($this->row(['الرقم الوطني في الهوية' => '02010012345']))->attributes['national_id']);
     }
 
     public function test_a_national_id_too_short_to_be_one_is_not_stored(): void
     {
-        $mapped = $this->map($this->row(), $this->sarh(['الرقم الوطني في الهوية' => 123456]));
+        $mapped = $this->map($this->row(['الرقم الوطني في الهوية' => 123456]));
 
         $this->assertNull($mapped->attributes['national_id']);
         $this->assertNotEmpty($this->messages($mapped, 'warning'));
     }
 
-    public function test_the_sarh_record_supplies_mother_birth_date_and_children(): void
+    public function test_the_row_supplies_mother_national_id_children_and_birth_date(): void
     {
-        $a = $this->map($this->row(['مواليد_دقيقة' => null]), $this->sarh())->attributes;
+        $a = $this->map($this->row())->attributes;
 
         $this->assertSame('فاطمة', $a['mother_name']);
-        $this->assertSame('1990-03-15', $a['birth_date']);
+        $this->assertSame('02010012345', $a['national_id']);
         $this->assertSame([1, 1], [$a['sons_count'], $a['daughters_count']]);
+        $this->assertSame('1990-03-15', $a['birth_date']);
     }
 
-    public function test_the_sensitive_sarh_columns_are_never_read(): void
+    public function test_the_sensitive_merged_columns_are_never_read(): void
     {
-        $a = $this->map($this->row(), $this->sarh())->attributes;
+        $a = $this->map($this->row())->attributes;
 
         foreach (['x', 'https://kf.kobotoolbox.org/x'] as $value) {
             $this->assertNotContains($value, $a);
         }
     }
 
-    public function test_without_sarh_the_workbook_birth_date_is_used_and_children_stay_unknown(): void
+    public function test_blank_person_cells_are_unknown(): void
     {
-        $a = $this->map($this->row())->attributes;
+        $a = $this->map($this->row([
+            'اسم الام' => null, 'الرقم الوطني في الهوية' => null, 'عدد الأبناء الذكور' => null, 'عدد الأبناء الاناث' => null,
+        ]))->attributes;
 
-        $this->assertSame('1990-03-15', $a['birth_date']);
+        $this->assertNull($a['mother_name']);
+        $this->assertNull($a['national_id']);
         // Omitted, not null: the counts are NOT NULL DEFAULT 0, so an unknown
         // count leaves a new row at 0 and an existing row unchanged.
         $this->assertArrayNotHasKey('sons_count', $a);
         $this->assertArrayNotHasKey('daughters_count', $a);
-        $this->assertNull($a['national_id']);
     }
 
     public function test_a_birth_year_that_disagrees_with_the_date_is_reported(): void
     {
-        $mapped = $this->map($this->row(['المواليد' => 1988]), $this->sarh());
+        $mapped = $this->map($this->row(['المواليد' => 1988]));
 
         $this->assertSame('1990-03-15', $mapped->attributes['birth_date']);
         $this->assertNotEmpty($this->messages($mapped, 'warning'));
@@ -378,12 +409,12 @@ class EmployeeRowMapperTest extends TestCase
         $this->assertStringContainsString('#N/A', $this->messages($mapped, 'warning')[0]);
     }
 
-    public function test_a_formula_error_in_the_sarh_file_is_reported_too(): void
+    public function test_a_formula_error_in_a_person_column_is_reported_too(): void
     {
-        $mapped = $this->map($this->row(), $this->sarh(['اسم الام' => new CellError('')]));
+        $mapped = $this->map($this->row(['اسم الام' => new CellError('')]));
 
         $this->assertNull($mapped->attributes['mother_name']);
-        $this->assertStringContainsString('ملف صرح', $this->messages($mapped, 'warning')[0]);
+        $this->assertStringContainsString('«اسم الام»', $this->messages($mapped, 'warning')[0]);
     }
 
     public function test_an_unreadable_kobo_id_leaves_the_row_without_a_key(): void
@@ -392,17 +423,5 @@ class EmployeeRowMapperTest extends TestCase
 
         $this->assertNull($mapped->sourceKey);
         $this->assertTrue($mapped->hasErrors());
-    }
-
-    public function test_sarh_records_are_keyed_by_the_digits_of_their_id_and_cut_to_the_allow_list(): void
-    {
-        $byId = EmployeeRowMapper::sarhById([
-            2 => $this->sarh(['_id' => 582974643.0]),
-            3 => $this->sarh(['_id' => null]),
-        ]);
-
-        $this->assertSame(['582974643'], array_map('strval', array_keys($byId)));
-        $this->assertArrayNotHasKey('الديانة', $byId['582974643']);
-        $this->assertSame('نور', $byId['582974643']['الاسم الأول']);
     }
 }

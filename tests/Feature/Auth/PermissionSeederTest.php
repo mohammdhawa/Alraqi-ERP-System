@@ -52,7 +52,7 @@ class PermissionSeederTest extends TestCase
      * `.delete`, `leave.balances.view`, `.update`, `leave.requests.view`,
      * `.returnToWork`, and `leave.excuses.create`, `.delete`.
      */
-    private const TOTAL = 45;
+    private const TOTAL = 46;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -68,7 +68,7 @@ class PermissionSeederTest extends TestCase
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update', 'departments.view',
             'hr.assignments.create', 'hr.assignments.view',
-            'hr.employees.create', 'hr.employees.delete', 'hr.employees.update', 'hr.employees.view',
+            'hr.employees.create', 'hr.employees.delete', 'hr.employees.import', 'hr.employees.update', 'hr.employees.view',
             'hr.employees.viewIdentity', 'hr.employees.viewSalary',
             'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update', 'hr.job_titles.view',
             'hr.warnings.create', 'hr.warnings.delete', 'hr.warnings.update', 'hr.warnings.view',

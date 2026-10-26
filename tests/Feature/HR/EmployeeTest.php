@@ -38,6 +38,7 @@ class EmployeeTest extends TestCase
     private function payload(array $overrides = []): array
     {
         return array_merge([
+            'employee_number' => $this->nextKoboNumber(),
             'first_name'  => 'جين',
             'middle_name' => 'أحمد',
             'last_name'   => 'دو',
@@ -70,6 +71,73 @@ class EmployeeTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.');
+    }
+
+    // ── The number is the Kobo id (KOBO_EMPLOYEE_NUMBER_DESIGN.md §3, §7) ──
+
+    public function test_store_requires_the_kobo_id(): void
+    {
+        $this->actingAsAdmin();
+
+        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => null]))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.employee_number.0', 'رقم كوبو مطلوب.');
+    }
+
+    public function test_store_takes_digits_only(): void
+    {
+        $this->actingAsAdmin();
+
+        // A leading zero too: 0582974643 and the import's 582974643 would be
+        // two people (Task 2's ruling).
+        foreach (['EMP-00042', '0582974643', str_repeat('1', 21)] as $number) {
+            $this->postJson('/api/hr/employees', $this->payload(['employee_number' => $number]))
+                ->assertUnprocessable()
+                ->assertJsonPath('errors.employee_number.0', 'رقم كوبو يتكوّن من أرقام فقط.');
+        }
+
+        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => ' 582974643 ']))
+            ->assertCreated()
+            ->assertJsonPath('data.employee_number', '582974643');
+    }
+
+    public function test_store_refuses_a_number_another_employee_holds(): void
+    {
+        $this->actingAsAdmin();
+        Employee::factory()->create(['employee_number' => '582974643']);
+
+        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => '582974643']))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.employee_number.0', 'رقم كوبو مستخدم لموظف آخر.');
+    }
+
+    public function test_a_wrong_number_is_fixed_by_deleting_and_adding_again(): void
+    {
+        // K2: the number never changes, so a mistake is deleted and re-added —
+        // and the deleted record must not keep the right number from its owner.
+        $this->actingAsAdmin();
+        $wrong = Employee::factory()->create(['employee_number' => '582974643']);
+
+        $this->deleteJson("/api/hr/employees/{$wrong->id}")->assertSuccessful();
+
+        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => '582974643']))
+            ->assertCreated()
+            ->assertJsonPath('data.employee_number', '582974643');
+    }
+
+    public function test_update_refuses_a_new_number_and_accepts_the_same(): void
+    {
+        $this->actingAsAdmin();
+        $employee = Employee::factory()->create(['employee_number' => '582974643']);
+
+        $this->patchJson("/api/hr/employees/{$employee->id}", ['employee_number' => '582974644'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.employee_number.0', 'لا يمكن تغيير الرقم الوظيفي بعد إنشائه.');
+
+        $this->patchJson("/api/hr/employees/{$employee->id}", ['employee_number' => '582974643', 'phone' => '0933111222'])
+            ->assertOk()
+            ->assertJsonPath('data.phone', '0933111222');
+        $this->assertSame('582974643', $employee->fresh()->employee_number);
     }
 
     public function test_store_creates_an_employee_with_a_split_name(): void
@@ -148,54 +216,6 @@ class EmployeeTest extends TestCase
         $this->postJson('/api/hr/employees', $this->payload(['department_id' => $division->id]))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('department_id');
-    }
-
-    public function test_store_auto_assigns_an_employee_number(): void
-    {
-        $this->actingAsAdmin();
-
-        $this->postJson('/api/hr/employees', $this->payload())
-            ->assertCreated()
-            ->assertJsonPath('data.employee_number', 'EMP-00001');
-
-        $this->postJson('/api/hr/employees', $this->payload(['first_name' => 'جون']))
-            ->assertCreated()
-            ->assertJsonPath('data.employee_number', 'EMP-00002');
-    }
-
-    /**
-     * HR may type a staff number by hand — to continue the company's own
-     * M024333 series, or to correct one. Only uniqueness is enforced.
-     */
-    public function test_a_supplied_employee_number_is_respected(): void
-    {
-        $this->actingAsAdmin();
-
-        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => 'M024333']))
-            ->assertCreated()
-            ->assertJsonPath('data.employee_number', 'M024333');
-
-        $this->postJson('/api/hr/employees', $this->payload(['employee_number' => 'M024333']))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('employee_number');
-    }
-
-    /**
-     * The generator derives its candidate from max(id), so a manually assigned
-     * number can sit exactly where the next generated one would land. Without
-     * the collision loop this is a raw integrity error — a 500 on an ordinary
-     * create.
-     */
-    public function test_the_generator_steps_past_a_manually_taken_number(): void
-    {
-        $this->actingAsAdmin();
-
-        // Employee #1 manually claims the number #2 would otherwise generate.
-        Employee::factory()->named('First')->create(['employee_number' => 'EMP-00002']);
-
-        $this->postJson('/api/hr/employees', $this->payload())
-            ->assertCreated()
-            ->assertJsonPath('data.employee_number', 'EMP-00003');
     }
 
     public function test_store_validates_the_status_enum(): void
@@ -281,14 +301,14 @@ class EmployeeTest extends TestCase
     public function test_index_searches_every_name_part_and_the_staff_number(): void
     {
         $this->actingAsAdmin();
-        Employee::factory()->named('سامر خالد الحلبي')->create(['employee_number' => 'M024333']);
+        Employee::factory()->named('سامر خالد الحلبي')->create(['employee_number' => '582974643']);
         Employee::factory()->named('نور علي الشامي')->create();
 
         $this->getJson('/api/hr/employees?search=خالد')
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.full_name', 'سامر خالد الحلبي');
 
-        $this->getJson('/api/hr/employees?search=M024333')
+        $this->getJson('/api/hr/employees?search=582974643')
             ->assertOk()->assertJsonCount(1, 'data');
     }
 
@@ -305,14 +325,14 @@ class EmployeeTest extends TestCase
     public function test_search_treats_wildcards_as_literal_characters(): void
     {
         $this->actingAsAdmin();
-        Employee::factory()->named('سامر الحلبي')->create(['employee_number' => 'M_024333']);
-        Employee::factory()->named('نور الشامي')->create(['employee_number' => 'MX024333']);
+        // Numbers are digits now (Kobo ids), so the wildcard rides in the
+        // search alone: unescaped, `_` matches any one digit and this would
+        // find 582974643.
+        Employee::factory()->named('سامر الحلبي')->create(['employee_number' => '582974643']);
+        Employee::factory()->named('نور الشامي')->create(['employee_number' => '512974643']);
 
-        // Unescaped, `_` is LIKE's single-character wildcard and this matches
-        // both rows.
-        $this->getJson('/api/hr/employees?search='.urlencode('M_024333'))
-            ->assertOk()->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.full_name', 'سامر الحلبي');
+        $this->getJson('/api/hr/employees?search='.urlencode('5_2974643'))
+            ->assertOk()->assertJsonCount(0, 'data');
 
         // Unescaped, `%` matches everyone.
         $this->getJson('/api/hr/employees?search='.urlencode('%'))

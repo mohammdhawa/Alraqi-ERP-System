@@ -83,13 +83,21 @@ class EmployeeController extends Controller
 
     public function store(EmployeeRequest $request): JsonResponse
     {
-        $employee = $this->employeeService->create($request->validated());
+        $made = $this->employeeService->create($request->validated());
+        $employee = $made['employee'];
 
         RequestRowScopes::warm(request(), EmployeeResource::FIELD_PERMISSIONS);
 
+        // The account beside the employee, and its temporary password — the
+        // only time it is ever shown (EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md §2).
         return $this->created(
             data: new EmployeeResource($this->employeeService->prepareForResource($employee)),
-            message: 'تم إنشاء الموظف.',
+            message: 'تم إنشاء الموظف وحساب دخوله.',
+            extra: ['account' => [
+                'user_id'            => $made['user']->getKey(),
+                'login'              => $employee->employee_number,
+                'temporary_password' => $made['temporary_password'],
+            ]],
         );
     }
 

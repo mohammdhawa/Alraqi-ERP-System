@@ -9,6 +9,7 @@ use OpenSpout\Common\Entity\Style\CellVerticalAlignment;
 use OpenSpout\Common\Entity\Style\Style;
 use OpenSpout\Writer\AutoFilter;
 use OpenSpout\Writer\XLSX\Entity\SheetView;
+use OpenSpout\Writer\XLSX\Options;
 use OpenSpout\Writer\XLSX\Writer;
 
 /**
@@ -28,6 +29,7 @@ final class ImportReportWriter
         'created'  => 'جديد',
         'updated'  => 'تحديث',
         'restored' => 'استعادة',
+        'excluded' => 'مستبعد',
         'skipped'  => 'لم يُستورد',
         'failed'   => 'مرفوض',
     ];
@@ -94,7 +96,63 @@ final class ImportReportWriter
         }
         $rows->setAutoFilter(new AutoFilter(0, 1, 5, count($report->rows()) + 1));
 
+        $this->writeChanges($writer, $report, $bold);
+        $this->writeNotInFile($writer, $report, $bold);
+
         $writer->close();
+    }
+
+    /**
+     * التغييرات — one line per field an update changes, old beside new, so an
+     * ERP edit the workbook is about to overwrite is seen first (design §5.1).
+     */
+    private function writeChanges(Writer $writer, ImportReport $report, Style $bold): void
+    {
+        $sheet = $writer->addNewSheetAndMakeItCurrent();
+        $sheet->setName('التغييرات');
+        $sheet->setSheetView((new SheetView)->setRightToLeft(true)->setFreezeRow(2));
+        $sheet->setColumnWidth(8, 1);
+        $sheet->setColumnWidth(28, 2);
+        $sheet->setColumnWidth(14, 3);
+        $sheet->setColumnWidth(26, 4);
+        $sheet->setColumnWidth(36, 5, 6);
+
+        $writer->addRow(Row::fromValues(['السطر', 'الاسم', 'الرقم الوظيفي', 'الحقل', 'القيمة في النظام', 'القيمة في الملف'], $bold));
+        $lines = 0;
+        foreach ($report->changes() as $change) {
+            foreach ($change['fields'] as $field) {
+                $writer->addRow(Row::fromValues([
+                    $change['row'], $change['name'], (string) $change['employee_number'],
+                    $field['label'], (string) $field['old'], (string) $field['new'],
+                ]));
+                $lines++;
+            }
+        }
+        $sheet->setAutoFilter(new AutoFilter(0, 1, 5, $lines + 1));
+    }
+
+    /**
+     * غير موجودين في الملف — on the roll, not in this file (design §5.2).
+     * Listed only: a leaver is terminated by hand in the ERP (U3).
+     */
+    private function writeNotInFile(Writer $writer, ImportReport $report, Style $bold): void
+    {
+        $sheet = $writer->addNewSheetAndMakeItCurrent();
+        $sheet->setName('غير موجودين في الملف');
+        $sheet->setSheetView((new SheetView)->setRightToLeft(true)->setFreezeRow(2));
+        $sheet->setColumnWidth(14, 1);
+        $sheet->setColumnWidth(28, 2);
+        $sheet->setColumnWidth(50, 3);
+        $sheet->setColumnWidth(16, 4);
+
+        $writer->addRow(Row::fromValues(['الرقم الوظيفي', 'الاسم', 'الوحدة', 'المصدر'], $bold));
+        foreach ($report->notInFile() as $person) {
+            $writer->addRow(Row::fromValues([
+                $person['employee_number'], $person['name'], (string) $person['unit'],
+                $person['imported'] ? 'مستورد سابقاً' : 'مُضاف يدوياً',
+            ]));
+        }
+        $sheet->setAutoFilter(new AutoFilter(0, 1, 3, count($report->notInFile()) + 1));
     }
 
     /**
@@ -122,7 +180,12 @@ final class ImportReportWriter
 
     private function open(string $path): Writer
     {
-        $writer = new Writer;
+        // openspout builds the workbook in a temp folder first; keep it
+        // beside the file being written — the private folder, for the upload
+        // screen — not the shared system temp folder (final review, Part 1).
+        $options = new Options;
+        $options->setTempFolder(dirname($path));
+        $writer = new Writer($options);
         $writer->openToFile($path);
 
         return $writer;

@@ -19,6 +19,7 @@ use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
 use App\Modules\HR\Exceptions\AssignmentConflictException;
 use App\Modules\HR\Exceptions\EmployeeClassificationException;
+use App\Modules\HR\Exceptions\EmployeeNumberException;
 use App\Modules\HR\Policies\EmployeePolicy;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
 use App\Modules\HR\Support\HireDateGuard;
@@ -99,11 +100,17 @@ class Employee extends Model
     use SoftDeletes;
 
     /**
-     * The prefix and width of a generated staff number.
+     * The employee number is the person's Kobo id — HR's KoboToolbox `_id`,
+     * the `ID_Sarah` of the workbook — and the identity they sign in with
+     * (KOBO_EMPLOYEE_NUMBER_DESIGN.md, K1–K3). Digits only, no leading zero —
+     * 0582974643 and the import's 582974643 would be two people — at most 20;
+     * nothing generates it any more. The one pattern: the API's create rule
+     * and the importer's reading of ID_Sarah use it too.
      */
-    private const NUMBER_PREFIX = 'EMP-';
+    public const NUMBER_PATTERN = '/^[1-9]\d{0,19}$/';
 
-    private const NUMBER_WIDTH = 5;
+    /** Set by renumberTo() alone: the one way past the never-changed guard. */
+    private bool $renumbering = false;
 
     /**
      * The manager `ManagementChain::attachTo()` resolved from the tree.
@@ -283,12 +290,82 @@ class Employee extends Model
         }
     }
 
+    /**
+     * Give an existing employee a new number — for `hr:renumber-from-kobo`
+     * alone, which moves development rows from `EMP-…` onto their Kobo id
+     * (spec §5). Everything else is refused by the `updating` guard (K2).
+     */
+    /** What a deleted employee's number carries, so it is free for someone else. */
+    private const RELEASED = '-deleted-';
+
+    /** Write the number past the K2 guard, on the hooks' and renumberTo's behalf only. */
+    private function writeNumber(string $number): void
+    {
+        $this->renumbering = true;
+
+        try {
+            $this->forceFill(['employee_number' => $number])->saveQuietly();
+        } finally {
+            $this->renumbering = false;
+        }
+    }
+
+    public function renumberTo(string $number): void
+    {
+        self::assertDigits($number);
+        $this->renumbering = true;
+
+        try {
+            $this->forceFill(['employee_number' => $number])->save();
+        } finally {
+            $this->renumbering = false;
+        }
+    }
+
+    private static function assertDigits(?string $number): void
+    {
+        if (blank($number)) {
+            throw EmployeeNumberException::required();
+        }
+        if (preg_match(self::NUMBER_PATTERN, (string) $number) !== 1) {
+            throw EmployeeNumberException::notDigits();
+        }
+    }
+
     protected static function booted(): void
     {
+        // Spec §3, beneath every writer: a number is required and digits at
+        // creation, and never changes after. Digits are judged at creation
+        // (and in renumberTo) only, never on every save: development rows
+        // numbered EMP-… before this change must stay editable.
         static::creating(function (self $employee): void {
-            if (blank($employee->employee_number)) {
-                $employee->employee_number = self::nextEmployeeNumber();
+            self::assertDigits($employee->employee_number);
+        });
+
+        static::updating(function (self $employee): void {
+            if ($employee->isDirty('employee_number') && ! $employee->renumbering) {
+                throw EmployeeNumberException::immutable();
             }
+        });
+
+        // A deleted employee frees their number (I1, 2026-10-24): K2's answer
+        // to a wrong number is "delete and add again", and the deleted record
+        // must not keep the number from its owner — nor be what the import
+        // finds when that owner's row arrives. The number stays readable
+        // («582974643-deleted-12»), and a restore takes it back if it is free.
+        static::softDeleted(function (self $employee): void {
+            $employee->writeNumber($employee->employee_number.self::RELEASED.$employee->getKey());
+        });
+
+        static::restoring(function (self $employee): void {
+            $pattern = '/^(.+)'.preg_quote(self::RELEASED, '/').'\d+$/';
+            if (preg_match($pattern, (string) $employee->employee_number, $m) !== 1) {
+                return;   // deleted before deleting freed the number
+            }
+            if (static::withTrashed()->where('employee_number', $m[1])->exists()) {
+                throw EmployeeNumberException::takenOnRestore($m[1]);
+            }
+            $employee->writeNumber($m[1]);
         });
 
         static::saving(function (self $employee): void {
@@ -384,42 +461,6 @@ class Employee extends Model
         }
 
         $first->update(['from_date' => $this->hire_date->toDateString()]);
-    }
-
-    /**
-     * The next free staff number, e.g. "EMP-00001".
-     *
-     * ⚙️ A SUPPLIED NUMBER IS ALWAYS RESPECTED (project owner, 2026-09-13): HR
-     * may type a staff number by hand — to continue the company's own M024333
-     * series, or to correct one — and only uniqueness is enforced, by the index
-     * and by EmployeeRequest.
-     *
-     * That decision is what makes the loop below necessary rather than
-     * decorative. The generator derives its candidate from `max(id)`, so the
-     * moment someone manually assigns "EMP-00006" to employee #3, the row that
-     * eventually lands at id 6 would generate a number that is already taken and
-     * the insert would fail with a raw integrity error. The loop steps past any
-     * number already in use — including soft-deleted rows, whose numbers are
-     * never reissued, because a departed employee's identifier must keep meaning
-     * what it meant in the audit trail.
-     *
-     * The UNIQUE index remains the final backstop for a concurrent collision:
-     * the loser's insert fails rather than duplicating a number.
-     */
-    private static function nextEmployeeNumber(): string
-    {
-        $candidate = (int) (self::withTrashed()->max('id') ?? 0) + 1;
-
-        while (self::withTrashed()->where('employee_number', self::formatNumber($candidate))->exists()) {
-            $candidate++;
-        }
-
-        return self::formatNumber($candidate);
-    }
-
-    private static function formatNumber(int $sequence): string
-    {
-        return self::NUMBER_PREFIX.str_pad((string) $sequence, self::NUMBER_WIDTH, '0', STR_PAD_LEFT);
     }
 
     /**

@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\HR\Services;
 
+use App\Modules\Auth\Models\User;
+use App\Modules\Auth\Services\UserService;
+use App\Modules\Auth\Support\TemporaryPassword;
+use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\EmployeeAssignment;
 use App\Shared\Services\ManagementChain;
@@ -52,6 +56,7 @@ class EmployeeService
 
     public function __construct(
         private readonly ManagementChain $chain,
+        private readonly UserService $users,
     ) {}
 
     /**
@@ -173,16 +178,36 @@ class EmployeeService
     }
 
     /**
-     * Create an employee from validated attributes.
+     * Create an employee from validated attributes, and their account.
      *
      * The opening posting row is written by the model's `saved` hook, not here
      * — see the class docblock. The transaction is what makes the pair atomic.
      *
+     * «كل موظف له حساب دخول» (EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md): the
+     * account is made in the same transaction, as the import makes it — no
+     * email, no role, a temporary password to change at first sign-in. The
+     * password leaves here once, for the response; only its hash is stored.
+     * Someone created as منتهي الخدمة gets the account termination would have
+     * left them: disabled, with no password to hand out.
+     *
      * @param  array<string, mixed>  $data
+     * @return array{employee: Employee, user: User, temporary_password: ?string}
      */
-    public function create(array $data): Employee
+    public function create(array $data): array
     {
-        return DB::transaction(fn (): Employee => Employee::create($data));
+        return DB::transaction(function () use ($data): array {
+            $employee = Employee::create($data);
+            $enabled = $employee->status !== EmployeeStatus::Terminated;
+            $password = TemporaryPassword::generate();
+
+            $user = $this->users->create([
+                'employee_id' => $employee->getKey(),
+                'password'    => $password,
+                'is_active'   => $enabled,
+            ]);
+
+            return ['employee' => $employee, 'user' => $user, 'temporary_password' => $enabled ? $password : null];
+        });
     }
 
     /**
