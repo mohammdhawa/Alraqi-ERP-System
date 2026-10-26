@@ -299,6 +299,7 @@ class EmployeeScopedFieldsTest extends TestCase
         $this->actingAsPayrollClerkForA1();
 
         $payload = [
+            'employee_number' => $this->nextKoboNumber(),
             'first_name' => 'جديد', 'middle_name' => 'أحمد', 'last_name' => 'موظف',
             'gender'     => Gender::Male->value,
             'salary_mode' => 2, 'agreed_salary' => '600000.00',

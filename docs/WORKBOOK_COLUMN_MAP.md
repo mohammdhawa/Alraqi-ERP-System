@@ -13,6 +13,15 @@
 >   — the KoboToolbox «استمارة بيانات الموظفين» export, 296 records, joined on
 >   `_id` = `ID_Sarah` (232 of the 236 active with an `ID_Sarah` are in it). It
 >   fills the fields §2 marks **صرح**.
+> - ⚙️ **One file since 2026-10-24 (project owner):** HR merges the صرح columns
+>   the import reads into `قاعدة البيانات` itself, **under their صرح headers**:
+>   `الاسم الأول`, `اسم الاب`, `الكنية`, `اسم الام`, `الرقم الوطني في الهوية`,
+>   `عدد الأبناء الذكور`, `عدد الأبناء الاناث` — all seven **required** (a file
+>   missing one is refused before anything is read; blank cells are fine). The
+>   صرح export is no longer read or uploaded. Where §2 says «صرح» below, read
+>   «the merged column». A blank merged cell never erases what an earlier run
+>   stored; a blank `الاسم الأول` falls back to splitting `الإسم الثلاثي`, and
+>   the report says so. Birth dates come from `مواليد_دقيقة` only.
 >
 > ⚙️ **Leavers are not imported** (HR, 2026-10-14): `إنهاء عمل` is not read, and
 > every leaver-only row below is for reference.
@@ -45,8 +54,8 @@ both an active sheet and `إنهاء عمل` no longer matter: leavers are not i
 | `الإسم الثلاثي` | all | `first_name`, `middle_name`, `last_name` | 320 of 453 names have 3 words. **133 have 4–6** (`خلدون قرنفل علي قرنفل`), 3 have 2. Rule: first word, second word, rest as `last_name`; report every non-3-word name for HR to check. Leavers are often a kunya only (`أبو إبراهيم عندان`) |
 | `اللقب` | 76/237 | `nickname` | ✅ Column added 2026-10-14 (needed in v1). Trimmed; blank → null |
 | `الجنس` | active only | `gender` | `ذكر` / `انثى`. Leavers: `Column4` holds it, unnamed |
-| صرح `تاريخ التولد` | 232/232 matched | `birth_date` | ✅ A full date for every matched employee, production included — **preferred over the workbook** |
-| `مواليد_دقيقة` | main sheet only | `birth_date` | Fallback when the صرح record is missing |
+| ~~صرح `تاريخ التولد`~~ | 232/232 matched | — | ⚙️ Not read since 2026-10-24 (one file): not among the merged columns |
+| `مواليد_دقيقة` | main sheet only | `birth_date` | ⚙️ The birth date since 2026-10-24 (it was the fallback) |
 | `المواليد` | all | — | Year only. Used to cross-check the full date; a disagreement is reported |
 | صرح `الرقم الوطني في الهوية` | 232/232 | `national_id` | ⚠️ **207 have 10 digits** where a Syrian national number has 11 — Excel dropped a leading `0`. 9 have 11, and 10 are shorter (9 or 6 digits). **2 values are shared by two people.** ✅ **The importer restores the leading `0` on the 10-digit ones** (2026-10-14); the shorter ones and the duplicates are reported |
 | صرح `اسم الام` | 232/232 | `mother_name` | |

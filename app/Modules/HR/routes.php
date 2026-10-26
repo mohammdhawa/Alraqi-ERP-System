@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Modules\HR\Controllers\EmployeeAssignmentController;
 use App\Modules\HR\Controllers\EmployeeController;
+use App\Modules\HR\Controllers\EmployeeImportController;
 use App\Modules\HR\Controllers\EmployeeWarningController;
 use App\Modules\HR\Controllers\JobTitleController;
+use App\Modules\HR\Models\EmployeeImportRun;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -77,6 +79,27 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
             ->middleware(['permission:hr.warnings.update', 'can:update,warning'])->name('update');
         Route::delete('warnings/{warning}', [EmployeeWarningController::class, 'destroy'])
             ->middleware(['permission:hr.warnings.delete', 'can:delete,warning'])->name('destroy');
+    });
+
+    // ── استيراد الموظفين من ملف — the upload import ─────────────────────
+    // EMPLOYEE_IMPORT_UPLOAD_DESIGN.md §4.2–§4.3. Every route carries the
+    // import permission AND the policy: the import writes pay fields and
+    // national IDs across the company, so its user must read both,
+    // company-wide (decision 13). A run is its uploader's: the service
+    // answers 404 for anyone else's.
+    Route::name('employee-imports.')->middleware([
+        'permission:hr.employees.import',
+        'can:import,'.EmployeeImportRun::class,
+    ])->group(function () {
+        Route::post('employee-imports', [EmployeeImportController::class, 'store'])->name('store');
+        Route::get('employee-imports/{run}', [EmployeeImportController::class, 'show'])
+            ->whereNumber('run')->name('show');
+        Route::get('employee-imports/{run}/report', [EmployeeImportController::class, 'report'])
+            ->whereNumber('run')->name('report');
+        Route::put('employee-imports/{run}/exclusions', [EmployeeImportController::class, 'exclusions'])
+            ->whereNumber('run')->name('exclusions');
+        Route::post('employee-imports/{run}/execute', [EmployeeImportController::class, 'execute'])
+            ->whereNumber('run')->name('execute');
     });
 
     // ── الموظفون ─────────────────────────────────────────────────────────

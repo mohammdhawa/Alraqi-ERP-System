@@ -31,12 +31,18 @@ class EmployeeFactory extends Factory
 {
     protected $model = Employee::class;
 
+    /** A per-process counter: every employee gets a unique digit number (spec §3). */
+    private static int $number = 0;
+
     /**
      * @return array<string, mixed>
      */
     public function definition(): array
     {
         return [
+            // A Kobo id is digits; 7 + eight digits keeps test numbers clear
+            // of the 5xxxxxxxx ids of HR's real workbook.
+            'employee_number' => '7'.str_pad((string) ++self::$number, 8, '0', STR_PAD_LEFT),
             'first_name'  => $this->faker->firstName(),
             'middle_name' => $this->faker->firstName('male'),
             'last_name'   => $this->faker->lastName(),

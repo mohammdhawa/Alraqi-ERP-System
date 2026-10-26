@@ -17,6 +17,18 @@ abstract class TestCase extends BaseTestCase
      * Seed the RBAC permission/role catalogue. Idempotent, so it is safe to
      * call from multiple helpers within a single test.
      */
+    private static int $koboNumber = 0;
+
+    /**
+     * A fresh Kobo id for an employee a test creates through the API: the
+     * number is required and unique (KOBO_EMPLOYEE_NUMBER_DESIGN.md §3). 6 +
+     * eight digits keeps these clear of the factory's 7… and HR's 5….
+     */
+    protected function nextKoboNumber(): string
+    {
+        return '6'.str_pad((string) ++self::$koboNumber, 8, '0', STR_PAD_LEFT);
+    }
+
     protected function seedRbac(): void
     {
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);

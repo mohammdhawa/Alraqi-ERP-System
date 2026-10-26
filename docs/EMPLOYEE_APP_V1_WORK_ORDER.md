@@ -253,6 +253,8 @@ after more than 15 minutes idle with an offline queue waiting, so the sync and
 the screen load both hit `401` at once. One refresh must happen, and the session
 must survive.
 
+The login field takes the Kobo id — digits only, a numeric keyboard (`KOBO_EMPLOYEE_NUMBER_DESIGN.md`, 2026-10-24).
+
 ### 4.11 The pilot release
 
 Build, distribute to the D12 group, hand HR the credential list, and run the
@@ -1219,3 +1221,197 @@ suites).
 **For the dashboard:** the new day state `9` (grid and monthly), `counted_to`,
 per-row `expected_days`, the two new screens (every approval; on leave today),
 the inbox filters, and the new 403/422 messages.
+
+### 2026-10-22 — the employee import by upload, backend built
+
+[`EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`](EMPLOYEE_IMPORT_UPLOAD_DESIGN.md), agreed
+with the project owner the same day, and its plan
+`docs/superpowers/plans/2026-10-22-employee-import-upload.md`, Tasks 1–10.
+Not committed. The dashboard screen (Tasks 11–12, `erp-dashboard`) is next.
+
+**Decided** (design §2): HR and the developer use it; **the workbook stays the
+source** — an upload overwrites ERP edits to imported fields, and the dry run
+shows each one first; leavers are **reported, never terminated** by the
+import; the temporary passwords travel **in the real run's response only**;
+one upload, dry run then real run on the same files, within **an hour**.
+**R1** (asked while planning): a **terminated or suspended** employee still in
+the workbook is **left untouched** and reported (`skipped`, a warning) — the
+mapper writes every row as نشط, so an update would have put them back on duty
+without the account their termination disabled.
+
+**Built** (API_DOCUMENTATION §18):
+
+- **A defect fixed in the importer itself** (design §7): with no صرح record for
+  a person, an update wrote `null` over their stored national ID and mother's
+  name — a re-run of `hr:import-employees` without `--sarh` would have cleared
+  everyone's. The صرح-only fields are now left out of an update when the
+  record is missing; a record with the field blank still clears it.
+- The report (the command's xlsx and the screen's JSON) gains **التغييرات** —
+  every field an update changes, old → new, as display text — and **غير
+  موجودين في الملف** — everyone on the roll the file did not match, marked
+  مستورد سابقاً / مُضاف يدوياً.
+- The workbook reader's refusals are **Arabic and path-free**; the command
+  prefixes the file it was reading, the screen «ملف الموارد» / «ملف صرح».
+- `employee_import_runs`, `hr.employees.import` «استيراد الموظفين من ملف»
+  (company-only, in no seeded role), `EmployeeImportRunPolicy` (viewSalary and
+  viewIdentity company-wide too, decision 13), four endpoints under
+  `/api/hr/employee-imports`, one import at a time (409), a run its uploader's
+  alone (404), `hr:expire-import-runs` hourly, two audit events in a new `hr`
+  group.
+
+**Measured:** a dry run of the October files through the service on the
+development database — **1.39 s**, 185 rows (184 `updated`: that database
+already holds them; 1 skipped), 23 people on its roll not in the file. Its
+files were deleted and the run expired afterwards. The development database
+has `employee_import_runs` and the new permission.
+
+**Then the dashboard screen** (`erp-dashboard`, `hr/employees/import`), checked
+in the browser against the development API. The check found the upload sent
+`FormData` under the axios instance's JSON content type — the file never
+arrived; fixed as the leave forms do it.
+
+**Final review** (a fresh reviewer over both repositories) — no critical
+issue; three important ones, fixed with a failing test first:
+
+- A row failing on the server put the exception's message — SQL, schema,
+  bound values, a class name — into the report the API returns (C12). Now
+  «تعذّر استيراد السطر بسبب خطأ في الخادم.», the detail in the log.
+- **Time:** on an empty database the real run of the October files takes
+  **33.79 s** (bcrypt per new account); the dry run 1.54 s. The dry run now
+  hashes once; check and real run lift PHP's limit to 600 s, the lock to
+  900 s. ⚠️ A reverse proxy in front of the API must allow ~2 minutes.
+- A checked run could still be executed after a newer import had run,
+  reapplying an older workbook; executing a run now retires every other
+  checked one.
+
+Ten minor points are deferred, listed in the plan's ledger.
+
+**1177 tests passing, Pint clean, 92 API routes (four added); dashboard 289
+tests.** Every guard was mutated and seen to fail its test.
+
+### 2026-10-23 — the upload import: excluding rows, backend built
+
+[`EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`](EMPLOYEE_IMPORT_UPLOAD_DESIGN.md) §12,
+agreed with the project owner the same day; plan Part 2, Tasks 13–16. Not
+committed.
+
+**Decided:** HR may **leave rows out** of an import on the review screen —
+not edit them, so the workbook stays the source (U7); for **this upload only**
+(U8); and the dry run is **re-checked** with them left out, so the real run
+still imports exactly what was reviewed (U9).
+
+**Built** (API_DOCUMENTATION §18.5): `PUT /api/hr/employee-imports/{run}/exclusions`
+(the whole list each time, under the import lock); the importer's outcome
+`excluded` «مستبعد» — nothing written, the person still counted as present in
+the file, and the row out of the national-ID and Sham Cash checks;
+`importable_rows` and `excluded_rows` on the run (a new migration, applied to
+the development database); the real run reads the saved list; the audit event
+`employees_import_excluded`, and the excluded rows on `…_executed`.
+
+**Then the screen** (Tasks 17–18): a checkbox per importable row in السطور,
+«تطبيق الاستبعاد», «تراجع», and «استيراد فعلي» disabled while the ticks differ
+from the saved list — checked in the browser on the development API with the
+October files (no real import there).
+
+**Found during that check and fixed (a Part 1 defect):** a workbook refused for
+missing columns stayed **locked on Windows** — openspout closes a sheet only at
+its end — so the upload's cleanup could not delete the stored copy, and nothing
+would ever expire it. The reader now reads the sheet to its end before
+refusing. Two orphaned copies from refused uploads on 2026-10-23 02:43 remain
+in `storage/app/private/hr-import/runs/` on the development machine.
+
+**Final review:** no critical or important finding; seven minor ones — then,
+at the project owner's request (2026-10-23/24), six of them fixed test-first:
+the checkboxes are disabled while a re-check runs; the list is capped at 5000
+rows; the real run may carry the list the screen showed and refuses another
+(«تغيّرت قائمة المستبعدين…»); any failure while reading a sheet releases the
+file, and a corrupt sheet is an Arabic refusal, not a server error; the hourly
+sweep runs under the import lock and skips an hour while an import runs; and
+which rows may be excluded is judged on a fresh dry run at each re-check. The
+seventh was wording in the spec. The ten minors of the first review stay
+deferred (plan ledger).
+
+**And the first review's ten minors** (2026-10-24, at the project owner's
+request, test-first): two were already done (the sweep's lock; the unused test
+property). The rest: the sweep runs every five minutes; the real run checks
+the stored files' hashes; both uploads are stored inside the cleanup, and the
+report and passwords files are built in the private `hr-import/tmp` folder;
+the run carries `seconds_left` and the screen counts down from the server's
+clock; Arabic counts agree («دقيقتين»، «5 دقائق»، «3 موظفين»); the screen
+follows the address (Back or the menu link returns to choosing files), asks
+before leaving a run whose passwords file is still in memory, and says why a
+run in the address cannot be found; the shared confirmation dialog renders its
+title as plain text; one helper saves a file for both downloads.
+
+**1212 tests passing, Pint clean, 93 API routes (one added); dashboard 309
+tests.**
+
+### 2026-10-24 — the Kobo id is the employee number
+
+**The number a person signs in with is their Kobo id** (project owner,
+2026-10-24; [`KOBO_EMPLOYEE_NUMBER_DESIGN.md`](KOBO_EMPLOYEE_NUMBER_DESIGN.md)).
+The `EMP-00001` generator is gone. K1: every employee has one — required when
+HR adds someone by hand, and an import row without one stays skipped. K2: it
+never changes — the model refuses a new number on any write, beneath every
+writer; a wrong one means deleting the employee and adding them again, and
+deleting frees the number (`<number>-deleted-<id>`; a restore takes it back if
+still free). K3: the
+import still matches people through `employee_import_sources` (`kobo:<id>`)
+and writes the same id into `employee_number` when it creates someone; an
+employee already holding that number is adopted only when live, unknown to the
+import and under the row's name (compared folded) — otherwise the row is
+refused, never merged (project owner, after the final review).
+
+Digits only, no leading zero, at most 20 (`582974643`) — one pattern for the
+API, the model and the import, which refuses an ID_Sarah cell that is not
+already one clean number rather than stripping it into one. Rows numbered before
+the rule stay editable; `php artisan hr:renumber-from-kobo` (`--dry-run` first)
+moves imported people onto their Kobo id and ends their sessions, since their
+login changed; it names everyone it skips or the model refuses, and its dry
+run makes the same writes and rolls them back. The dev dry run reads «Renumbered
+185, already numbered 0, skipped 0, refused 0, deleted 0»; deleted people are
+left alone; the real run waits for the
+project owner.
+
+Assumed at review: no real employee is on a production server yet, so nobody
+loses an `EMP-…` login they use; the development seeders invent Kobo ids
+(`9` + eight digits) for their test staff.
+
+The dashboard asks for «رقم كوبو (الرقم الوظيفي)» on create, shows it
+read-only on edit and never sends it there; the sign-in placeholder reads
+`582974643 / name@example.com`.
+
+**1243 tests passing, Pint clean, no route added; dashboard 313 tests.**
+
+### 2026-10-24 — an employee added by hand gets their account
+
+**`POST /api/hr/employees` creates the account too** (project owner, 2026-10-24;
+[`EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md`](EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md)).
+The import already gave every person it created an account; adding someone by
+hand did not, against «كل موظف له حساب دخول». Now the employee and the account
+are made in one transaction — no email, no role, `must_change_password` — and
+the `201` carries `account: {user_id, login, temporary_password}` beside
+`data`, the only time the password is ever shown. The dashboard shows it once,
+with copy buttons, until «تم». One generator for both paths
+(`TemporaryPassword`). Decided at review (project owner): someone created as
+منتهي الخدمة gets a disabled account and no password; someone created as موقوف
+gets an enabled account and a password (sign-in is refused while suspended);
+the message is «تم إنشاء الموظف وحساب دخوله.».
+
+**1248 tests passing, Pint clean, no route added; dashboard 316 tests.**
+
+### 2026-10-24 — the import reads one file
+
+**HR merges the صرح columns into their own file** (project owner, 2026-10-24),
+and the import no longer reads or accepts the صرح export. The seven columns it
+took from صرح — the three name parts, mother's name, national ID, sons and
+daughters — are now **required** columns of `قاعدة البيانات`, **under their صرح
+headers**, so HR copies them across as they are (`WORKBOOK_COLUMN_MAP.md`). A
+blank one never erases what an earlier run stored; a blank first name falls
+back to splitting the full name, reported. The birth date is `مواليد_دقيقة`. The
+upload API refuses `sarh` with «ملف صرح لم يعد مستخدماً — ادمج بياناته في ملف
+الموارد البشرية.», the screen takes one file, `hr:import-employees` has no
+`--sarh`, and the runs table drops its `sarh_*` columns (no run still held a صرح
+file when it ran on the development database).
+
+**1249 tests passing, Pint clean.**

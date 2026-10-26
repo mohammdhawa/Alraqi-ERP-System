@@ -198,8 +198,18 @@ class DevDepartmentSeeder extends Seeder
             $displayName = implode(' ', [$person['first'], $person['middle'], $person['last']]);
             $email       = $this->emailFor($displayName);
 
-            $employee = Employee::query()->updateOrCreate(
-                ['email' => $email],
+            $employee = Employee::query()->firstOrNew(['email' => $email]);
+
+            // Every employee has a Kobo id as their number (KOBO_EMPLOYEE_NUMBER
+            // _DESIGN.md K1), and it never changes (K2): an invented one, set
+            // only when the person is created — a re-seed leaves it, as it
+            // leaves an EMP-… number seeded before this rule. 9 + eight digits
+            // from the email: stable across runs, clear of HR's 5xxxxxxxx ids.
+            if (! $employee->exists) {
+                $employee->employee_number = '9'.str_pad((string) (crc32($email) % 100000000), 8, '0', STR_PAD_LEFT);
+            }
+
+            $employee->fill(
                 [
                     'first_name'    => $person['first'],
                     'middle_name'   => $person['middle'],
@@ -221,7 +231,7 @@ class DevDepartmentSeeder extends Seeder
                     'salary_mode'          => SalaryMode::Scale,
                     'status'               => EmployeeStatus::Active,
                 ],
-            );
+            )->save();
 
             $first ??= $employee;
         }

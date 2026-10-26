@@ -38,12 +38,27 @@ trait ApiRespond
      */
     use ApiErrors;
 
+    /**
+     * `$extra` (2026-10-24) carries what the request made beside `data` — the
+     * account and temporary password `POST /api/hr/employees` creates with the
+     * employee — inside this one envelope (C16), as `paginated()` does. It may
+     * not replace the envelope's own keys.
+     *
+     * @param  array<string, mixed>  $extra
+     */
     protected function success(
         mixed $data = null,
         string $message = 'تمت العملية بنجاح.',
         int $statusCode = Response::HTTP_OK,
         array $headers = [],
+        array $extra = [],
     ): JsonResponse {
+        $reserved = array_intersect(array_keys($extra), ['success', 'message', 'data', 'meta']);
+
+        if ($reserved !== []) {
+            throw new \InvalidArgumentException('success() extra may not replace the envelope key(s): '.implode(', ', $reserved));
+        }
+
         $response = [
             'success' => true,
             'message' => $message,
@@ -53,14 +68,16 @@ trait ApiRespond
             $response['data'] = $data;
         }
 
-        return response()->json($response, $statusCode, $headers);
+        return response()->json($response + $extra, $statusCode, $headers);
     }
 
+    /** @param  array<string, mixed>  $extra */
     protected function created(
         mixed $data = null,
         string $message = 'تم الإنشاء بنجاح.',
+        array $extra = [],
     ): JsonResponse {
-        return $this->success($data, $message, Response::HTTP_CREATED);
+        return $this->success($data, $message, Response::HTTP_CREATED, extra: $extra);
     }
 
     /**

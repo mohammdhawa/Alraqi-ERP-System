@@ -35,3 +35,8 @@ Schedule::command('attendance:auto-close')
 Schedule::command('attendance:purge-selfies')
     ->timezone($attendance->timezone())
     ->dailyAt('03:00');
+
+// The upload import's files and report, an hour after the upload
+// (EMPLOYEE_IMPORT_UPLOAD_DESIGN.md §4.6); the runs themselves are kept.
+// Every five minutes, so nothing outlives its hour by more than that (U5).
+Schedule::command('hr:expire-import-runs')->everyFiveMinutes();

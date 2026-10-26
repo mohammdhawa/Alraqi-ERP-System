@@ -52,6 +52,13 @@ final class AuditEventCatalogue
     public const GROUP_REQUEST = 'request';
 
     /**
+     * HR actions that touch many rows at once and belong to no one row — the
+     * upload import's check and real run (EMPLOYEE_IMPORT_UPLOAD_DESIGN.md
+     * §4.5). The rows the real run writes are audited by their own models.
+     */
+    public const GROUP_HR = 'hr';
+
+    /**
      * group => the event names in it. This is the WHOLE vocabulary the app
      * emits today — verified against every `logAction()` call site and the three
      * model events in HasAuditLog.
@@ -85,6 +92,11 @@ final class AuditEventCatalogue
         self::GROUP_REQUEST => [
             'api_request',
         ],
+        self::GROUP_HR => [
+            'employees_import_checked',
+            'employees_import_excluded',
+            'employees_import_executed',
+        ],
     ];
 
     /**
@@ -113,10 +125,13 @@ final class AuditEventCatalogue
         'role_assigned'                 => 'إسناد دور',
         'role_unassigned'               => 'إلغاء إسناد دور',
         'api_request'                   => 'طلب واجهة برمجية',
+        'employees_import_checked'      => 'فحص ملف استيراد الموظفين',
+        'employees_import_excluded'     => 'استبعاد سطور من استيراد الموظفين',
+        'employees_import_executed'     => 'استيراد الموظفين من ملف',
     ];
 
     /**
-     * The three group names, for the `event_group` filter's allow-list.
+     * The group names, for the `event_group` filter's allow-list.
      *
      * @return array<int, string>
      */

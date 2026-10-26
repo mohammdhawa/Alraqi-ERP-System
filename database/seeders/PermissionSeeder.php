@@ -46,6 +46,10 @@ class PermissionSeeder extends Seeder
         'hr'   => [
             'hr.employees.view', 'hr.employees.create', 'hr.employees.update', 'hr.employees.delete',
             'hr.employees.viewSalary', 'hr.employees.viewIdentity',
+            // The upload import (EMPLOYEE_IMPORT_UPLOAD_DESIGN.md §4.3):
+            // company-only, and its holder needs viewSalary and viewIdentity
+            // company-wide too (EmployeeImportRunPolicy).
+            'hr.employees.import',
             'hr.job_titles.view', 'hr.job_titles.create', 'hr.job_titles.update', 'hr.job_titles.delete',
             'hr.assignments.view', 'hr.assignments.create',
             'hr.warnings.view', 'hr.warnings.create', 'hr.warnings.update', 'hr.warnings.delete',
@@ -136,6 +140,7 @@ class PermissionSeeder extends Seeder
         'hr.employees.delete'       => 'حذف موظف',
         'hr.employees.viewSalary'   => 'عرض رواتب الموظفين',
         'hr.employees.viewIdentity' => 'عرض أرقام هوية الموظفين',
+        'hr.employees.import'       => 'استيراد الموظفين من ملف',
         'hr.job_titles.view'        => 'عرض المسميات الوظيفية',
         'hr.job_titles.create'      => 'إنشاء مسمى وظيفي',
         'hr.job_titles.update'      => 'تعديل مسمى وظيفي',

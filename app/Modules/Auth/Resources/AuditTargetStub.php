@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *   "auditable_type":  "employee",
  *   "auditable_label": "موظف",
  *   "auditable_id":    42,
- *   "auditable":       { "id": 42, "label": "أحمد خالد الحمصي (EMP-00042)" }
+ *   "auditable":       { "id": 42, "label": "أحمد خالد الحمصي (582974642)" }
  *
  * Built in the same spirit as HR's EmployeeStub — one place decides what an
  * embedded reference looks like, so two endpoints cannot disagree about it (P1).

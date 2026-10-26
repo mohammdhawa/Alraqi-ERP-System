@@ -6,20 +6,24 @@ namespace App\Modules\HR\Import;
 
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Services\UserService;
+use App\Modules\Auth\Support\TemporaryPassword;
 use App\Modules\HR\Enums\AssignmentReason;
+use App\Modules\HR\Enums\EmployeeStatus;
+use App\Modules\HR\Exceptions\ImportSourceConflictException;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Models\EmployeeAssignment;
 use App\Modules\HR\Models\EmployeeImportSource;
 use App\Modules\HR\Models\JobTitle;
 use App\Shared\Exceptions\DomainException;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
  * The Batch 3 employee importer (work order §4.4, EMPLOYEE_APP_REQUIREMENTS.md
- * §7.1 C). It takes rows already read from the workbook — header => value —
- * and the صرح records keyed by their `_id`, so it knows nothing about files.
+ * §7.1 C). It takes rows already read from HR's one file — header => value,
+ * the صرح columns merged in (2026-10-24) — so it knows nothing about files.
  *
  * WHAT IT GUARANTEES
  *
@@ -45,11 +49,6 @@ use Throwable;
  */
 final class EmployeeImporter
 {
-    /** Readable by someone typing it on a phone: no 0/O, 1/l/I. */
-    private const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
-
-    private const PASSWORD_LENGTH = 10;
-
     /** Columns unique across employees: a value someone else holds is dropped and reported. */
     private const UNIQUE_COLUMNS = [
         'national_id'       => 'الرقم الوطني',
@@ -59,6 +58,15 @@ final class EmployeeImporter
     /** @var array<string, int> key(name) => job title id, for this run */
     private array $titles = [];
 
+    private bool $dryRun = false;
+
+    /**
+     * One hash for every account a dry run makes: those accounts are rolled
+     * back, and bcrypt per account cost a 185-person dry run ~30 s (final
+     * review, 2026-10-22). A real run hashes each temporary password.
+     */
+    private ?string $dryRunHash = null;
+
     public function __construct(
         private readonly EmployeeRowMapper $mapper,
         private readonly UserService $users,
@@ -66,27 +74,29 @@ final class EmployeeImporter
 
     /**
      * @param  iterable<int, array<string, mixed>>  $rows  sheet row number => header => value
-     * @param  array<int|string, array<string, mixed>>  $sarhById  the صرح records by `_id`
+     * @param  array<int, int>  $excludedRows  sheet row numbers left out of this import (design §12)
      */
     public function run(
         iterable $rows,
-        array $sarhById,
         bool $dryRun = false,
         string $sourceFile = '',
         string $sourceSheet = 'قاعدة البيانات',
+        array $excludedRows = [],
     ): ImportReport {
         $report = new ImportReport($dryRun);
         $this->titles = [];
+        $this->dryRun = $dryRun;
+        $this->dryRunHash = null;
 
         if (! $dryRun) {
-            $this->importAll($rows, $sarhById, $report, $sourceFile, $sourceSheet);
+            $this->importAll($rows, $report, $sourceFile, $sourceSheet, $excludedRows);
 
             return $report;
         }
 
         DB::beginTransaction();
         try {
-            $this->importAll($rows, $sarhById, $report, $sourceFile, $sourceSheet);
+            $this->importAll($rows, $report, $sourceFile, $sourceSheet, $excludedRows);
         } finally {
             DB::rollBack();
         }
@@ -96,16 +106,17 @@ final class EmployeeImporter
 
     /**
      * @param  iterable<int, array<string, mixed>>  $rows
-     * @param  array<int|string, array<string, mixed>>  $sarhById
+     * @param  array<int, int>  $excludedRows
      */
-    private function importAll(iterable $rows, array $sarhById, ImportReport $report, string $sourceFile, string $sourceSheet): void
+    private function importAll(iterable $rows, ImportReport $report, string $sourceFile, string $sourceSheet, array $excludedRows): void
     {
+        $excluded = array_flip($excludedRows);
         $resolver = UnitResolver::fromDatabase();
         $seen = [];
 
         foreach ($rows as $rowNumber => $row) {
             $kobo = EmployeeRowMapper::koboId($row['ID_Sarah'] ?? null) ?? '';
-            $mapped = $this->mapper->map($row, $sarhById[$kobo] ?? null);
+            $mapped = $this->mapper->map($row);
             $issues = $mapped->issues;
 
             if ($mapped->sourceKey === null) {
@@ -122,8 +133,16 @@ final class EmployeeImporter
             }
             $seen[$mapped->sourceKey] = $rowNumber;
 
-            if ($sarhById !== [] && ! isset($sarhById[$kobo])) {
-                $issues[] = $this->issue('warning', null, 'لا يوجد سجل لهذا الموظف في ملف صرح — الرقم الوطني واسم الأم وعدد الأبناء غير متوفرة بعد.');
+            // Left out of this import by HR (design §12): nothing is written.
+            // Its key is already in $seen, so the not-in-file list still
+            // counts the person as present; and it never reaches the unique
+            // checks, so a later row keeps a number this one would hold.
+            if (isset($excluded[$rowNumber])) {
+                $report->addRow($rowNumber, $mapped->displayName, $mapped->sourceKey, 'excluded',
+                    EmployeeImportSource::employeeFor($mapped->sourceKey)?->employee_number,
+                    [$this->issue('info', null, 'استُبعد هذا السطر من الاستيراد في هذه المرة.')]);
+
+                continue;
             }
 
             $unit = $resolver->resolve(...$mapped->unit);
@@ -135,7 +154,7 @@ final class EmployeeImporter
                 // A closure with &$issues, not an arrow function: an arrow fn
                 // captures by value, and the warnings importOne() adds inside
                 // the transaction would be lost from the report.
-                [$outcome, $employee, $password] = DB::transaction(
+                [$outcome, $employee, $password, $changes] = DB::transaction(
                     function () use ($mapped, $unit, &$issues, $sourceFile, $sourceSheet, $rowNumber): array {
                         return $this->importOne($mapped, $unit->departmentId, $issues, $sourceFile, $sourceSheet, $rowNumber);
                     },
@@ -154,7 +173,70 @@ final class EmployeeImporter
             if ($password !== null) {
                 $report->addCredential((string) $employee->employee_number, $mapped->displayName, $password);
             }
+            if ($changes !== []) {
+                $report->addChanges($rowNumber, $mapped->displayName, $employee->employee_number, $changes);
+            }
             $report->addRow($rowNumber, $mapped->displayName, $mapped->sourceKey, $outcome, $employee->employee_number, $issues);
+        }
+
+        $this->reportNotInFile($report, array_keys($seen));
+    }
+
+    /**
+     * Everyone on the roll this file did not match (design §5.2) — not by
+     * outcome but by the Kobo keys the file holds, so a row that failed or was
+     * left alone still accounts for its person. Inside a dry run's transaction
+     * the people it would create are matched too. Reported only (U3).
+     *
+     * @param  array<int, string>  $keys  the source keys seen in the file
+     */
+    private function reportNotInFile(ImportReport $report, array $keys): void
+    {
+        $matched = EmployeeImportSource::query()->whereIn('source_key', $keys)->select('employee_id');
+        $imported = array_flip(EmployeeImportSource::query()->pluck('employee_id')->all());
+
+        $missing = Employee::query()
+            ->where('status', '!=', EmployeeStatus::Terminated->value)
+            ->whereNotIn('id', $matched)
+            ->orderBy('employee_number')
+            ->get();
+
+        foreach ($missing as $employee) {
+            $report->addNotInFile(
+                (int) $employee->getKey(),
+                (string) $employee->employee_number,
+                (string) $employee->full_name,
+                EmployeeImportFields::display($employee, 'department_id', $employee->department_id),
+                isset($imported[$employee->getKey()]),
+            );
+        }
+    }
+
+    /**
+     * May this row adopt the hand-added employee holding its number? Only a
+     * live one the import does not know yet, with the row's name — compared
+     * folded (ArabicText::key), so أحمد and احمد are one name.
+     */
+    private function assertAdoptable(Employee $holder, MappedRow $mapped, string $number): void
+    {
+        if (EmployeeImportSource::query()->where('employee_id', $holder->getKey())->exists()) {
+            throw new ImportSourceConflictException("الرقم الوظيفي {$number} مسجّل لموظف مستورد من سطر آخر — لم يُستورد هذا السطر.");
+        }
+        if ($holder->trashed()) {
+            throw new ImportSourceConflictException("الرقم الوظيفي {$number} مسجّل لموظف محذوف (#{$holder->getKey()}) — لم يُستورد هذا السطر.");
+        }
+
+        $name = fn (array $parts): string => ArabicText::key(implode(' ', array_filter($parts)));
+        $theirs = $name([$holder->first_name, $holder->middle_name, $holder->last_name]);
+        $ours = $name([$mapped->attributes['first_name'] ?? null, $mapped->attributes['middle_name'] ?? null, $mapped->attributes['last_name'] ?? null]);
+        if ($theirs !== $ours) {
+            $shown = fn (array $parts): string => implode(' ', array_filter($parts));
+            throw new ImportSourceConflictException(sprintf(
+                'الرقم الوظيفي %s مسجّل للموظف «%s»، والاسم في الملف «%s» — لم يُستورد هذا السطر. صحّح الرقم أو الاسم ثم أعد الاستيراد.',
+                $number,
+                $shown([$holder->first_name, $holder->middle_name, $holder->last_name]),
+                $shown([$mapped->attributes['first_name'] ?? null, $mapped->attributes['middle_name'] ?? null, $mapped->attributes['last_name'] ?? null]),
+            ));
         }
     }
 
@@ -162,22 +244,65 @@ final class EmployeeImporter
      * One row, inside its own transaction.
      *
      * @param  array<int, array{severity: string, field: ?string, message: string}>  $issues  appended to
-     * @return array{0: string, 1: Employee, 2: ?string} outcome, employee, temporary password or null
+     * @return array{0: string, 1: Employee, 2: ?string, 3: array<int, array{field: string, label: string, old: ?string, new: ?string}>} outcome, employee, temporary password or null, what an update changed
      */
     private function importOne(MappedRow $mapped, ?int $departmentId, array &$issues, string $sourceFile, string $sourceSheet, int $rowNumber): array
     {
         $existing = EmployeeImportSource::employeeFor($mapped->sourceKey);
+        // The person's Kobo id, which is also their number
+        // (KOBO_EMPLOYEE_NUMBER_DESIGN.md §4).
+        $number = substr((string) $mapped->sourceKey, strlen('kobo:'));
+
+        // Someone HR added by hand holds this number already: adopt them —
+        // record the key, update them as an existing person — rather than
+        // create a duplicate. Only the same person, though (I1, 2026-10-24):
+        // adopting hands the row their record, history and account, so a
+        // holder the import knows under another key, a deleted one, or one
+        // under another name is refused for this row, never merged.
+        if ($existing === null) {
+            $holder = Employee::withTrashed()->where('employee_number', $number)->first();
+            if ($holder !== null) {
+                $this->assertAdoptable($holder, $mapped, $number);
+            }
+            $existing = $holder;
+        }
+
+        // R1 (2026-10-22): someone terminated or suspended in the ERP is left
+        // as they are. The mapper writes every row as نشط, so an update would
+        // bring them back to duty without the account their termination
+        // disabled — and leavers are ended by hand in the ERP (U3), while
+        // nobody acts on an employee who is not on duty (C-3). The row is still
+        // remembered, so the report does not also list them as missing.
+        if ($existing !== null && ! $existing->trashed() && ! $existing->isOnDuty()) {
+            $issues[] = $this->issue('warning', 'status', 'الموظف ليس على رأس عمله في النظام — لم يُحدَّث من الملف. إن عاد إلى العمل فأعِد حالته من شاشة الموظف.');
+            $this->rememberSource($mapped, $existing, $sourceFile, $sourceSheet, $rowNumber);
+
+            return ['skipped', $existing, null, []];
+        }
 
         $attributes = $mapped->attributes + [
             'department_id' => $departmentId,
             'job_title_id'  => $this->jobTitleId($mapped->currentTitle),
         ];
+        // A blank person cell is unknown, not "erase it" (project owner,
+        // 2026-10-24): for someone already here it is left out of the update.
+        if ($existing !== null) {
+            foreach (EmployeeRowMapper::KEPT_WHEN_BLANK as $kept) {
+                if (array_key_exists($kept, $attributes) && $attributes[$kept] === null) {
+                    unset($attributes[$kept]);
+                }
+            }
+        }
         $attributes = $this->dropTakenUniques($attributes, $existing?->getKey(), $issues);
 
+        $changes = [];
         if ($existing === null) {
-            $employee = Employee::create($attributes);
+            // It never changes, so only a create writes it.
+            $employee = Employee::create($attributes + ['employee_number' => $number]);
             $outcome = 'created';
         } else {
+            // Judged before the save: afterwards the old values are gone.
+            $changes = EmployeeImportFields::changes($existing, $attributes);
             $outcome = $existing->trashed() ? 'restored' : 'updated';
             if ($existing->trashed()) {
                 $existing->restore();
@@ -186,16 +311,24 @@ final class EmployeeImporter
             $employee = $existing;
         }
 
-        EmployeeImportSource::remember($mapped->sourceKey, $employee, [
+        $this->rememberSource($mapped, $employee, $sourceFile, $sourceSheet, $rowNumber);
+
+        $postingChanges = $this->recordOpeningPosting($employee, $mapped);
+        if ($existing !== null) {
+            $changes = [...$changes, ...$postingChanges];
+        }
+
+        return [$outcome, $employee, $this->ensureAccount($employee), $changes];
+    }
+
+    private function rememberSource(MappedRow $mapped, Employee $employee, string $sourceFile, string $sourceSheet, int $rowNumber): void
+    {
+        EmployeeImportSource::remember((string) $mapped->sourceKey, $employee, [
             'source_file'  => $sourceFile,
             'source_sheet' => $sourceSheet,
             'source_row'   => $rowNumber,
             'source_name'  => $mapped->displayName,
         ]);
-
-        $this->recordOpeningPosting($employee, $mapped);
-
-        return [$outcome, $employee, $this->ensureAccount($employee)];
     }
 
     /**
@@ -263,8 +396,11 @@ final class EmployeeImporter
     /**
      * The workbook's first workplace and first manager, as free text on the
      * opening تعيين posting (which the model hook wrote from hire_date).
+     * Returns what it changed, for the report's changes list.
+     *
+     * @return array<int, array{field: string, label: string, old: ?string, new: ?string}>
      */
-    private function recordOpeningPosting(Employee $employee, MappedRow $mapped): void
+    private function recordOpeningPosting(Employee $employee, MappedRow $mapped): array
     {
         $opening = $employee->assignments()
             ->reorder()
@@ -274,13 +410,16 @@ final class EmployeeImporter
             ->first();
 
         if (! $opening instanceof EmployeeAssignment) {
-            return;
+            return [];
         }
 
+        $changes = EmployeeImportFields::changes($opening, $mapped->openingPosting);
         $opening->fill($mapped->openingPosting);
         if ($opening->isDirty()) {
             $opening->save();
         }
+
+        return $changes;
     }
 
     /**
@@ -295,26 +434,18 @@ final class EmployeeImporter
             return null;
         }
 
-        $password = $this->temporaryPassword();
+        $password = TemporaryPassword::generate();
+        // The `hashed` cast stores an existing hash as it is.
+        $stored = $this->dryRun ? ($this->dryRunHash ??= Hash::make(Str::random(40))) : $password;
 
         if ($user === null) {
-            $this->users->create(['employee_id' => $employee->getKey(), 'password' => $password]);
+            $this->users->create(['employee_id' => $employee->getKey(), 'password' => $stored]);
 
             return $password;
         }
 
         $user->restore();
-        $this->users->update($user, ['password' => $password, 'is_active' => true]);
-
-        return $password;
-    }
-
-    private function temporaryPassword(): string
-    {
-        $password = '';
-        for ($i = 0; $i < self::PASSWORD_LENGTH; $i++) {
-            $password .= self::PASSWORD_ALPHABET[random_int(0, strlen(self::PASSWORD_ALPHABET) - 1)];
-        }
+        $this->users->update($user, ['password' => $stored, 'is_active' => true]);
 
         return $password;
     }
@@ -326,7 +457,13 @@ final class EmployeeImporter
             return 'رُفض السطر: '.$e->getMessage();
         }
 
-        return 'تعذّر استيراد السطر: '.($e instanceof RuntimeException || $e instanceof \LogicException ? $e->getMessage() : $e::class.' — '.$e->getMessage());
+        // Anything else is the server's failure, and its message may carry
+        // SQL, the schema, bound values or a class name — which the upload
+        // screen's report would hand to the client (C12, final review
+        // 2026-10-22). The detail goes to the log; the row says what happened.
+        report($e);
+
+        return 'تعذّر استيراد السطر بسبب خطأ في الخادم.';
     }
 
     /**

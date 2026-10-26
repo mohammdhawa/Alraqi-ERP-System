@@ -15,7 +15,7 @@ use Illuminate\Console\Command;
 /**
  * hr:import-employees — the Batch 3 employee import (work order §4.4).
  *
- * Reads `قاعدة البيانات` of HR's workbook and the صرح export, runs
+ * Reads `قاعدة البيانات` of HR's one file (the صرح columns merged in), runs
  * EmployeeImporter, and writes HR's report. Re-runnable: each run updates the
  * people the last one made (the kobo:<ID_Sarah> key).
  *
@@ -31,29 +31,21 @@ use Illuminate\Console\Command;
  */
 class ImportEmployees extends Command
 {
-    /** Row 1–2 are a banner; the headers are row 3 (docs/WORKBOOK_COLUMN_MAP.md). */
-    private const WORKBOOK_HEADER_ROW = 3;
-
-    private const SARH_HEADER_ROW = 1;
-
     protected $signature = 'hr:import-employees
                             {workbook : HR\'s workbook, e.g. Program_HR_10_2026.xlsx}
                             {--sheet=قاعدة البيانات : The sheet of active employees}
-                            {--sarh= : The صرح export (مستقبل صرح …xlsx) — national ID, mother\'s name, children}
-                            {--sarh-sheet=Sheet1 : The sheet of the صرح export}
                             {--dry-run : Import, report, and roll everything back}
                             {--report= : Where to write the report (default: storage/app/private/hr-import/)}
                             {--credentials= : Where to write the temporary passwords — required on a real run}
                             {--force : Do not ask before a real run}';
 
-    protected $description = 'Import active employees from HR\'s workbook and the صرح export, and report row by row.';
+    protected $description = 'Import active employees from HR\'s workbook, and report row by row.';
 
     public function handle(WorkbookReader $reader, EmployeeImporter $importer, ImportReportWriter $writer): int
     {
         $dryRun = (bool) $this->option('dry-run');
         $workbook = (string) $this->argument('workbook');
         $sheet = (string) $this->option('sheet');
-        $sarh = $this->option('sarh');
         $credentials = $this->option('credentials');
         $reportPath = $this->option('report') ?: $this->defaultReportPath($dryRun);
 
@@ -71,21 +63,16 @@ class ImportEmployees extends Command
             return self::FAILURE;
         }
 
+        // The reader's message names no file, so say which one it was reading.
         try {
-            $rows = $reader->rows($workbook, $sheet, self::WORKBOOK_HEADER_ROW, EmployeeRowMapper::WORKBOOK_COLUMNS);
-            $sarhById = $sarh === null ? [] : EmployeeRowMapper::sarhById(
-                $reader->rows((string) $sarh, (string) $this->option('sarh-sheet'), self::SARH_HEADER_ROW, EmployeeRowMapper::SARH_COLUMNS),
-            );
+            $rows = $reader->rows($workbook, $sheet, EmployeeRowMapper::WORKBOOK_HEADER_ROW, EmployeeRowMapper::WORKBOOK_COLUMNS);
         } catch (WorkbookException $e) {
-            $this->error($e->getMessage());
+            $this->error("{$workbook}: {$e->getMessage()}");
 
             return self::FAILURE;
         }
 
-        $this->line(sprintf('Read %d rows from «%s», %s.', count($rows), $sheet, $sarh === null ? 'no صرح file' : count($sarhById).' صرح records'));
-        if ($sarh === null) {
-            $this->warn('Without --sarh, national ID, mother\'s name and children are not imported.');
-        }
+        $this->line(sprintf('Read %d rows from «%s».', count($rows), $sheet));
 
         if (! $dryRun && ! $this->option('force')
             && ! $this->confirm('This writes employees and creates accounts for real. Did you review a dry run\'s report?')) {
@@ -94,11 +81,10 @@ class ImportEmployees extends Command
             return self::FAILURE;
         }
 
-        $report = $importer->run($rows, $sarhById, $dryRun, basename($workbook), $sheet);
+        $report = $importer->run($rows, $dryRun, basename($workbook), $sheet);
 
         $writer->writeReport($report, $reportPath, [
             'ملف الموارد'  => basename($workbook).' — '.$sheet,
-            'ملف صرح'      => $sarh === null ? 'لم يُقرأ' : basename((string) $sarh),
             'تاريخ التشغيل' => now()->format('Y-m-d H:i'),
         ]);
 

@@ -218,18 +218,22 @@ class EmployeeRequest extends FormRequest
         return [
             // ── Identity ──────────────────────────────────────────────────
             //
-            // Optional on create — the model generates one. A supplied value is
-            // respected and only checked for uniqueness (project owner,
-            // 2026-09-13), which is why `filled` rather than `nullable` guards
-            // the update: clearing it would violate a NOT NULL column.
-            //
             // NOTE: no ->whereNull('deleted_at') on any unique rule in this
             // file. The indexes count trashed rows, so the rules must too, or
             // validation passes and the insert then fails with a 500 where the
             // caller should have had a 422. That is C24 read in the correct
             // direction — the rule must match the index, not a convention.
-            'employee_number' => ['sometimes', $creating ? 'nullable' : 'filled', 'string', 'max:50',
-                Rule::unique('employees', 'employee_number')->ignore($id)],
+            // The number is the person's Kobo id (KOBO_EMPLOYEE_NUMBER_DESIGN.md
+            // §3): required at creation, digits with no leading zero — the
+            // import reads 582974643, so 0582974643 would be a second person —
+            // and never changed after. Re-sending the stored value is harmless.
+            'employee_number' => $creating
+                ? ['required', 'string', 'regex:'.Employee::NUMBER_PATTERN, Rule::unique('employees', 'employee_number')]
+                : ['sometimes', function (string $attribute, mixed $value, \Closure $fail): void {
+                    if ((string) $value !== (string) $this->subject()?->employee_number) {
+                        $fail('لا يمكن تغيير الرقم الوظيفي بعد إنشائه.');
+                    }
+                }],
             'national_id'     => ['sometimes', 'nullable', 'string', 'max:50',
                 Rule::unique('employees', 'national_id')->ignore($id)],
 
@@ -356,8 +360,9 @@ class EmployeeRequest extends FormRequest
             'gender.enum'          => 'الجنس المحدد غير معرّف.',
             'birth_date.before'    => 'تاريخ الميلاد يجب أن يكون في الماضي.',
 
-            'employee_number.unique'   => 'الرقم الوظيفي مستخدم بالفعل.',
-            'employee_number.filled'   => 'الرقم الوظيفي لا يمكن أن يكون فارغاً.',
+            'employee_number.required' => 'رقم كوبو مطلوب.',
+            'employee_number.regex'    => 'رقم كوبو يتكوّن من أرقام فقط.',
+            'employee_number.unique'   => 'رقم كوبو مستخدم لموظف آخر.',
             'national_id.unique'       => 'الرقم الوطني مستخدم بالفعل.',
 
             'marital_status.enum'      => 'الحالة الاجتماعية المحددة غير معرّفة.',

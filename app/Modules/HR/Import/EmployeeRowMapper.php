@@ -13,19 +13,22 @@ use App\Modules\HR\Enums\Gender;
 use App\Modules\HR\Enums\Governorate;
 use App\Modules\HR\Enums\MaritalStatus;
 use App\Modules\HR\Enums\SalaryMode;
+use App\Modules\HR\Models\Employee;
 use DateTimeInterface;
 
 /**
- * Maps one row of `Program_HR_10_2026.xlsx` → `قاعدة البيانات`, with its record
- * from the صرح export, to `employees` attributes and report issues.
+ * Maps one row of `Program_HR_10_2026.xlsx` → `قاعدة البيانات` to `employees`
+ * attributes and report issues. One file: HR merged the person columns of the
+ * صرح export into it (project owner, 2026-10-24), under their صرح headers.
  *
  * The column-by-column rules are docs/WORKBOOK_COLUMN_MAP.md; the decisions
  * behind them are work order §8 (2026-10-14). In short:
  *
- * - The key is `kobo:<ID_Sarah>` — the صرح record's `_id`, which never changes.
- * - From the صرح record, ONLY: the three name parts, mother's name, birth date,
+ * - The key is `kobo:<ID_Sarah>` — the person's Kobo id, which never changes.
+ * - Of the merged صرح columns, ONLY: the three name parts, mother's name,
  *   national ID and sons/daughters. Never religion, sect, criminal record or
- *   the ID-card scans — those columns are not read at all (SARH_COLUMNS).
+ *   the ID-card scans, should HR copy them in too — no column outside
+ *   WORKBOOK_COLUMNS is read at all.
  * - The importer REPORTS rather than absorbs: a value that cannot be read is
  *   left null and an issue says what was there. Nothing is guessed, except the
  *   one correction decided by the project owner — a 10-digit national ID gets
@@ -36,18 +39,23 @@ use DateTimeInterface;
  */
 final class EmployeeRowMapper
 {
-    /** The only صرح columns read. Anything else in that file is never touched. */
-    public const SARH_COLUMNS = [
-        '_id',
-        'الاسم الأول',
-        'اسم الاب',
-        'الكنية',
-        'اسم الام',
-        'تاريخ التولد',
-        'الرقم الوطني في الهوية',
-        'عدد الأبناء الذكور',
-        'عدد الأبناء الاناث',
-    ];
+    /**
+     * Attributes a blank cell must not erase (project owner, 2026-10-24): for
+     * someone already in the system, a blank or unreadable value here leaves
+     * what an earlier run stored, and the importer leaves it out of the update.
+     * Clearing one is done by hand on the employee screen. The children counts
+     * are kept the same way by being omitted when unknown (see map()).
+     */
+    public const KEPT_WHEN_BLANK = ['mother_name', 'national_id'];
+
+    /**
+     * Where the rows are: HR's workbook has a two-row banner, so its headers
+     * are row 3 (docs/WORKBOOK_COLUMN_MAP.md). One place, read by the command
+     * and the upload screen alike.
+     */
+    public const WORKBOOK_SHEET = 'قاعدة البيانات';
+
+    public const WORKBOOK_HEADER_ROW = 3;
 
     /**
      * The only workbook columns read — every header map() looks up, and
@@ -58,6 +66,14 @@ final class EmployeeRowMapper
     public const WORKBOOK_COLUMNS = [
         'ID_Sarah',
         'الإسم الثلاثي',
+        // Merged in from the صرح export, under its headers (2026-10-24).
+        'الاسم الأول',
+        'اسم الاب',
+        'الكنية',
+        'اسم الام',
+        'الرقم الوطني في الهوية',
+        'عدد الأبناء الذكور',
+        'عدد الأبناء الاناث',
         'اللقب',
         'الجنس',
         'المواليد',
@@ -100,28 +116,26 @@ final class EmployeeRowMapper
 
     /**
      * @param  array<string, mixed>  $row  header => value, from the workbook
-     * @param  array<string, mixed>|null  $sarh  header => value, from the صرح export
      */
-    public function map(array $row, ?array $sarh): MappedRow
+    public function map(array $row): MappedRow
     {
         $this->issues = [];
         $row = $this->readable(array_intersect_key($row, array_flip(self::WORKBOOK_COLUMNS)), 'ملف الموارد');
-        $sarh = $sarh === null ? null : $this->readable(array_intersect_key($sarh, array_flip(self::SARH_COLUMNS)), 'ملف صرح');
         $at = static fn (array $from, string $header): mixed => $from[$header] ?? null;
 
         $displayName = ArabicText::clean($at($row, 'الإسم الثلاثي')) ?? '';
 
         $attributes = [
-            ...$this->names($displayName, $sarh),
+            ...$this->names($displayName, $row),
             'nickname'         => ArabicText::clean($at($row, 'اللقب')),
-            'mother_name'      => $sarh === null ? null : ArabicText::clean($at($sarh, 'اسم الام')),
+            'mother_name'      => ArabicText::clean($at($row, 'اسم الام')),
             'gender'           => $this->label(Gender::class, $at($row, 'الجنس'), 'gender', 'الجنس'),
-            'birth_date'       => $this->birthDate($row, $sarh),
-            'national_id'      => $this->nationalId($sarh),
+            'birth_date'       => $this->birthDate($row),
+            'national_id'      => $this->nationalId($at($row, 'الرقم الوطني في الهوية')),
             'marital_status'   => $marital = $this->maritalStatus($at($row, 'الحالة الاجتماعية')),
             'wives_count'      => $this->wives($at($row, 'عدد الزوجات'), $marital),
-            'sons_count'       => $sarh === null ? null : $this->integer($at($sarh, 'عدد الأبناء الذكور')),
-            'daughters_count'  => $sarh === null ? null : $this->integer($at($sarh, 'عدد الأبناء الاناث')),
+            'sons_count'       => $this->integer($at($row, 'عدد الأبناء الذكور')),
+            'daughters_count'  => $this->integer($at($row, 'عدد الأبناء الاناث')),
             'phone'            => $this->phone($at($row, 'معرف / رقم  التواصل')),
             ...$this->residence($at($row, 'المحافظة')),
             'education_level'  => $this->education($at($row, 'المرحلة الدراسية')),
@@ -172,29 +186,17 @@ final class EmployeeRowMapper
     }
 
     /**
-     * The صرح records keyed by the digits of their `_id` — the value a
-     * workbook row's ID_Sarah is joined on — each cut to SARH_COLUMNS.
-     *
-     * @param  iterable<int, array<string, mixed>>  $records
-     * @return array<string, array<string, mixed>>
+     * An ID_Sarah cell as a Kobo id, or null when it holds none. The
+     * id becomes the person's number and login, so the cell must already be
+     * one clean number (Employee::NUMBER_PATTERN): it is never cleaned into
+     * one, which would turn «0582974643» or two ids run together into a
+     * different person's login.
      */
-    public static function sarhById(iterable $records): array
-    {
-        $byId = [];
-        foreach ($records as $record) {
-            $id = self::koboId($record['_id'] ?? null);
-            if ($id !== null) {
-                $byId[$id] = array_intersect_key($record, array_flip(self::SARH_COLUMNS));
-            }
-        }
-
-        return $byId;
-    }
-
-    /** The digits of an ID_Sarah or `_id` cell, or null when it has none. */
     public static function koboId(mixed $value): ?string
     {
-        return self::digits($value);
+        $text = self::idText($value);
+
+        return $text !== null && preg_match(Employee::NUMBER_PATTERN, $text) === 1 ? $text : null;
     }
 
     /**
@@ -222,7 +224,10 @@ final class EmployeeRowMapper
         $digits = self::koboId($kobo);
 
         if ($digits === null) {
-            $this->issue('error', null, 'لا يوجد رقم كوبو (ID_Sarah) — لا يُستورد الموظف حتى يُضاف.');
+            $text = self::idText($kobo);
+            $this->issue('error', null, $text === null
+                ? 'لا يوجد رقم كوبو (ID_Sarah) — لا يُستورد الموظف حتى يُضاف.'
+                : "رقم كوبو «{$text}» غير صالح: أرقام فقط، بلا صفر في أوله — لا يُستورد الموظف حتى يُصحَّح.");
 
             return null;
         }
@@ -231,19 +236,23 @@ final class EmployeeRowMapper
     }
 
     /**
-     * @param  array<string, mixed>|null  $sarh
+     * The three name columns; with no first name, the full name split — HR's
+     * merge left that row's صرح columns blank, and the report says so.
+     *
+     * @param  array<string, mixed>  $row
      * @return array{first_name: ?string, middle_name: ?string, last_name: ?string}
      */
-    private function names(string $fullName, ?array $sarh): array
+    private function names(string $fullName, array $row): array
     {
-        if ($sarh !== null && ArabicText::clean($sarh['الاسم الأول'] ?? null) !== null) {
+        if (ArabicText::clean($row['الاسم الأول'] ?? null) !== null) {
             return [
-                'first_name'  => ArabicText::clean($sarh['الاسم الأول']),
-                'middle_name' => ArabicText::clean($sarh['اسم الاب'] ?? null),
-                'last_name'   => ArabicText::clean($sarh['الكنية'] ?? null),
+                'first_name'  => ArabicText::clean($row['الاسم الأول']),
+                'middle_name' => ArabicText::clean($row['اسم الاب'] ?? null),
+                'last_name'   => ArabicText::clean($row['الكنية'] ?? null),
             ];
         }
 
+        $this->issue('warning', 'first_name', 'خانة «الاسم الأول» فارغة — أُخذ الاسم من «الإسم الثلاثي».');
         $words = $fullName === '' ? [] : explode(' ', $fullName);
 
         if (count($words) !== 3) {
@@ -259,11 +268,10 @@ final class EmployeeRowMapper
 
     /**
      * @param  array<string, mixed>  $row
-     * @param  array<string, mixed>|null  $sarh
      */
-    private function birthDate(array $row, ?array $sarh): ?string
+    private function birthDate(array $row): ?string
     {
-        $date = $this->date($sarh['تاريخ التولد'] ?? null) ?? $this->date($row['مواليد_دقيقة'] ?? null);
+        $date = $this->date($row['مواليد_دقيقة'] ?? null);
         $year = $this->integer($row['المواليد'] ?? null);
 
         if ($date !== null && $year !== null && (int) substr($date, 0, 4) !== $year) {
@@ -273,12 +281,9 @@ final class EmployeeRowMapper
         return $date;
     }
 
-    /**
-     * @param  array<string, mixed>|null  $sarh
-     */
-    private function nationalId(?array $sarh): ?string
+    private function nationalId(mixed $value): ?string
     {
-        $digits = $sarh === null ? null : self::digits($sarh['الرقم الوطني في الهوية'] ?? null);
+        $digits = self::digits($value);
 
         if ($digits === null) {
             return null;
@@ -539,6 +544,24 @@ final class EmployeeRowMapper
         $text = ArabicText::clean($value);
 
         return $text === '-' ? null : $text;
+    }
+
+    /**
+     * An id cell as text, or null when blank: a whole float loses its «.0»,
+     * and spaces and direction marks around it go. Nothing inside is touched.
+     */
+    private static function idText(mixed $value): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;   // blank, or a CellError
+        }
+        if (is_float($value) && floor($value) === $value) {
+            $value = number_format($value, 0, '', '');
+        }
+
+        $text = preg_replace('/^[\s\p{Z}\p{Cf}]+|[\s\p{Z}\p{Cf}]+$/u', '', (string) $value);
+
+        return $text === '' || $text === null ? null : $text;
     }
 
     /**
