@@ -7,6 +7,7 @@ use App\Modules\Attendance\Controllers\MyAttendanceController;
 use App\Modules\Leave\Controllers\LeaveBalanceController;
 use App\Modules\Leave\Controllers\MyLeaveController;
 use App\Modules\Me\Controllers\DeviceTokenController;
+use App\Modules\Me\Controllers\MyAttendanceDaysController;
 use App\Modules\Me\Controllers\MyPhotoController;
 use App\Modules\Me\Controllers\MyProfileController;
 use App\Modules\Me\Controllers\MySummaryController;
@@ -74,6 +75,12 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     Route::post('/attendance/sync', [MyAttendanceController::class, 'sync'])
         ->name('me.attendance.sync');
+
+    // The month calendar (app spec A10): §14.3's day grid for the caller's
+    // own employee, read through the same days() as /summary, so the
+    // day-state precedence is decided in one place.
+    Route::get('/attendance/days', [MyAttendanceDaysController::class, 'index'])
+        ->name('me.attendance.days');
 
     // The caller's own selfie — streamed, never a URL (Q11). The id is looked
     // up among the caller's own records only: a colleague's is a 404.

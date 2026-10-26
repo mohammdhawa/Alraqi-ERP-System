@@ -2027,6 +2027,7 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zi| GET       | `/api/me/profile`                            | bearer   | — (self-scoped, §17.1) |
 | 18zj| POST/GET  | `/api/me/photo`                              | bearer   | — (self-scoped, §17.2) |
 | 18zk| GET       | `/api/me/summary`                            | bearer   | — (self-scoped, §17.3) |
+| 18zl| GET       | `/api/me/attendance/days`                    | bearer   | — (self-scoped, §17.4) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2057,7 +2058,7 @@ routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t
 sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
 2026-10-20, from the parity audit — `GET /api/approvals` (§15.7) and
 `GET /api/leave/on-leave` (§16.9). The count below is the one from before
-them.
+them. ⚙️ **89** since 2026-10-26: `GET /api/me/attendance/days` (18zl, §17.4).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2092,7 +2093,8 @@ above, both reads: there is no third, because the table is append-only.
 ⚙️ **New 2026-10-16** (work order §4.5, slice 1). The employee's own
 attendance, ported from legacy's `/api/attendance/record`, `/sync` and
 `/my-records` with legacy's rules and Arabic messages. Build notes:
-[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md).
+[`ATTENDANCE_BUILD.md`](ATTENDANCE_BUILD.md). The employee's month of day
+states, for the app's calendar, is §17.4 (2026-10-26).
 
 **Who may call them:** any authenticated account **linked to an employee**. No
 permission — the routes are self-scoped and always act on the caller's own
@@ -3164,6 +3166,7 @@ Rows are the leave request of §16.3. Beside `meta`: `date` and `working_day`.
 
 ⚙️ **New 2026-10-19** (work order §4.8; requirements §6). The rest of the
 employee app's self-service surface: who I am, my photo, and the home screen.
+⚙️ 2026-10-26: and my days, the month calendar (§17.4).
 
 **Who may call them:** any authenticated account **linked to an employee**. No
 permission — the routes are self-scoped and always act on the caller's own
@@ -3259,192 +3262,3 @@ One object of **cards, each `null` until its module can answer** (requirements
 - `approvals.pending_count` — the steps waiting on me now (`GET
   /api/me/approvals`, §15.2).
 - `leave_requests.pending_count` — my own leave still in the chain.
-
-## 18. HR — employee import by upload
-
-⚙️ **New 2026-10-22** ([`EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`](EMPLOYEE_IMPORT_UPLOAD_DESIGN.md)).
-HR's one file, uploaded from the dashboard: a dry run first, then — once,
-within an hour — the real import of exactly the file the dry run read. ⚙️ **One
-file since 2026-10-24:** HR merges the صرح columns into it under their صرح
-headers (`WORKBOOK_COLUMN_MAP.md`); the صرح export is no longer uploaded. The importer is the one `hr:import-employees` runs. **The workbook is the
-source:** each upload brings the people it imported in line with it, and an ERP
-edit to an imported field is overwritten (the dry run's `changes` shows each one
-first).
-
-**Who may call them:** `hr.employees.import` **and** `hr.employees.viewSalary`
-**and** `hr.employees.viewIdentity`, all three from a **company-wide** grant.
-Without the import permission: **403** «ليس لديك الصلاحيات الكافية لتنفيذ هذا
-الإجراء.» Without either field permission company-wide: **403**
-«يتطلب الاستيراد صلاحيتَي عرض الرواتب وأرقام الهوية على مستوى الشركة.»
-**A run belongs to whoever uploaded it** — anyone else's is **404**.
-
-**One import at a time:** while a check or a real run is in progress, another
-gets **409** «يجري استيراد آخر الآن، حاول بعد قليل.»
-
-### 18.1 Upload and dry run
-
-```
-POST /api/hr/employee-imports     multipart/form-data
-```
-
-| Field | |
-|---|---|
-| `workbook` | required — HR's workbook, `.xlsx`, at most 20 MB. Read from sheet `قاعدة البيانات`, headers on row 3 |
-| `sarh` | ⚙️ **refused since 2026-10-24** — **422** `errors.sarh`: «ملف صرح لم يعد مستخدماً — ادمج بياناته في ملف الموارد البشرية.» |
-
-The workbook's sheet must hold the seven merged person columns — `الاسم الأول`,
-`اسم الاب`, `الكنية`, `اسم الام`, `الرقم الوطني في الهوية`, `عدد الأبناء الذكور`,
-`عدد الأبناء الاناث` — beside its own; a file missing one is refused like any
-missing column. A blank one never erases an existing person's stored value.
-
-A file the reader cannot use is **422** with the file named first, e.g.
-«ملف الموارد: لا توجد ورقة باسم «قاعدة البيانات». الأوراق الموجودة: Sheet1»;
-nothing is kept. **201** — the run:
-
-```json
-{
-  "success": true,
-  "message": "تم فحص الملف. راجع التقرير قبل الاستيراد.",
-  "data": {
-    "id": 7,
-    "status": 1,
-    "status_label": "تم الفحص",
-    "workbook_name": "Program_HR_10_2026.xlsx",
-    "checked_at": "2026-10-22T16:30:00+03:00",
-    "executed_at": null,
-    "expires_at": "2026-10-22T17:30:00+03:00",
-    "seconds_left": 3600,
-    "summary": { "created": 184, "updated": 0, "restored": 0, "skipped": 1, "failed": 0, "errors": 2, "warnings": 60, "info": 51 },
-    "report": {
-      "rows": [
-        { "row": 4, "name": "…", "key": "kobo:582974643", "outcome": "created", "employee_number": null,
-          "issues": [ { "severity": "warning", "field": "national_id", "message": "…" } ] }
-      ],
-      "changes": [
-        { "row": 9, "name": "…", "employee_number": "1042",
-          "fields": [ { "field": "phone", "label": "الهاتف", "old": "0944999888", "new": "0933111222" } ] }
-      ],
-      "not_in_file": [
-        { "employee_id": 31, "employee_number": "1007", "name": "…", "unit": "الإدارة الهندسية › قسم التخطيط والدراسات", "imported": true }
-      ]
-    }
-  }
-}
-```
-
-- `status`: `1` تم الفحص · `2` تم الاستيراد · `3` منتهي الصلاحية.
-- `outcome`: `created` · `updated` · `restored` · `skipped` · `failed`;
-  `severity`: `error` · `warning` · `info`. On a dry run a new person's
-  `employee_number` is `null`: the real run hands out the number.
-- `changes` lists, for someone already in the ERP, every field the run changes,
-  as display text (enum labels, the unit's path, the title's name).
-- `not_in_file` lists everyone on the roll (not terminated) the file did not
-  match — `imported: true` if an earlier import brought them, `false` if they
-  were added by hand. **Reported only:** a leaver is terminated in the employee
-  screen.
-- A terminated or suspended employee still in the workbook is left untouched:
-  `skipped`, with a warning.
-- `report` becomes `null` an hour after the upload (§18.3); `summary` stays.
-
-### 18.2 A run, and its report as a file
-
-```
-GET /api/hr/employee-imports/{id}
-GET /api/hr/employee-imports/{id}/report
-```
-
-The first returns the run exactly as §18.1 does — for a screen reloaded in the
-middle of a review. **It never carries passwords**, even for an executed run:
-they are in the real run's own response and nowhere else (§18.4).
-
-The second streams the report as the Arabic, right-to-left xlsx the command
-writes — sheets الملخص · السطور · التغييرات · غير موجودين في الملف — named
-`تقرير-استيراد-الموظفين-{id}.xlsx`. Once the report is purged (an hour after
-the upload): **422** «انتهت صلاحية هذا الفحص، ارفع الملف مرة أخرى.»
-
-### 18.3 Expiry
-
-A run lives **one hour** from its upload. Then the stored files are deleted and
-`report` becomes `null`; a run never imported reads `status: 3`. What stays of
-every run: who uploaded it, when, the file names and the counts (`summary`).
-A command every five minutes (`hr:expire-import-runs`) does it, never beside
-a running import: while one holds the lock, that sweep is skipped.
-`seconds_left` — by the server's clock, `0` once past or once the run is not
-checked — is what a client should count down from; `expires_at` read against
-a device's clock can be off.
-
-### 18.4 The real import
-
-```
-POST /api/hr/employee-imports/{id}/execute
-```
-
-Imports the files the dry run read, for real, and deletes them. **Slow by
-design:** one bcrypt hash per new account — about 34 s for the 184 people of
-the October files. Wait for it; do not retry. Executing a run also retires
-every other checked run (they were computed against the database before this
-import). The rows saved by §18.5 are left out — the saved list, exactly as the
-last re-check showed it. The body may carry that list, `{"excluded_rows": [9]}`
-— the dashboard always sends the one on screen — and another list than the
-saved one is refused, **422** «تغيّرت قائمة المستبعدين منذ عُرضت هذه الصفحة؛
-راجع الفحص ثم استورد.». **200**:
-
-```json
-{
-  "success": true,
-  "message": "تم الاستيراد. سلّم ملف كلمات المرور للموارد البشرية ثم احذفه.",
-  "data": {
-    "run": { "id": 7, "status": 2, "status_label": "تم الاستيراد", "executed_at": "…", "summary": { … }, "report": { … } },
-    "credentials": { "file_name": "كلمات-المرور-المؤقتة-2026-10-22-1645.xlsx", "content_base64": "UEsDBBQ…" }
-  }
-}
-```
-
-- `credentials` is an xlsx (الرقم الوظيفي · الاسم · كلمة المرور المؤقتة) for
-  every account the run created, base64-encoded — or `null` when it created
-  none. **This response is the only place the temporary passwords ever
-  appear:** not the run, not §18.2, not the trail, not the log. Save the file
-  at once; a lost one means resetting those people's passwords one by one.
-- A row that fails reads `failed` in the report; the other rows are imported.
-- Refusals: **422** «تم تنفيذ هذا الاستيراد من قبل.» (a run imports once) ·
-  **422** «انتهت صلاحية هذا الفحص، ارفع الملف مرة أخرى.» (past the hour) ·
-  **422** «تغيّر الملف المخزّن منذ الفحص؛ ارفع الملف مرة أخرى.» (a stored file
-  no longer matches the hash taken at the check) ·
-  **404** (not your run) · **409** (another import running).
-
-### 18.5 Leaving rows out of this import
-
-⚙️ **New 2026-10-23** (design §12).
-
-```
-PUT /api/hr/employee-imports/{id}/exclusions
-```
-
-```json
-{ "rows": [9, 17] }
-```
-
-Sheet row numbers — the `row` of §18.1's `report.rows`. The list **replaces**
-the saved one; `[]` clears it; a number given twice counts once. The dry run
-is **run again** on the stored files with those rows left out, so `summary`
-and `report` always show what the real run will do. **200** — the run as
-§18.1, with:
-
-| Key | |
-|---|---|
-| `importable_rows` | the rows a dry run with nothing excluded would import — the only ones that may be excluded. Set at the upload and **refreshed at each re-check** (the ERP may have changed since) |
-| `excluded_rows` | the rows left out now; `[]` when none |
-
-An excluded row reads outcome **`excluded`** («مستبعد»), with an `info` issue
-«استُبعد هذا السطر من الاستيراد في هذه المرة.». Nothing is written for it — a
-new person is not created and gets no account, an existing one keeps the ERP's
-values — and it still counts as present in the file, so the person is never
-listed in `not_in_file`. Exclusions are for **this upload only**: the next
-upload starts with none. The hour (§18.3) does not restart.
-
-Refusals, each before anything is saved: **422** «السطر 99 غير موجود في
-الملف.» · **422** «السطر 5 لا يمكن استبعاده: لن يُستورد أصلاً.» (not in
-`importable_rows`) · **422** validation (`rows` missing, not a list, not whole
-numbers) · **422** executed / expired, as §18.4 · **409** another import
-running · **404** not your run.
-
