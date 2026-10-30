@@ -42,6 +42,7 @@ class AttendanceService
         private readonly ApprovedLeave $leave,
         private readonly AttendeeResolver $attendees,
         private readonly SelfieStore $selfies,
+        private readonly AttendanceLocationReviewService $locationReviews,
     ) {}
 
     /**
@@ -111,7 +112,7 @@ class AttendanceService
 
                 $stored = $selfie === null ? null : $this->selfies->store($selfie, (int) $employee->getKey(), $moment);
 
-                return new RecordedAttendance(AttendanceRecord::create([
+                $record = AttendanceRecord::create([
                     'employee_id' => $employee->getKey(),
                     'type'        => $type,
                     'source'      => $source,
@@ -124,7 +125,18 @@ class AttendanceService
                     'longitude'   => $data['longitude'],
                     'selfie_path' => $stored,
                     'client_uuid' => $uuid,
-                ]), created: true);
+                ]);
+
+                if (config('attendance.location_review.enabled', false)) {
+                    $this->locationReviews->classify(
+                        $record,
+                        isset($data['location_accuracy_m']) ? (float) $data['location_accuracy_m'] : null,
+                        isset($data['location_fix_at']) ? $this->calendar->parse($data['location_fix_at']) : null,
+                        isset($data['location_is_mocked']) ? (bool) $data['location_is_mocked'] : null,
+                    );
+                }
+
+                return new RecordedAttendance($record, created: true);
             });
         } catch (UniqueConstraintViolationException $e) {
             // Two submissions of one client_uuid on different connections both

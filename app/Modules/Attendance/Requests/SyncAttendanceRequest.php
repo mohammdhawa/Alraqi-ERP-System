@@ -23,6 +23,28 @@ class SyncAttendanceRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $records = $this->input('records');
+        if (! is_array($records)) {
+            return;
+        }
+
+        foreach ($records as &$record) {
+            if (! is_array($record) || ! array_key_exists('location_is_mocked', $record)) {
+                continue;
+            }
+
+            $mocked = filter_var($record['location_is_mocked'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($mocked !== null) {
+                $record['location_is_mocked'] = $mocked;
+            }
+        }
+        unset($record);
+
+        $this->merge(['records' => $records]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -35,6 +57,9 @@ class SyncAttendanceRequest extends FormRequest
             'records.*.longitude'   => ['required', 'numeric', 'between:-180,180'],
             'records.*.recorded_at' => ['required', 'date'],
             'records.*.client_uuid' => ['sometimes', 'nullable', 'uuid'],
+            'records.*.location_accuracy_m' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:1000000'],
+            'records.*.location_fix_at' => ['sometimes', 'nullable', 'date'],
+            'records.*.location_is_mocked' => ['sometimes', 'nullable', 'boolean'],
             'selfies'               => ['sometimes', 'array'],
             'selfies.*'             => ['sometimes', 'nullable', 'image', 'max:10240'],
         ];

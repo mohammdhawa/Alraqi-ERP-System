@@ -106,3 +106,5 @@ Common status codes: `200` OK, `201` Created, `401` Unauthenticated, `403` Forbi
 | `email` / `password` | Login credentials. |
 | `accessToken` / `refreshToken` | Set automatically by the Login/Refresh test scripts. |
 | `roleId`, `userId`, `departmentId`, `employeeId`, `notificationId`, `workSiteId`, `workSiteAssignmentId` | Resource ids used in path-param requests; the create requests auto-store the new ids. |
+
+The **Attendance - Location Review** group shows direct and offline sync GPS-quality fields. Choose a local selfie file and update both timestamps before sending. Classification is off until `ATTENDANCE_LOCATION_REVIEW_ENABLED` is enabled after site assignments are configured.

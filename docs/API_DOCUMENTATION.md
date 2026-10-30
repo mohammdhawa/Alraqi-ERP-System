@@ -2413,6 +2413,61 @@ pagination metadata. No endpoint converts the employee's free-text `workplace`
 into a work site. A manager's location-review decision uses separate permissions
 and endpoints; managing sites alone does not authorize that decision.
 
+
+### 13.7 Employee location review on recorded events
+
+Classification is disabled by default (`ATTENDANCE_LOCATION_REVIEW_ENABLED=false`).
+Configure work sites and employee assignments first, then enable it. Events
+saved while disabled or before rollout receive `location_review: null`; they
+are not backfilled. HR-created checkout corrections also have no review.
+
+`POST /api/me/attendance` and each `records[]` item in
+`POST /api/me/attendance/sync` accept optional `location_accuracy_m` (metres,
+nonnegative), `location_fix_at` (the provider's timestamp with timezone), and
+`location_is_mocked` (boolean). The existing latitude, longitude, selfie,
+`recorded_at`, type and optional `client_uuid` fields remain. GPS quality never
+rejects an otherwise valid attendance event. A repeated `client_uuid` returns
+the saved event and its original review unchanged. Each sync entry succeeds or
+fails independently.
+
+The server resolves the assignment and site version at the event's
+`recorded_at` (not arrival time). It stores an immutable site/measurement
+snapshot. Reason precedence is `no_site`, `inactive_site`, `mock_location`,
+`fix_time_invalid`, `boundary_changed`, `low_accuracy`,
+`boundary_uncertain`, `outside`, `inside`. A missing, stale or too-far-ahead
+fix is `fix_time_invalid`; a fix spanning an assignment or site-version change
+is `boundary_changed`. A fix is confidently inside when distance + accuracy
+is within the radius; confidently outside when distance − accuracy exceeds
+the radius. Only `inside` starts `in_process`; all other reasons start
+`for_review`. Approval is a separate manager action (§13.8), never automatic.
+The defaults are 50 m maximum accuracy, 120 s maximum fix age and 5 s clock
+tolerance, configurable under `attendance.location_review`.
+
+The employee's own `/api/me/attendance` responses expose only:
+
+```json
+"location_review": {
+  "status": "for_review",
+  "reason": "outside",
+  "site": {"id": 3, "name": "Main plant"},
+  "distance_m": 216.4
+}
+```
+
+The oversight `/api/attendance/records` response adds `site.latitude`,
+`site.longitude`, `radius_m`, `accuracy_m`, `fix_at`, `is_mocked`,
+`approved_by`, `approved_at` and `note`. The last three are null until a
+manager approves. `site` and `distance_m` can be null when there was no
+effective site. The employee never receives reviewer identity, review note,
+or site coordinates.
+
+`/api/me/attendance/days` and `/api/attendance/report/employee` add
+`check_in_location_review` and `check_out_location_review` to each day, with
+the same employee and oversight shapes respectively. All non-refused records
+still count in daily and monthly reports regardless of review status. Existing
+refusal remains separate and is the only review decision that removes a record
+from totals.
+
 ---
 
 ## 14. Attendance — reports

@@ -29,7 +29,7 @@ final class AttendanceRecordQuery
      * hands it rows: the person (C31) and the accounts that corrected or
      * refused the row, with their employee for the name.
      */
-    public const RENDER_RELATIONS = ['employee', 'correctedBy.employee', 'rejectedBy.employee'];
+    public const RENDER_RELATIONS = ['employee', 'correctedBy.employee', 'rejectedBy.employee', 'locationReview.approvedBy.employee'];
 
     /**
      * Client sort key → column (C30). `date` is legacy's alias for the moment.

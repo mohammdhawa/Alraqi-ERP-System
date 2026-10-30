@@ -50,6 +50,8 @@ class AttendanceRecordResource extends JsonResource
             'longitude'            => $this->longitude,
             'has_selfie'           => $this->selfie_path !== null,
             'client_uuid'          => $this->client_uuid,
+            'location_review'     => $this->whenLoaded('locationReview',
+                fn (): ?array => LocationReviewView::from($this->locationReview, $request->is('api/me/*'))),
 
             'is_corrected'    => $this->corrected_at !== null,
             'corrected_at'    => $this->corrected_at?->toIso8601String(),
