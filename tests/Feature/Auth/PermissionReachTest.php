@@ -346,6 +346,8 @@ class PermissionReachTest extends TestCase
         sort($companyOnly);
 
         $this->assertSame([
+            // Work-site administration and visibility span the company.
+            'attendance.work_sites.manage', 'attendance.work_sites.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.create', 'auth.roles.delete', 'auth.roles.update',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',

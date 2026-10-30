@@ -77,6 +77,16 @@
 			"key": "notificationId",
 			"value": "1",
 			"type": "string"
+		},
+		{
+			"key": "workSiteId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "workSiteAssignmentId",
+			"value": "1",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -623,6 +633,19 @@
 					},
 					"response": []
 				}
+			]
+		},
+		{
+			"name": "Attendance - Work Sites",
+			"description": "Company-wide site and employee-assignment administration. Grant attendance.work_sites.view for lists and audit reads, attendance.work_sites.manage for writes. Times are Asia/Damascus and intervals are half-open.",
+			"item": [
+				{"name":"List Work Sites","request":{"method":"GET","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-sites?page=1&per_page=15","description":"Paginated sites with all effective-dated versions. Requires attendance.work_sites.view."},"response":[]},
+				{"name":"Create Work Site","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"name\":\"Main plant\",\"latitude\":33.5,\"longitude\":36.3,\"radius_m\":120}"},"url":"{{baseUrl}}/api/attendance/work-sites","description":"Creates a site and its first boundary at server time. Requires attendance.work_sites.manage. 422 for invalid coordinates or radius."},"event":[{"listen":"test","script":{"type":"text/javascript","exec":["if (pm.response.code === 201) pm.collectionVariables.set('workSiteId', pm.response.json().data.id);"]}}],"response":[]},
+				{"name":"Revise Work Site","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"radius_m\":150,\"effective_from\":\"2026-11-01T09:00:00+03:00\"}"},"url":"{{baseUrl}}/api/attendance/work-sites/{{workSiteId}}","description":"Creates a new effective-dated version. Change effective_from to now or a future time before sending; past times return 422."},"response":[]},
+				{"name":"Archive Work Site","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-sites/{{workSiteId}}/archive","description":"Archives at server time; 422 with employee names while current or future assignments remain."},"response":[]},
+				{"name":"List Work Site Assignments","request":{"method":"GET","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-site-assignments?employee_id={{employeeId}}","description":"Paginated employee assignments, optionally filtered by employee_id or work_site_id. Requires attendance.work_sites.view."},"response":[]},
+				{"name":"Assign Employee to Work Site","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"employee_id\":{{employeeId}},\"work_site_id\":{{workSiteId}}}"},"url":"{{baseUrl}}/api/attendance/work-site-assignments","description":"One employee per request. effective_from defaults to server time; overlaps and backdating return 422."},"event":[{"listen":"test","script":{"type":"text/javascript","exec":["if (pm.response.code === 201) pm.collectionVariables.set('workSiteAssignmentId', pm.response.json().data.id);"]}}],"response":[]},
+				{"name":"End Work Site Assignment","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"effective_to\":\"2026-11-01T09:00:00+03:00\"}"},"url":"{{baseUrl}}/api/attendance/work-site-assignments/{{workSiteAssignmentId}}","description":"Ends the assignment at now or a future time, preserving its history. Change effective_to before sending."},"response":[]}
 			]
 		}
 	]

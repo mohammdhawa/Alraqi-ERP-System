@@ -2000,6 +2000,8 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18h| GET        | `/api/attendance/records/{record}/selfie`    | bearer   | `attendance.records.view` |
 | 18i| PATCH      | `/api/attendance/records/{record}/checkout`  | bearer   | `attendance.records.correct` |
 | 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
+| 18ja| GET/POST/PATCH | `/api/attendance/work-sites` and `/{site}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
+| 18jb| GET/POST/PATCH | `/api/attendance/work-site-assignments` and `/{assignment}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
 | 18k| GET        | `/api/attendance/report`                     | bearer   | `attendance.records.view` (§14) |
 | 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
 | 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
@@ -2385,6 +2387,31 @@ No notification is sent (as legacy).
 **422:** «هذا السجل غير مرفوض.» · «لا يمكن التراجع عن الرفض: يوجد تسجيل حضور قائم
 لهذا اليوم بالفعل.» · «… يوجد تسجيل انصراف قائم لهذا اليوم بالفعل.» — the day
 was recorded again after the refusal, and restoring it would leave two.
+
+### 13.6 Work sites and employee assignments
+
+Work-site management is company-wide. `attendance.work_sites.view` permits the
+two paginated lists and reading their audit details; `attendance.work_sites.manage`
+permits writes. A scoped grant does not confer either permission. Administrators
+who need the management screen should hold both. Site geometry and assignment
+intervals are stored in the configured attendance timezone, with half-open
+boundaries (`effective_from <= event time < effective_to`). Existing historical
+versions are retained for offline attendance submitted later.
+
+| Method | Path | Body / result |
+|---|---|---|
+| GET | `/api/attendance/work-sites?page=1&per_page=15` | Paginated sites, each with `id`, `name`, `is_active`, `archived_at`, and ordered `versions` (`id`, `name`, `latitude`, `longitude`, `radius_m`, `effective_from`, `effective_to`). |
+| POST | `/api/attendance/work-sites` | Required: `name` (≤150), `latitude` (−90…90), `longitude` (−180…180), `radius_m` (>0 and ≤100000). Creates the first version at server time; returns **201** with the site. |
+| PATCH | `/api/attendance/work-sites/{site}` | Required: `effective_from` (date-time, now or future). Optional: `name`, `latitude`, `longitude`, `radius_m`. Closes the previous version at that instant and creates a new version. Cannot edit an archived site or backdate the boundary. |
+| PATCH | `/api/attendance/work-sites/{site}/archive` | No body. Archives at server time. **422** `errors.assignments` lists employees with current or future assignments; end those assignments first. An archived site can still classify an offline event recorded before archive time. |
+| GET | `/api/attendance/work-site-assignments?employee_id=7&work_site_id=3` | Paginated assignments, newest first. Either filter is optional. Each row includes employee/site ids and names, `effective_from`, and nullable `effective_to`. |
+| POST | `/api/attendance/work-site-assignments` | Required: `employee_id`, `work_site_id`; optional `effective_from` (defaults to server time, may be future). One employee per request. **422** `errors.effective_from` for overlap or backdating; **422** `errors.work_site_id` for an archived site. |
+| PATCH | `/api/attendance/work-site-assignments/{assignment}` | Required: `effective_to` (date-time, now or future, after start). Ends one assignment without deleting its history. |
+
+All responses use the normal `{success, message, data}` envelope and list
+pagination metadata. No endpoint converts the employee's free-text `workplace`
+into a work site. A manager's location-review decision uses separate permissions
+and endpoints; managing sites alone does not authorize that decision.
 
 ---
 
