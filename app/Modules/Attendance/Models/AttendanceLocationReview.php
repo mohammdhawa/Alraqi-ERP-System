@@ -7,11 +7,14 @@ namespace App\Modules\Attendance\Models;
 use App\Modules\Attendance\Enums\LocationReviewReason;
 use App\Modules\Attendance\Enums\LocationReviewStatus;
 use App\Modules\Auth\Models\User;
+use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AttendanceLocationReview extends Model
 {
+    use HasAuditLog;
+
     protected $fillable = [
         'attendance_record_id', 'work_site_id', 'work_site_version_id', 'assignment_id',
         'site_name', 'site_latitude', 'site_longitude', 'radius_m',

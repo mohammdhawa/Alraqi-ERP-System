@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Requests;
 
+use App\Modules\Attendance\Enums\LocationReviewStatus;
 use App\Modules\Attendance\Enums\RejectionReason;
 use App\Modules\Attendance\Services\AttendanceRecordQuery;
 use App\Shared\Support\CsvList;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * GET /api/attendance/records — legacy's AdminAttendanceRecordsRequest: every
@@ -45,11 +47,24 @@ class AttendanceRecordsRequest extends MyAttendanceRecordsRequest
             'department_ids.*' => ['integer', 'min:1'],
             'search'           => ['sometimes', 'nullable', 'string', 'max:100'],
             'rejection_reason' => ['sometimes', 'integer', Rule::enum(RejectionReason::class)],
+            'location_review_status' => ['sometimes', Rule::enum(LocationReviewStatus::class)],
+            'open_location_review' => ['sometimes', 'in:0,1,true,false'],
             'created_from'     => ['sometimes', 'date'],
             'created_to'       => ['sometimes', 'date', 'after_or_equal:created_from'],
             // Legacy sorts the oversight list by the person too.
             'sort'             => ['sometimes', 'string', Rule::in(AttendanceRecordQuery::sortKeys(oversight: true))],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        parent::withValidator($validator);
+        $validator->after(function (Validator $validator): void {
+            if (filter_var($this->input('open_location_review', false), FILTER_VALIDATE_BOOLEAN)
+                && $this->input('location_review_status') === LocationReviewStatus::Approved->value) {
+                $validator->errors()->add('location_review_status', 'لا يمكن جمع المراجعات المفتوحة مع الحالة المعتمدة.');
+            }
+        });
     }
 
     /**

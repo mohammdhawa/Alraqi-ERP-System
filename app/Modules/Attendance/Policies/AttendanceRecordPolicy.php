@@ -43,6 +43,11 @@ class AttendanceRecordPolicy
         return $this->ensure($user, $record, 'attendance.records.reject');
     }
 
+    public function approveLocation(User $user, AttendanceRecord $record): Response
+    {
+        return $this->ensure($user, $record, 'attendance.records.approveLocation');
+    }
+
     private function ensure(User $user, AttendanceRecord $record, string $permission): Response
     {
         $unit = $record->employee?->department_id;

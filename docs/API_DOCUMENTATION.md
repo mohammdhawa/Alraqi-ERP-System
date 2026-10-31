@@ -2002,6 +2002,8 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
 | 18ja| GET/POST/PATCH | `/api/attendance/work-sites` and `/{site}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
 | 18jb| GET/POST/PATCH | `/api/attendance/work-site-assignments` and `/{assignment}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
+| 18jc| PATCH | `/api/attendance/records/{record}/location-review/approve` | bearer | `attendance.records.approveLocation` and row scope (§13.8) |
+| 18jd| POST | `/api/attendance/records/location-review/approve` | bearer | `attendance.records.approveLocation`, each row scoped (§13.8) |
 | 18k| GET        | `/api/attendance/report`                     | bearer   | `attendance.records.view` (§14) |
 | 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
 | 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
@@ -2467,6 +2469,38 @@ the same employee and oversight shapes respectively. All non-refused records
 still count in daily and monthly reports regardless of review status. Existing
 refusal remains separate and is the only review decision that removes a record
 from totals.
+
+
+### 13.8 Manager location-review decisions and queue
+
+`attendance.records.approveLocation` is a separate row-scoped permission from
+`attendance.records.view` and `attendance.records.reject`. Approval never
+changes attendance counting and sends no employee notification. Existing
+refusal remains the only decision that removes an event from totals. A refusal
+preserves review evidence/status but excludes the event from the open queue.
+
+| Method | Path | Body / result |
+|---|---|---|
+| PATCH | `/api/attendance/records/{record}/location-review/approve` | Optional `note` (≤2000 characters). Requires approval permission and scope over this record. Changes `for_review` or `in_process` to `approved`, stamps actor/time/note and returns the oversight record. Repeating an approval is idempotent. A rejected or unassessed record returns 422. |
+| POST | `/api/attendance/records/location-review/approve` | Either `record_ids` (1–100 distinct ids) or `matching` (filter object), never both; optional `note`. Selected ids may include `for_review` or `in_process`. Matching approves at most 200 **in_process** non-rejected records in the caller's approval scope, ignoring any supplied review-status/open flag. One short employee-row transaction and one audit update per approved record. |
+
+Bulk returns `data: {approved: [ids], skipped: [{id, reason}], remaining:
+integer|null}`. `remaining` is the number of in-process records still matching
+after a filter run, and null for selected ids. Skip reasons include
+`out_of_scope`, `rejected`, `already_approved`, `not_assessed`, and
+`not_found`. A matching run never includes `for_review` by filter; managers
+may select those records explicitly or approve them singly. Approval requires
+its own row scope even if the manager can view a broader set of records.
+
+`GET /api/attendance/records` accepts `location_review_status` =
+`for_review`, `in_process`, or `approved`; this filter can include rejected
+history. `open_location_review=1` returns non-rejected `for_review` and
+`in_process` events across **all dates** unless an explicit date/range/month
+filter is supplied. Ordinary record lists continue to default to today.
+Combining `open_location_review=1` with `location_review_status=approved`
+returns 422. All list filters and pagination still obey the caller's existing
+`attendance.records.view` scope. The open queue is a view, not an automatic
+approval or refusal.
 
 ---
 

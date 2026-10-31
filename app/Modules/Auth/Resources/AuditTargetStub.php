@@ -71,6 +71,7 @@ final class AuditTargetStub
         'role'                => 'دور',
         'permission'          => 'صلاحية',
         'attendance_record'   => 'سجل حضور',
+        'attendance_location_review' => 'مراجعة موقع حضور',
         'work_site' => 'موقع عمل',
         'work_site_version' => 'نسخة موقع عمل',
         'employee_work_site_assignment' => 'تعيين موقع عمل',

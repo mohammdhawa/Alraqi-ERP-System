@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Services;
 
+use App\Modules\Attendance\Enums\LocationReviewStatus;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
@@ -94,11 +95,40 @@ final class AttendanceRecordQuery
         }
 
         $this->applyPeople($query, $filters);
+        $this->applyReviewFilters($query, $filters);
         $this->applyFilters($query, $filters);
         $this->applyDates($query, $filters);
         $this->applySort($query, $filters['sort'] ?? null);
 
         return $query->paginate($perPage);
+    }
+
+    /** @param array<string, mixed> $filters  @return array<int, int> */
+    public function matchingApprovalIds(User $user, array $filters, int $limit): array
+    {
+        return $this->approvalMatchingQuery($user, $filters)->orderBy('id')->limit($limit)->pluck('id')->map(fn ($id): int => (int) $id)->all();
+    }
+
+    /** @param array<string, mixed> $filters */
+    public function matchingApprovalCount(User $user, array $filters): int
+    {
+        return $this->approvalMatchingQuery($user, $filters)->count();
+    }
+
+    /** @param array<string, mixed> $filters  @return Builder<AttendanceRecord> */
+    private function approvalMatchingQuery(User $user, array $filters): Builder
+    {
+        $query = AttendanceRecord::query()->accepted()
+            ->whereHas('locationReview', fn (Builder $q) => $q->where('status', LocationReviewStatus::InProcess->value));
+        $scope = RequestRowScopes::forUser($user, 'attendance.records.approveLocation');
+        if (! $scope->isUnrestricted()) {
+            $query->whereIn('employee_id', $scope->applyTo(Employee::withTrashed()->select('id')));
+        }
+        $this->applyPeople($query, $filters);
+        $this->applyFilters($query, $filters);
+        $this->applyDates($query, [...$filters, 'open_location_review' => true]);
+
+        return $query;
     }
 
     /**
@@ -124,6 +154,19 @@ final class AttendanceRecordQuery
         }
         if (isset($filters['created_to'])) {
             $query->whereDate('created_at', '<=', (string) $filters['created_to']);
+        }
+    }
+
+    /** @param Builder<AttendanceRecord> $query  @param array<string, mixed> $filters */
+    private function applyReviewFilters(Builder $query, array $filters): void
+    {
+        if (isset($filters['location_review_status'])) {
+            $query->whereHas('locationReview', fn (Builder $q) => $q->where('status', $filters['location_review_status']));
+        }
+        if (filter_var($filters['open_location_review'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $query->accepted()->whereHas('locationReview', fn (Builder $q) => $q->whereIn('status', [
+                LocationReviewStatus::ForReview->value, LocationReviewStatus::InProcess->value,
+            ]));
         }
     }
 
@@ -162,7 +205,7 @@ final class AttendanceRecordQuery
             $query->inMonth((int) $filters['month'], (int) ($filters['year'] ?? Carbon::now($this->calendar->timezone())->year));
         } elseif (isset($filters['year'])) {
             $query->inYear((int) $filters['year']);
-        } else {
+        } elseif (! filter_var($filters['open_location_review'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
             $query->onDate($this->calendar->today());
         }
     }
