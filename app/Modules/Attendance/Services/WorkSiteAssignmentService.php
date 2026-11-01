@@ -14,6 +14,20 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Work sites, their effective-dated boundaries, and which site each employee
+ * is assigned to (design spec, 2026-10-29 work-site attendance review).
+ *
+ * HALF-OPEN AND NEVER BACKDATED. A version or assignment covers
+ * `effective_from <= t < effective_to`, in the attendance timezone like
+ * `recorded_at`. A change may start now or later, never earlier: an offline
+ * event not yet synced must still be judged by the boundary it was recorded
+ * under.
+ *
+ * THE LOCKS. An assignment write locks the employee row and a site write locks
+ * the site row, so two concurrent writes cannot both pass the overlap check.
+ * An archive is refused while anyone is still assigned, now or later.
+ */
 final class WorkSiteAssignmentService
 {
     public function __construct(private readonly AttendanceCalendar $calendar) {}

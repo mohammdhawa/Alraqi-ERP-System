@@ -2482,7 +2482,7 @@ preserves review evidence/status but excludes the event from the open queue.
 | Method | Path | Body / result |
 |---|---|---|
 | PATCH | `/api/attendance/records/{record}/location-review/approve` | Optional `note` (≤2000 characters). Requires approval permission and scope over this record. Changes `for_review` or `in_process` to `approved`, stamps actor/time/note and returns the oversight record. Repeating an approval is idempotent. A rejected or unassessed record returns 422. |
-| POST | `/api/attendance/records/location-review/approve` | Either `record_ids` (1–100 distinct ids) or `matching` (filter object), never both; optional `note`. Selected ids may include `for_review` or `in_process`. Matching approves at most 200 **in_process** non-rejected records in the caller's approval scope, ignoring any supplied review-status/open flag. One short employee-row transaction and one audit update per approved record. |
+| POST | `/api/attendance/records/location-review/approve` | Either `record_ids` (1–100 distinct ids) or `matching` (filter object), never both; optional `note`. Selected ids may include `for_review` or `in_process`. Matching approves at most 200 **in_process** non-rejected records in the caller's approval scope, across dates unless a date filter is given (`open_location_review` is ignored). `matching.location_review_status`, if sent, must be `in_process`; any other value is a 422, so a screen filtered to another status cannot approve rows it is not showing. One short employee-row transaction and one audit update per approved record. |
 
 Bulk returns `data: {approved: [ids], skipped: [{id, reason}], remaining:
 integer|null}`. `remaining` is the number of in-process records still matching

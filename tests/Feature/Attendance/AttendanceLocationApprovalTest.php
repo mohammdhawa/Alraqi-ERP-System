@@ -141,6 +141,20 @@ class AttendanceLocationApprovalTest extends TestCase
         $this->assertSame(LocationReviewStatus::Approved, $a1->fresh()->status);
     }
 
+    public function test_matching_bulk_refuses_a_status_other_than_in_process(): void
+    {
+        $flagged = $this->review($this->checkIn($this->people['a']), LocationReviewStatus::ForReview);
+        $this->actingAsAdmin();
+
+        foreach (['for_review', 'approved'] as $status) {
+            $this->postJson('/api/attendance/records/location-review/approve', ['matching' => ['location_review_status' => $status]])
+                ->assertUnprocessable()->assertJsonValidationErrors('matching.location_review_status');
+        }
+        $this->postJson('/api/attendance/records/location-review/approve', ['matching' => ['location_review_status' => 'in_process']])
+            ->assertOk();
+        $this->assertSame(LocationReviewStatus::ForReview, $flagged->fresh()->status);
+    }
+
     public function test_bulk_selection_limit_is_enforced(): void
     {
         $this->actingAsAdmin();

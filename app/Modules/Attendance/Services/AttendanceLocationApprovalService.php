@@ -13,6 +13,16 @@ use App\Modules\HR\Models\Employee;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
+/**
+ * A manager approving location reviews, one at a time or in bulk.
+ *
+ * Every record is approved in its own short transaction under the employee
+ * lock that recording and refusal take, after its own scope check. So a bulk
+ * run holds no more than one employee lock at a time, an out-of-scope or
+ * refused row is skipped without failing the rest, and a refusal that commits
+ * first always wins. Approval changes only the review; the event's counting is
+ * untouched.
+ */
 final class AttendanceLocationApprovalService
 {
     public function __construct(

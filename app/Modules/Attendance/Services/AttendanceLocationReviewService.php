@@ -11,6 +11,21 @@ use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use Carbon\CarbonInterface;
 
+/**
+ * The location review of one employee-recorded event (design spec,
+ * 2026-10-29 work-site attendance review).
+ *
+ * The event is compared with the site assigned at its own `recorded_at`, so an
+ * offline event synced after a reassignment is judged by the boundary it was
+ * recorded under. The site is copied onto the review row: later site edits
+ * never change an old review.
+ *
+ * ONE REASON, BY PRECEDENCE: no site, inactive site, mocked location, invalid
+ * fix time, boundary changed between fix and event, low accuracy, accuracy
+ * circle crossing the radius, outside, inside. Only `inside` is in process;
+ * everything else is for review. Nothing here refuses or stops counting an
+ * event — refusal stays HR's separate decision.
+ */
 final class AttendanceLocationReviewService
 {
     public function __construct(
