@@ -18,6 +18,17 @@ return new class extends Migration
                 'work_site_version',
                 'work_site',
             ])->delete();
+
+            // The audit middleware records endpoint calls without an auditable type.
+            DB::table('audit_logs')
+                ->where('event', 'api_request')
+                ->where(function ($query): void {
+                    $query->where('description', 'like', '% api/attendance/work-sites%')
+                        ->orWhere('description', 'like', '% api/attendance/work-site-assignments%')
+                        ->orWhere('description', 'like', '% api/attendance/records/location-review/approve%')
+                        ->orWhere('description', 'like', '% api/attendance/records/%/location-review/approve%');
+                })
+                ->delete();
         }
 
         Schema::dropIfExists('attendance_location_reviews');
