@@ -152,22 +152,31 @@ class AttendanceReportService
      * decision refused. A check-out refused on its own is not listed: its
      * check-in still stands, so the person is present.
      *
+     * The row is the day's first refusal; `rejection.refused_check_ins` says
+     * how many there were, since every attempt after it is only in the
+     * records list.
+     *
      * @param  array<int, int>  $employeeIds  those not already explained by an accepted check-in or leave
      * @return array<int, array<string, mixed>>
      */
     private function rejectedRows(string $date, array $employeeIds): array
     {
-        $ins = $this->events($employeeIds)->checkIns()->rejected()->onDate($date)
-            ->orderBy('recorded_at')->orderBy('id')->get()->groupBy('employee_id')->map->first();
+        $days = $this->events($employeeIds)->checkIns()->rejected()->onDate($date)
+            ->orderBy('recorded_at')->orderBy('id')->get()->groupBy('employee_id');
 
         $outs = $this->events($employeeIds)->checkOuts()->rejected()->onDate($date)
             ->whereNotNull('rejection_batch')->get()->keyBy('rejection_batch');
 
-        return $ins->map(fn (AttendanceRecord $in): array => $this->row(
-            $in,
-            $in->rejection_batch === null ? null : $outs->get($in->rejection_batch),
-            AttendanceDayState::Rejected,
-        ))->values()->all();
+        return $days->map(function (Collection $day) use ($outs): array {
+            $in = $day->first();
+
+            return $this->row(
+                $in,
+                $in->rejection_batch === null ? null : $outs->get($in->rejection_batch),
+                AttendanceDayState::Rejected,
+                $day->count(),
+            );
+        })->values()->all();
     }
 
     // ── The monthly report ───────────────────────────────────────────────
@@ -449,7 +458,8 @@ class AttendanceReportService
             $working = $this->calendar->isWorkingDay($cursor);
             $in = $ins->get($date)?->first();
             $out = $outs->get($date)?->last();
-            $refusedIn = $refused->get($date)?->first();
+            $refusedDay = $refused->get($date);
+            $refusedIn = $refusedDay?->first();
             $span = $this->spanOn($spans, $id, $date);
             $dayHours = $out?->work_hours;
 
@@ -504,7 +514,7 @@ class AttendanceReportService
                 'leave_type'           => $span?->typeName,
                 // Shown whenever the day had a refused check-in, even when leave
                 // or a later check-in outranks it: the employee was told about it.
-                'rejection'            => $this->rejection($refusedIn),
+                'rejection'            => $this->rejection($refusedIn, $refusedDay?->count() ?? 0),
                 'correction'           => $this->correction($out),
                 'excuse'               => $dayState === AttendanceDayState::Excused ? $span?->details() : null,
             ];
@@ -600,9 +610,10 @@ class AttendanceReportService
     /**
      * One board row, keyed on the day's check-in.
      *
+     * @param  int  $refusedCheckIns  the day's refused check-ins; only a rejected row has any
      * @return array<string, mixed>
      */
-    private function row(AttendanceRecord $in, ?AttendanceRecord $out, AttendanceDayState $state): array
+    private function row(AttendanceRecord $in, ?AttendanceRecord $out, AttendanceDayState $state, int $refusedCheckIns = 0): array
     {
         return [
             // The check-in — what the correction and refusal endpoints take.
@@ -622,7 +633,7 @@ class AttendanceReportService
             'check_in_has_selfie'  => $in->selfie_path !== null,
             'check_out_has_selfie' => $out === null ? null : $out->selfie_path !== null,
             'correction'           => $this->correction($out),
-            'rejection'            => $this->rejection($in),
+            'rejection'            => $this->rejection($in, $refusedCheckIns),
         ];
     }
 
@@ -664,17 +675,23 @@ class AttendanceReportService
         ];
     }
 
-    /** @return array<string, mixed>|null */
-    private function rejection(?AttendanceRecord $record): ?array
+    /**
+     * The refusal shown for a day: [$record] is its first refused check-in,
+     * and [$refusedCheckIns] how many the day had, that one included.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function rejection(?AttendanceRecord $record, int $refusedCheckIns): ?array
     {
         return $record?->rejected_at === null ? null : [
-            'record_id'    => $record->id,
-            'recorded_at'  => $record->recorded_at->toIso8601String(),
-            'reason'       => $record->rejection_reason?->value,
-            'reason_label' => $record->rejection_reason?->label(),
-            'note'         => $record->rejection_note,
-            'rejected_at'  => $record->rejected_at->toIso8601String(),
-            'rejected_by'  => Actor::of($record->rejectedBy),
+            'record_id'         => $record->id,
+            'recorded_at'       => $record->recorded_at->toIso8601String(),
+            'reason'            => $record->rejection_reason?->value,
+            'reason_label'      => $record->rejection_reason?->label(),
+            'note'              => $record->rejection_note,
+            'rejected_at'       => $record->rejected_at->toIso8601String(),
+            'rejected_by'       => Actor::of($record->rejectedBy),
+            'refused_check_ins' => $refusedCheckIns,
         ];
     }
 

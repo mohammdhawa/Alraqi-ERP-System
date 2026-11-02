@@ -190,7 +190,25 @@ class AttendanceDailyReportTest extends TestCase
         $this->assertSame($out->id, $row['check_out_record_id'], 'the check-out of the same decision');
         $this->assertSame(AttendanceDayState::Rejected->value, $row['status']);
         $this->assertSame(RejectionReason::Location->value, $row['rejection']['reason']);
+        $this->assertSame(1, $row['rejection']['refused_check_ins']);
         $this->assertSame(1, $response->json('data.summary.rejected'));
+    }
+
+    public function test_a_day_refused_several_times_is_one_row_that_counts_every_refused_check_in(): void
+    {
+        $refusal = ['rejected_at' => now(), 'rejection_reason' => RejectionReason::Other];
+        $first = $this->checkIn($this->people['a'], self::DAY.' 08:00:00', $refusal);
+        $this->checkIn($this->people['a'], self::DAY.' 10:00:00', $refusal);
+        $this->checkIn($this->people['a'], self::DAY.' 10:05:00', $refusal);
+        $this->checkIn($this->people['b'], self::DAY.' 08:00:00', $refusal);
+        $this->asHr();
+
+        $rows = collect($this->report()->json('data.rejected'))->keyBy('employee.id');
+
+        $this->assertCount(2, $rows, 'one row per person, not per record');
+        $this->assertSame($first->id, $rows[$this->people['a']->id]['record_id'], 'the day\'s first refusal');
+        $this->assertSame(3, $rows[$this->people['a']->id]['rejection']['refused_check_ins']);
+        $this->assertSame(1, $rows[$this->people['b']->id]['rejection']['refused_check_ins']);
     }
 
     public function test_a_day_recorded_again_after_a_refusal_counts_as_present_only(): void
