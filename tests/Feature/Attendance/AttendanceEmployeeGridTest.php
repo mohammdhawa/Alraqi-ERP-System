@@ -175,6 +175,7 @@ class AttendanceEmployeeGridTest extends TestCase
         $in = $this->checkIn($a, '2026-06-21 08:00:00');
         $this->checkOut($a, '2026-06-21 16:00:00', ['corrected_by' => $corrector->id, 'corrected_at' => now(), 'correction_note' => 'نسي']);
         $this->checkIn($a, '2026-06-22 08:00:00', ['rejected_at' => now(), 'rejected_by' => $corrector->id, 'rejection_reason' => RejectionReason::Location]);
+        $this->checkIn($a, '2026-06-22 09:00:00', ['rejected_at' => now(), 'rejected_by' => $corrector->id, 'rejection_reason' => RejectionReason::Other]);
         $this->grantLeave($a, '2026-06-22', '2026-06-22');   // leave outranks the refusal…
         $this->grantLeave($a, '2026-06-23', '2026-06-23', excuse: true, type: 'attendance_excused', typeName: 'حضور مبرر');
 
@@ -185,6 +186,7 @@ class AttendanceEmployeeGridTest extends TestCase
         $this->assertSame($corrector->id, $days['2026-06-21']['correction']['by']['id']);
         $this->assertSame(AttendanceDayState::OnLeave->value, $days['2026-06-22']['status']);
         $this->assertSame(RejectionReason::Location->value, $days['2026-06-22']['rejection']['reason'], '…but the refusal is still shown');
+        $this->assertSame(2, $days['2026-06-22']['rejection']['refused_check_ins'], 'the first refusal, and how many there were');
         $this->assertSame('إجازة سنوية', $days['2026-06-22']['leave_type']);
         $this->assertSame('حضور مبرر', $days['2026-06-23']['excuse']['leave_type_name']);
         $this->assertNull($days['2026-06-22']['excuse']);

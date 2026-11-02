@@ -2478,7 +2478,10 @@ and no leave covers it.
 `record_id` is what §13.3 (correct) and §13.4 (refuse) take; the selfies are
 §13.2's, by record id. `correction`: `{by, at, note}` on a corrected check-out.
 `rejection`: `{record_id, recorded_at, reason, reason_label, note, rejected_at,
-rejected_by}` on a refused day.
+rejected_by, refused_check_ins}` on a refused day. A day refused several times
+is still **one row**, keyed on its first refused check-in; `refused_check_ins`
+is how many check-ins that day were refused, that one included (≥ 1). The
+others are in §13.1's records list, one row each.
 
 **A leave row:** `leave_request_id`, `employee`, `department`, `status` (`4` or
 `5`), `leave_type`, `leave_type_name`, `is_excuse`, `deducts_balance`, `excuse`
@@ -2539,7 +2542,8 @@ Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `status`,
 `status_label`, `check_in_id` (for §13.3), `check_in_time`, `check_out_time`,
 `work_hours`, `work_hours_formatted`, `leave_type` (whenever leave covers the
 day), `rejection` (whenever the day had a refused check-in — even when leave or
-a later check-in outranks it), `correction`, `excuse` (on an excused day).
+a later check-in outranks it; §14.1's shape, with `refused_check_ins`),
+`correction`, `excuse` (on an excused day).
 
 A day's state, by precedence: an accepted check-in (`2` / `1` / `3`), else a
 day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
@@ -3343,7 +3347,8 @@ recorded yet that day:
           "reason_label": "الموقع المسجَّل لا يطابق موقع العمل",
           "note": "خارج الموقع",
           "rejected_at": "2026-10-21T10:00:00+03:00",
-          "rejected_by": { "id": 4, "name": "سامر خالد الحلبي" }
+          "rejected_by": { "id": 4, "name": "سامر خالد الحلبي" },
+          "refused_check_ins": 1
         },
         "correction": null, "excuse": null
       },
@@ -3431,7 +3436,8 @@ recorded yet that day:
   `GET /api/me/attendance/{check_in_id}/selfie`.
 - `leave_type` names the leave over the day, whatever outranks it.
   `rejection` is set whenever the day had a refused check-in, even when a
-  later check-in or leave outranks it. `correction` (`{by, at, note}`) is set
+  later check-in or leave outranks it. It is the day's first refusal, as
+  §14.1 describes it, with `refused_check_ins` counting them all. `correction` (`{by, at, note}`) is set
   on a day whose check-out HR recorded (§13.3). `excuse` is set on an excused
   day only.
 - `work_hours` is a number of hours (`8.5`); the `_formatted` keys are
