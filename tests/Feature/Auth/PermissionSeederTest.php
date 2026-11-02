@@ -52,7 +52,7 @@ class PermissionSeederTest extends TestCase
      * `.delete`, `leave.balances.view`, `.update`, `leave.requests.view`,
      * `.returnToWork`, and `leave.excuses.create`, `.delete`.
      */
-    private const TOTAL = 49;
+    private const TOTAL = 46;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -62,8 +62,7 @@ class PermissionSeederTest extends TestCase
 
         $expected = [
             'approvals.reassign', 'approvals.view',
-            'attendance.records.approveLocation', 'attendance.records.correct', 'attendance.records.reject', 'attendance.records.view',
-            'attendance.work_sites.manage', 'attendance.work_sites.view',
+            'attendance.records.correct', 'attendance.records.reject', 'attendance.records.view',
             'auth.audit.view', 'auth.audit.viewValues',
             'auth.roles.assign', 'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',

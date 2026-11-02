@@ -95,9 +95,6 @@ class PermissionSeeder extends Seeder
             'attendance.records.view',
             'attendance.records.correct',
             'attendance.records.reject',
-            'attendance.records.approveLocation',
-            'attendance.work_sites.manage',
-            'attendance.work_sites.view',
         ],
         // Approvals engine (work order §4.6; APPROVALS_ENGINE_DESIGN.md §7).
         //
@@ -168,9 +165,6 @@ class PermissionSeeder extends Seeder
         'attendance.records.view'    => 'عرض سجلات الحضور',
         'attendance.records.correct' => 'تصحيح انصراف منسي',
         'attendance.records.reject'  => 'رفض سجل حضور',
-        'attendance.records.approveLocation' => 'اعتماد مراجعة موقع الحضور',
-        'attendance.work_sites.manage' => 'إدارة مواقع العمل',
-        'attendance.work_sites.view' => 'عرض مواقع العمل وتعييناتها',
         'approvals.view'             => 'عرض مسارات الاعتماد',
         'approvals.reassign'         => 'إعادة إسناد خطوة اعتماد',
         'leave.types.create'         => 'إضافة نوع إجازة',

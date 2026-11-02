@@ -22,18 +22,6 @@ class RecordAttendanceRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
-    {
-        if (! array_key_exists('location_is_mocked', $this->all())) {
-            return;
-        }
-
-        $mocked = filter_var($this->input('location_is_mocked'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        if ($mocked !== null) {
-            $this->merge(['location_is_mocked' => $mocked]);
-        }
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -46,9 +34,6 @@ class RecordAttendanceRequest extends FormRequest
             'selfie'      => ['required', 'image', 'max:10240'],
             'recorded_at' => ['required', 'date'],
             'client_uuid' => ['sometimes', 'nullable', 'uuid'],
-            'location_accuracy_m' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:1000000'],
-            'location_fix_at' => ['sometimes', 'nullable', 'date'],
-            'location_is_mocked' => ['sometimes', 'nullable', 'boolean'],
         ];
     }
 

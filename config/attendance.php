@@ -73,12 +73,4 @@ return [
     */
     'selfie_retention_months' => (int) env('ATTENDANCE_SELFIE_RETENTION_MONTHS', 3),
     'selfie_directory'        => 'attendance/selfies',
-
-    // Enable only after sites and employee assignments have been configured.
-    'location_review' => [
-        'enabled' => (bool) env('ATTENDANCE_LOCATION_REVIEW_ENABLED', false),
-        'max_accuracy_m' => (float) env('ATTENDANCE_LOCATION_MAX_ACCURACY_M', 50),
-        'max_fix_age_seconds' => (int) env('ATTENDANCE_LOCATION_MAX_FIX_AGE_SECONDS', 120),
-        'fix_clock_tolerance_seconds' => (int) env('ATTENDANCE_LOCATION_FIX_CLOCK_TOLERANCE_SECONDS', 5),
-    ],
 ];

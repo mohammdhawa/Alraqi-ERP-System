@@ -75,16 +75,6 @@ server enforces its scope for — see `docs/API_DOCUMENTATION.md` §5.4.
 | PUT/PATCH | `/hr/employees/{id}` |
 | DELETE | `/hr/employees/{id}` |
 
-### Attendance / Work Sites — `/api/attendance`
-| Method | Path | Permission |
-| --- | --- | --- |
-| GET | `/work-sites` | `attendance.work_sites.view` |
-| POST/PATCH | `/work-sites`, `/work-sites/{site}`, `/work-sites/{site}/archive` | `attendance.work_sites.manage` |
-| GET | `/work-site-assignments` | `attendance.work_sites.view` |
-| POST/PATCH | `/work-site-assignments`, `/work-site-assignments/{assignment}` | `attendance.work_sites.manage` |
-
-Create Work Site and Assign Employee save `workSiteId` and `workSiteAssignmentId` for later requests. Update the example effective timestamps before sending; past dates return 422. See `docs/API_DOCUMENTATION.md` §13.6 for request and response details.
-
 ## Response envelope
 
 Every response is wrapped consistently:
@@ -105,8 +95,4 @@ Common status codes: `200` OK, `201` Created, `401` Unauthenticated, `403` Forbi
 | `baseUrl` | API base URL (default `http://localhost:8000`). |
 | `email` / `password` | Login credentials. |
 | `accessToken` / `refreshToken` | Set automatically by the Login/Refresh test scripts. |
-| `roleId`, `userId`, `departmentId`, `employeeId`, `notificationId`, `workSiteId`, `workSiteAssignmentId` | Resource ids used in path-param requests; the create requests auto-store the new ids. |
-
-The **Attendance - Location Review** group shows direct and offline sync GPS-quality fields. Choose a local selfie file and update both timestamps before sending. Classification is off until `ATTENDANCE_LOCATION_REVIEW_ENABLED` is enabled after site assignments are configured.
-
-The **Attendance - Manager Review** group covers the open queue, one-record approval, selected approval and the 200-record matching batch. The manager needs separate view and approval grants over the intended units.
+| `roleId`, `userId`, `departmentId`, `employeeId`, `notificationId` | Resource ids used in path-param requests; the create requests auto-store the new ids. |

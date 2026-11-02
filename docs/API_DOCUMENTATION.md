@@ -2000,10 +2000,6 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18h| GET        | `/api/attendance/records/{record}/selfie`    | bearer   | `attendance.records.view` |
 | 18i| PATCH      | `/api/attendance/records/{record}/checkout`  | bearer   | `attendance.records.correct` |
 | 18j| PATCH/DELETE| `/api/attendance/records/{record}/reject`   | bearer   | `attendance.records.reject` |
-| 18ja| GET/POST/PATCH | `/api/attendance/work-sites` and `/{site}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
-| 18jb| GET/POST/PATCH | `/api/attendance/work-site-assignments` and `/{assignment}` | bearer | `attendance.work_sites.view` for GET; `attendance.work_sites.manage` for writes (§13.6) |
-| 18jc| PATCH | `/api/attendance/records/{record}/location-review/approve` | bearer | `attendance.records.approveLocation` and row scope (§13.8) |
-| 18jd| POST | `/api/attendance/records/location-review/approve` | bearer | `attendance.records.approveLocation`, each row scoped (§13.8) |
 | 18k| GET        | `/api/attendance/report`                     | bearer   | `attendance.records.view` (§14) |
 | 18l| GET        | `/api/attendance/report/monthly`             | bearer   | `attendance.records.view` |
 | 18m| GET        | `/api/attendance/report/employee`            | bearer   | `attendance.records.view` |
@@ -2389,118 +2385,6 @@ No notification is sent (as legacy).
 **422:** «هذا السجل غير مرفوض.» · «لا يمكن التراجع عن الرفض: يوجد تسجيل حضور قائم
 لهذا اليوم بالفعل.» · «… يوجد تسجيل انصراف قائم لهذا اليوم بالفعل.» — the day
 was recorded again after the refusal, and restoring it would leave two.
-
-### 13.6 Work sites and employee assignments
-
-Work-site management is company-wide. `attendance.work_sites.view` permits the
-two paginated lists and reading their audit details; `attendance.work_sites.manage`
-permits writes. A scoped grant does not confer either permission. Administrators
-who need the management screen should hold both. Site geometry and assignment
-intervals are stored in the configured attendance timezone, with half-open
-boundaries (`effective_from <= event time < effective_to`). Existing historical
-versions are retained for offline attendance submitted later.
-
-| Method | Path | Body / result |
-|---|---|---|
-| GET | `/api/attendance/work-sites?page=1&per_page=15` | Paginated sites, each with `id`, `name`, `is_active`, `archived_at`, and ordered `versions` (`id`, `name`, `latitude`, `longitude`, `radius_m`, `effective_from`, `effective_to`). |
-| POST | `/api/attendance/work-sites` | Required: `name` (≤150), `latitude` (−90…90), `longitude` (−180…180), `radius_m` (>0 and ≤100000). Creates the first version at server time; returns **201** with the site. |
-| PATCH | `/api/attendance/work-sites/{site}` | Required: `effective_from` (date-time, now or future). Optional: `name`, `latitude`, `longitude`, `radius_m`. Closes the previous version at that instant and creates a new version. Cannot edit an archived site or backdate the boundary. |
-| PATCH | `/api/attendance/work-sites/{site}/archive` | No body. Archives at server time. **422** `errors.assignments` lists employees with current or future assignments; end those assignments first. An archived site can still classify an offline event recorded before archive time. |
-| GET | `/api/attendance/work-site-assignments?employee_id=7&work_site_id=3` | Paginated assignments, newest first. Either filter is optional. Each row includes employee/site ids and names, `effective_from`, and nullable `effective_to`. |
-| POST | `/api/attendance/work-site-assignments` | Required: `employee_id`, `work_site_id`; optional `effective_from` (defaults to server time, may be future). One employee per request. **422** `errors.effective_from` for overlap or backdating; **422** `errors.work_site_id` for an archived site. |
-| PATCH | `/api/attendance/work-site-assignments/{assignment}` | Required: `effective_to` (date-time, now or future, after start). Ends one assignment without deleting its history. |
-
-All responses use the normal `{success, message, data}` envelope and list
-pagination metadata. No endpoint converts the employee's free-text `workplace`
-into a work site. A manager's location-review decision uses separate permissions
-and endpoints; managing sites alone does not authorize that decision.
-
-
-### 13.7 Employee location review on recorded events
-
-Classification is disabled by default (`ATTENDANCE_LOCATION_REVIEW_ENABLED=false`).
-Configure work sites and employee assignments first, then enable it. Events
-saved while disabled or before rollout receive `location_review: null`; they
-are not backfilled. HR-created checkout corrections also have no review.
-
-`POST /api/me/attendance` and each `records[]` item in
-`POST /api/me/attendance/sync` accept optional `location_accuracy_m` (metres,
-nonnegative), `location_fix_at` (the provider's timestamp with timezone), and
-`location_is_mocked` (boolean). The existing latitude, longitude, selfie,
-`recorded_at`, type and optional `client_uuid` fields remain. GPS quality never
-rejects an otherwise valid attendance event. A repeated `client_uuid` returns
-the saved event and its original review unchanged. Each sync entry succeeds or
-fails independently.
-
-The server resolves the assignment and site version at the event's
-`recorded_at` (not arrival time). It stores an immutable site/measurement
-snapshot. Reason precedence is `no_site`, `inactive_site`, `mock_location`,
-`fix_time_invalid`, `boundary_changed`, `low_accuracy`,
-`boundary_uncertain`, `outside`, `inside`. A missing, stale or too-far-ahead
-fix is `fix_time_invalid`; a fix spanning an assignment or site-version change
-is `boundary_changed`. A fix is confidently inside when distance + accuracy
-is within the radius; confidently outside when distance − accuracy exceeds
-the radius. Only `inside` starts `in_process`; all other reasons start
-`for_review`. Approval is a separate manager action (§13.8), never automatic.
-The defaults are 50 m maximum accuracy, 120 s maximum fix age and 5 s clock
-tolerance, configurable under `attendance.location_review`.
-
-The employee's own `/api/me/attendance` responses expose only:
-
-```json
-"location_review": {
-  "status": "for_review",
-  "reason": "outside",
-  "site": {"id": 3, "name": "Main plant"},
-  "distance_m": 216.4
-}
-```
-
-The oversight `/api/attendance/records` response adds `site.latitude`,
-`site.longitude`, `radius_m`, `accuracy_m`, `fix_at`, `is_mocked`,
-`approved_by`, `approved_at` and `note`. The last three are null until a
-manager approves. `site` and `distance_m` can be null when there was no
-effective site. The employee never receives reviewer identity, review note,
-or site coordinates.
-
-`/api/me/attendance/days` and `/api/attendance/report/employee` add
-`check_in_location_review` and `check_out_location_review` to each day, with
-the same employee and oversight shapes respectively. All non-refused records
-still count in daily and monthly reports regardless of review status. Existing
-refusal remains separate and is the only review decision that removes a record
-from totals.
-
-
-### 13.8 Manager location-review decisions and queue
-
-`attendance.records.approveLocation` is a separate row-scoped permission from
-`attendance.records.view` and `attendance.records.reject`. Approval never
-changes attendance counting and sends no employee notification. Existing
-refusal remains the only decision that removes an event from totals. A refusal
-preserves review evidence/status but excludes the event from the open queue.
-
-| Method | Path | Body / result |
-|---|---|---|
-| PATCH | `/api/attendance/records/{record}/location-review/approve` | Optional `note` (≤2000 characters). Requires approval permission and scope over this record. Changes `for_review` or `in_process` to `approved`, stamps actor/time/note and returns the oversight record. Repeating an approval is idempotent. A rejected or unassessed record returns 422. |
-| POST | `/api/attendance/records/location-review/approve` | Either `record_ids` (1–100 distinct ids) or `matching` (filter object), never both; optional `note`. Selected ids may include `for_review` or `in_process`. Matching approves at most 200 **in_process** non-rejected records in the caller's approval scope, across dates unless a date filter is given (`open_location_review` is ignored). `matching.location_review_status`, if sent, must be `in_process`; any other value is a 422, so a screen filtered to another status cannot approve rows it is not showing. One short employee-row transaction and one audit update per approved record. |
-
-Bulk returns `data: {approved: [ids], skipped: [{id, reason}], remaining:
-integer|null}`. `remaining` is the number of in-process records still matching
-after a filter run, and null for selected ids. Skip reasons include
-`out_of_scope`, `rejected`, `already_approved`, `not_assessed`, and
-`not_found`. A matching run never includes `for_review` by filter; managers
-may select those records explicitly or approve them singly. Approval requires
-its own row scope even if the manager can view a broader set of records.
-
-`GET /api/attendance/records` accepts `location_review_status` =
-`for_review`, `in_process`, or `approved`; this filter can include rejected
-history. `open_location_review=1` returns non-rejected `for_review` and
-`in_process` events across **all dates** unless an explicit date/range/month
-filter is supplied. Ordinary record lists continue to default to today.
-Combining `open_location_review=1` with `location_review_status=approved`
-returns 422. All list filters and pagination still obey the caller's existing
-`attendance.records.view` scope. The open queue is a view, not an automatic
-approval or refusal.
 
 ---
 

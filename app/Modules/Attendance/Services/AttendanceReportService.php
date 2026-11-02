@@ -10,7 +10,6 @@ use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Models\AttendanceRecord;
-use App\Modules\Attendance\Resources\LocationReviewView;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Attendance\Support\RowSort;
 use App\Modules\Auth\Models\User;
@@ -417,7 +416,7 @@ class AttendanceReportService
             OutOfScope::deny('هذا الموظف خارج نطاق صلاحياتك.')->authorize();
         }
 
-        return $this->days($employee, $from, $to, $state, $workingDaysOnly, $sort, false);
+        return $this->days($employee, $from, $to, $state, $workingDaysOnly, $sort);
     }
 
     /**
@@ -428,7 +427,7 @@ class AttendanceReportService
      *
      * @return array<string, mixed>
      */
-    public function days(Employee $employee, string $from, string $to, ?int $state = null, bool $workingDaysOnly = false, ?string $sort = null, bool $employeeShape = true): array
+    public function days(Employee $employee, string $from, string $to, ?int $state = null, bool $workingDaysOnly = false, ?string $sort = null): array
     {
         $employee->loadMissing('department');
 
@@ -498,8 +497,6 @@ class AttendanceReportService
                 'check_in_id'          => $in?->id,
                 'check_in_time'        => $in?->recorded_at->toIso8601String(),
                 'check_out_time'       => $out?->recorded_at->toIso8601String(),
-                'check_in_location_review' => LocationReviewView::from($in?->locationReview, $employeeShape),
-                'check_out_location_review' => LocationReviewView::from($out?->locationReview, $employeeShape),
                 'work_hours'           => $dayHours,
                 'work_hours_formatted' => $this->formatHours($dayHours),
                 // The leave over the day, whatever its state, so a calendar can
@@ -596,7 +593,7 @@ class AttendanceReportService
     private function events(array $employeeIds): Builder
     {
         return AttendanceRecord::query()
-            ->with(['employee.department', 'correctedBy.employee', 'rejectedBy.employee', 'locationReview.approvedBy.employee'])
+            ->with(['employee.department', 'correctedBy.employee', 'rejectedBy.employee'])
             ->whereIn('employee_id', $employeeIds);
     }
 
@@ -617,8 +614,6 @@ class AttendanceReportService
             'status_label'         => $state->label(),
             'check_in_time'        => $in->recorded_at->toIso8601String(),
             'check_out_time'       => $out?->recorded_at->toIso8601String(),
-            'check_in_location_review' => LocationReviewView::from($in->locationReview, false),
-            'check_out_location_review' => LocationReviewView::from($out?->locationReview, false),
             'work_hours'           => $out?->work_hours,
             'work_hours_formatted' => $this->formatHours($out?->work_hours),
             'check_in_location'    => ['latitude' => $in->latitude, 'longitude' => $in->longitude],

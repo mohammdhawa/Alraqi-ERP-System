@@ -77,16 +77,6 @@
 			"key": "notificationId",
 			"value": "1",
 			"type": "string"
-		},
-		{
-			"key": "workSiteId",
-			"value": "1",
-			"type": "string"
-		},
-		{
-			"key": "workSiteAssignmentId",
-			"value": "1",
-			"type": "string"
 		}
 	],
 	"item": [
@@ -634,21 +624,6 @@
 					"response": []
 				}
 			]
-		},
-		{
-			"name": "Attendance - Work Sites",
-			"description": "Company-wide site and employee-assignment administration. Grant attendance.work_sites.view for lists and audit reads, attendance.work_sites.manage for writes. Times are Asia/Damascus and intervals are half-open.",
-			"item": [
-				{"name":"List Work Sites","request":{"method":"GET","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-sites?page=1&per_page=15","description":"Paginated sites with all effective-dated versions. Requires attendance.work_sites.view."},"response":[]},
-				{"name":"Create Work Site","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"name\":\"Main plant\",\"latitude\":33.5,\"longitude\":36.3,\"radius_m\":120}"},"url":"{{baseUrl}}/api/attendance/work-sites","description":"Creates a site and its first boundary at server time. Requires attendance.work_sites.manage. 422 for invalid coordinates or radius."},"event":[{"listen":"test","script":{"type":"text/javascript","exec":["if (pm.response.code === 201) pm.collectionVariables.set('workSiteId', pm.response.json().data.id);"]}}],"response":[]},
-				{"name":"Revise Work Site","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"radius_m\":150,\"effective_from\":\"2026-11-01T09:00:00+03:00\"}"},"url":"{{baseUrl}}/api/attendance/work-sites/{{workSiteId}}","description":"Creates a new effective-dated version. Change effective_from to now or a future time before sending; past times return 422."},"response":[]},
-				{"name":"Archive Work Site","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-sites/{{workSiteId}}/archive","description":"Archives at server time; 422 with employee names while current or future assignments remain."},"response":[]},
-				{"name":"List Work Site Assignments","request":{"method":"GET","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/work-site-assignments?employee_id={{employeeId}}","description":"Paginated employee assignments, optionally filtered by employee_id or work_site_id. Requires attendance.work_sites.view."},"response":[]},
-				{"name":"Assign Employee to Work Site","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"employee_id\":{{employeeId}},\"work_site_id\":{{workSiteId}}}"},"url":"{{baseUrl}}/api/attendance/work-site-assignments","description":"One employee per request. effective_from defaults to server time; overlaps and backdating return 422."},"event":[{"listen":"test","script":{"type":"text/javascript","exec":["if (pm.response.code === 201) pm.collectionVariables.set('workSiteAssignmentId', pm.response.json().data.id);"]}}],"response":[]},
-				{"name":"End Work Site Assignment","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"effective_to\":\"2026-11-01T09:00:00+03:00\"}"},"url":"{{baseUrl}}/api/attendance/work-site-assignments/{{workSiteAssignmentId}}","description":"Ends the assignment at now or a future time, preserving its history. Change effective_to before sending."},"response":[]}
-			]
-		},
-		{"name":"Attendance - Location Review","description":"Employee event examples. Pick a selfie file, set current event/fix times, and enable classification only after work-site assignments are configured. The first saved review is immutable on client_uuid retry.","item":[{"name":"Record Check-In with GPS Quality","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"}],"body":{"mode":"formdata","formdata":[{"key":"type","value":"1","type":"text"},{"key":"latitude","value":"33.5","type":"text"},{"key":"longitude","value":"36.3","type":"text"},{"key":"recorded_at","value":"2026-10-31T08:01:00+03:00","type":"text"},{"key":"location_accuracy_m","value":"5","type":"text"},{"key":"location_fix_at","value":"2026-10-31T08:00:50+03:00","type":"text"},{"key":"location_is_mocked","value":"false","type":"text"},{"key":"selfie","type":"file","src":""}]},"url":"{{baseUrl}}/api/me/attendance","description":"Employee shape: status, reason, site id/name, distance_m. Replace times and choose a selfie file before sending."},"response":[]},{"name":"Sync Check-Out with GPS Quality","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"}],"body":{"mode":"formdata","formdata":[{"key":"records[0][type]","value":"2","type":"text"},{"key":"records[0][latitude]","value":"33.5","type":"text"},{"key":"records[0][longitude]","value":"36.3","type":"text"},{"key":"records[0][recorded_at]","value":"2026-10-31T16:00:00+03:00","type":"text"},{"key":"records[0][location_accuracy_m]","value":"5","type":"text"},{"key":"records[0][location_fix_at]","value":"2026-10-31T15:59:50+03:00","type":"text"},{"key":"records[0][location_is_mocked]","value":"false","type":"text"},{"key":"selfies[0]","type":"file","src":""}]},"url":"{{baseUrl}}/api/me/attendance/sync","description":"Each sync entry is processed independently. Replace times and choose a selfie file before sending."},"response":[]}]},
-		{"name":"Attendance - Manager Review","description":"Requires attendance.records.view for queue reading and attendance.records.approveLocation for approval, with an independent row scope. Update the record id and filters before sending.","item":[{"name":"Open Location Review Queue","request":{"method":"GET","header":[{"key":"Accept","value":"application/json"}],"url":"{{baseUrl}}/api/attendance/records?open_location_review=1&page=1&per_page=15","description":"All dates by default; non-rejected for_review/in_process rows only, within view scope."},"response":[]},{"name":"Approve One Location Review","request":{"method":"PATCH","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"note\":\"Checked on map\"}"},"url":"{{baseUrl}}/api/attendance/records/{{attendanceRecordId}}/location-review/approve","description":"Approves a for_review or in_process event in the manager approval scope. Rejected and unassessed rows return 422."},"response":[]},{"name":"Approve Selected Reviews","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"record_ids\":[{{attendanceRecordId}}],\"note\":\"Checked on map\"}"},"url":"{{baseUrl}}/api/attendance/records/location-review/approve","description":"Up to 100 selected ids; for_review is allowed. Response lists approved and skipped ids."},"response":[]},{"name":"Approve Matching In-Process Reviews","request":{"method":"POST","header":[{"key":"Accept","value":"application/json"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"matching\":{\"from\":\"2026-10-01\",\"to\":\"2026-10-31\"}}"},"url":"{{baseUrl}}/api/attendance/records/location-review/approve","description":"Approves up to 200 in_process rows in approval scope; for_review is never included by filter. remaining gives the next page count."},"response":[]}]}
+		}
 	]
 }

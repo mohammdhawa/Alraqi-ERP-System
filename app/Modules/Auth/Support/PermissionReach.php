@@ -68,7 +68,6 @@ final class PermissionReach
         'attendance.records.view',
         'attendance.records.correct',
         'attendance.records.reject',
-        'attendance.records.approveLocation',
         // Approvals (2026-10-18): ApprovalPolicy per row, through the
         // requester's current unit.
         'approvals.view',

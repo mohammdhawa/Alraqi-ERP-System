@@ -139,10 +139,6 @@ class AuditLogDetailResource extends AuditLogResource
         'permission'          => ['auth.roles.view'],
         // A check-in row carries a GPS position, a time and a selfie path.
         'attendance_record'   => ['attendance.records.view'],
-        'attendance_location_review' => ['attendance.records.view'],
-        'work_site' => ['attendance.work_sites.view'],
-        'work_site_version' => ['attendance.work_sites.view'],
-        'employee_work_site_assignment' => ['attendance.work_sites.view'],
         // An approval names who asked, who decided and why (the note) — the
         // chain HR reads to see where a request is stuck (§9 Q5).
         'approval'              => ['approvals.view'],

@@ -6,11 +6,7 @@ use App\Modules\Approvals\Models\Approval;
 use App\Modules\Approvals\Models\ApprovalReassignment;
 use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Attendance\Contracts\ApprovedLeave;
-use App\Modules\Attendance\Models\AttendanceLocationReview;
 use App\Modules\Attendance\Models\AttendanceRecord;
-use App\Modules\Attendance\Models\EmployeeWorkSiteAssignment;
-use App\Modules\Attendance\Models\WorkSite;
-use App\Modules\Attendance\Models\WorkSiteVersion;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
@@ -127,10 +123,6 @@ class AppServiceProvider extends ServiceProvider
             'role'                => Role::class,
             'permission'          => Permission::class,
             'attendance_record'   => AttendanceRecord::class,
-            'attendance_location_review' => AttendanceLocationReview::class,
-            'work_site' => WorkSite::class,
-            'work_site_version' => WorkSiteVersion::class,
-            'employee_work_site_assignment' => EmployeeWorkSiteAssignment::class,
             'approval'              => Approval::class,
             'approval_step'         => ApprovalStep::class,
             'approval_reassignment' => ApprovalReassignment::class,
