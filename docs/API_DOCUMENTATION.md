@@ -2628,9 +2628,11 @@ redraw the screen from it, never from a cached copy.
     }
   ],
   "reassignments": [
-    { "id": 3, "step_id": 41, "step_order": 1, "from": { … }, "to": { … },
+    { "id": 3, "step_id": 41, "step_order": 1,
+      "from": { "id": 9, "full_name": "…", "employee_number": "…" },
+      "to": { "id": 12, "full_name": "…", "employee_number": "…" },
       "performed_by": { "id": 4, "name": "…" }, "reason": "المدير في إجازة",
-      "created_at": "…" }
+      "created_at": "2026-10-18T11:40:00+03:00" }
   ]
 }
 ```
@@ -2974,11 +2976,49 @@ figures for the start year; a pending request reserves nothing).
   "cancelled_at": null, "cancelled_by": null, "cancellation_reason": null,
   "returned_to_work_on": null, "original_end_date": null,
   "shortened_at": null, "shortened_by": null, "shortening_reason": null,
-  "attachments": [ { "id": 4, "name": "تقرير.pdf", "mime_type": "application/pdf", "size": 102400, "created_at": "…" } ],
-  "approval": { …§15.1, the live state… },
-  "created_at": "…"
+  "attachments": [ { "id": 4, "name": "تقرير.pdf", "mime_type": "application/pdf", "size": 102400, "created_at": "2026-06-18T09:12:00+03:00" } ],
+  "approval": {
+    "id": 17,
+    "status": 1, "status_label": "قيد الاعتماد",
+    "rejection_policy": 1,
+    "subject": { "type": "leave_request", "id": 9, "title": "إجازة مرضية", "summary": "2 أيام · 2026-06-21 → 2026-06-22" },
+    "requested_by": 5,
+    "requester": { "id": 5, "full_name": "…", "employee_number": "…" },
+    "submitted_at": "2026-06-18T09:12:00+03:00",
+    "decided_at": null,
+    "current_order": 1,
+    "current_step_id": null,
+    "can_act": false,
+    "can_withdraw": true,
+    "can_reassign": false,
+    "steps": [
+      {
+        "id": 41, "step_order": 1,
+        "resolver": 1, "resolver_label": "المدير المباشر", "resolver_ref": null,
+        "approver_id": 12, "approver": { "id": 12, "full_name": "…", "employee_number": "…" },
+        "decisive": false,
+        "status": 1, "status_label": "بانتظار القرار", "is_current": true,
+        "skip_reason": null, "skip_reason_label": null,
+        "acted_by": null, "acted_at": null, "note": null
+      },
+      {
+        "id": 42, "step_order": 2,
+        "resolver": 2, "resolver_label": "مدير وحدة محددة", "resolver_ref": "HR",
+        "approver_id": 4, "approver": { "id": 4, "full_name": "…", "employee_number": "…" },
+        "decisive": false,
+        "status": 1, "status_label": "بانتظار القرار", "is_current": false,
+        "skip_reason": null, "skip_reason_label": null,
+        "acted_by": null, "acted_at": null, "note": null
+      }
+    ],
+    "reassignments": []
+  },
+  "created_at": "2026-06-18T09:12:00+03:00"
 }
 ```
+
+As the requester reads it from `/me/leave-requests`: nobody has decided, so
+`can_withdraw` is `true`, and no step is theirs (`can_act` `false`).
 
 `status`: `1` قيد الاعتماد · `2` معتمدة · `3` مرفوضة · `4` ملغاة. `origin`: `1`
 the employee's request · `2` an HR excuse (`approval: null`). `deducts_balance`
