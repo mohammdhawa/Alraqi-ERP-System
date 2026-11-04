@@ -3307,6 +3307,7 @@ One object of **cards, each `null` until its module can answer** (requirements
   /api/me/approvals`, §15.2).
 - `leave_requests.pending_count` — my own leave still in the chain.
 
+
 ### 17.4 My days — the month calendar
 
 ```
@@ -3484,6 +3485,7 @@ recorded yet that day:
   display strings. A whole number arrives without a fraction (`8`, and
   `attendance_rate` `40` above), so read `work_hours`, `total_work_hours` and
   `attendance_rate` as numbers, not strictly as doubles.
+
 
 ## 18. HR — employee import by upload
 
