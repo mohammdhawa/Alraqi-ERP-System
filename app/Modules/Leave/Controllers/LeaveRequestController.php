@@ -11,6 +11,7 @@ use App\Modules\Leave\Requests\OnLeaveRequest;
 use App\Modules\Leave\Requests\ReturnToWorkRequest;
 use App\Modules\Leave\Resources\LeaveRegisterRowResource;
 use App\Modules\Leave\Resources\LeaveRequestResource;
+use App\Modules\Leave\Services\LeaveApproverDetails;
 use App\Modules\Leave\Services\LeaveBalances;
 use App\Modules\Leave\Services\LeaveRegister;
 use App\Modules\Leave\Services\LeaveRequestQuery;
@@ -74,11 +75,14 @@ class LeaveRequestController extends Controller
     /**
      * GET /api/leave/requests/{leaveRequest}
      */
-    public function show(Request $request, LeaveRequest $leaveRequest): JsonResponse
+    public function show(Request $request, LeaveRequest $leaveRequest, LeaveApproverDetails $details): JsonResponse
     {
         RequestRowScopes::warm($request, ['approvals.reassign']);
+        $leaveRequest->load(LeaveRequestQuery::renderRelations());
 
-        return $this->success(new LeaveRequestResource($leaveRequest->load(LeaveRequestQuery::renderRelations())));
+        return $this->success(
+            (new LeaveRequestResource($leaveRequest))->withApproverView($details->viewFor($leaveRequest, $request->user())),
+        );
     }
 
     /**

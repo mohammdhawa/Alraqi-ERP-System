@@ -40,6 +40,7 @@ class ApprovalInboxResource extends JsonResource
             'approval_status'       => $approval->status->value,
             'approval_status_label' => $approval->status->label(),
             'subject'               => ApprovalSubjectStub::of($approval),
+            'details'               => $this->rowDetails,
             'requester'             => EmployeeStub::from($approval->requester),
             'submitted_at'          => $approval->created_at?->toIso8601String(),
         ];

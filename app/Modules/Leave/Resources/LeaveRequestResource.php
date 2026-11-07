@@ -25,10 +25,35 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class LeaveRequestResource extends JsonResource
 {
+    /** @var array<string, mixed>|null */
+    private ?array $approverView = null;
+
+    /**
+     * Adds `approver_view` for the one reader who holds a step on this leave
+     * (LeaveApproverDetails). Absent otherwise: in this API a missing key
+     * means "you may not see this" (C11).
+     *
+     * @param  array<string, mixed>|null  $view
+     */
+    public function withApproverView(?array $view): self
+    {
+        $this->approverView = $view;
+
+        return $this;
+    }
+
     /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
+    {
+        return $this->fields($request) + ($this->approverView === null ? [] : ['approver_view' => $this->approverView]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fields(Request $request): array
     {
         return [
             'id'            => $this->id,

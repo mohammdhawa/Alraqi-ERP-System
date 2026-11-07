@@ -108,7 +108,7 @@ Authentication uses **Laravel Sanctum bearer tokens** with a custom refresh‑to
   access tokens are configured never to expire.
 - **Refresh token** lifetime: **30 days**, single‑use (rotated on every refresh).
 - On `401 Unauthorized`, call `POST /api/auth/refresh` with the refresh token to obtain a new pair, then retry the original request.
-- Tokens are per‑user and replace each other: logging in (or refreshing) **deletes the previous access token**, so a user effectively holds one active access token at a time.
+- Tokens are per‑session: each sign‑in starts a **session** (§3.6) with its own access and refresh token, so a user holds one active access token per signed‑in device. Logging in leaves the user's other sessions untouched; refreshing **deletes only that session's previous access token**.
 
 **Recommended client storage**
 
@@ -2028,6 +2028,13 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zj| POST/GET  | `/api/me/photo`                              | bearer   | — (self-scoped, §17.2) |
 | 18zk| GET       | `/api/me/summary`                            | bearer   | — (self-scoped, §17.3) |
 | 18zl| GET       | `/api/me/attendance/days`                    | bearer   | — (self-scoped, §17.4) |
+| 18zm| POST      | `/api/hr/employee-imports`                   | bearer   | `hr.employees.import` (§18) |
+| 18zn| GET       | `/api/hr/employee-imports/{run}`             | bearer   | `hr.employees.import` (§18) |
+| 18zo| GET       | `/api/hr/employee-imports/{run}/report`      | bearer   | `hr.employees.import` (§18) |
+| 18zp| POST      | `/api/hr/employee-imports/{run}/execute`     | bearer   | `hr.employees.import` (§18) |
+| 18zq| PUT       | `/api/hr/employee-imports/{run}/exclusions`  | bearer   | `hr.employees.import` (§18) |
+| 18zr| GET       | `/api/approvals`                             | bearer   | `approvals.view` (§15.7) |
+| 18zs| GET       | `/api/leave/on-leave`                        | bearer   | `attendance.records.view` (§16.9) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2056,9 +2063,10 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 sessions and device-token routes of work order §4.3 (3a–3c, 18a, 18b — six
 routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t),
 sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
-2026-10-20, from the parity audit — `GET /api/approvals` (§15.7) and
-`GET /api/leave/on-leave` (§16.9). The count below is the one from before
-them. ⚙️ **89** since 2026-10-26: `GET /api/me/attendance/days` (18zl, §17.4).
+2026-10-20, from the parity audit — `GET /api/approvals` (18zr, §15.7) and
+`GET /api/leave/on-leave` (18zs, §16.9). The count below is the one from before
+them. ⚙️ **94** today (`route:list`, 2026-11-04): those 88, the five import routes
+of §18 (18zm–18zq), and `GET /api/me/attendance/days` (18zl, §17.4).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2671,12 +2679,31 @@ notification). An account with no employee gets an empty list. Any other
   "acted_at": null, "note": null,
   "approval_status": 1, "approval_status_label": "قيد الاعتماد",
   "subject": { "type": "leave_request", "id": 9, "title": "إجازة سنوية", "summary": "3 أيام · 2026-10-20 → 2026-10-22" },
+  "details": {
+    "start_date": "2026-10-20", "end_date": "2026-10-22", "requested_days": 3,
+    "balance": { "year": 2026, "remaining_days": 12, "after_request": 9 }
+  },
   "requester": { "id": 5, "full_name": "…", "employee_number": "…" },
   "submitted_at": "2026-10-18T09:12:00+03:00"
 }
 ```
 
 A row opens the request screen: `GET /api/approvals/{approval_id}`.
+
+⚙️ **`details` — 2026-11-04 (app slice 5)**: what the subject adds for its
+approver, so a row reads without opening it. `null` for a subject with nothing
+to add (anything but leave). `subject.summary` is a display string that always
+reads «N أيام»; a client wording the days itself reads `requested_days`.
+
+| `details` | |
+|---|---|
+| `start_date`, `end_date`, `requested_days` | the leave's own |
+| `balance` | the requester's balance around this leave. **`null`** when the leave does not deduct (its own `deducts_balance`, not its type's), and always on `?status=decided`, even while the leave waits on a later step: the caller's decision is taken |
+| `balance.year` | the leave's start year, the year the server checks against (§16.2) |
+| `balance.after_request` | `remaining_days − requested_days`, **not clamped**: pending requests reserve nothing, so two can each fit and pass the balance together, and a negative figure says so |
+
+Being on the chain is what admits the approver to this figure: no permission
+is asked.
 
 ⚙️ **Filters — 2026-10-20 (parity audit C-4)**, legacy's queue filters, on both
 halves of the inbox:
@@ -3059,6 +3086,24 @@ Readable by the **employee**, **anyone holding a step on its chain**, and
 approver opens from the inbox (§15.2: `subject.type` `leave_request`,
 `subject.id`). Anyone else: **403**; a holder of `leave.requests.view` for
 other units: **403 `out_of_scope`** «طلب الإجازة هذا لموظف خارج نطاق صلاحياتك.».
+
+⚙️ **`approver_view` — 2026-11-04 (app slice 5)**: for someone holding a step on
+this leave's chain who is not its employee, the read adds what they need to
+decide:
+
+```json
+{ "approver_view": {
+  "job_title": { "id": 4, "name": "مهندسة مساحة" },
+  "department": { "id": 9, "name": "قسم الإنشاءات" },
+  "balance": { "year": 2026, "remaining_days": 12, "after_request": 9 }
+} }
+```
+
+**Absent for everyone else**, the requester and an HR reader off the chain
+included. `job_title` and `department` are the employee's current ones, `null`
+when there is none, and stay after a decision. `balance` has §15.2's figures:
+`null` for a leave that does not deduct, and once the leave itself is decided.
+Only this read carries it; the lists do not.
 
 A file is **streamed** (`Cache-Control: private, no-store`, under its original
 name) to exactly those readers — never a URL. A file of another request under

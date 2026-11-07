@@ -10,6 +10,7 @@ use App\Modules\Approvals\Resources\ApprovalInboxResource;
 use App\Modules\Approvals\Services\ApprovalInbox;
 use App\Modules\Approvals\Support\ApprovalFilters;
 use App\Modules\Approvals\Support\ApprovalRelations;
+use App\Modules\Approvals\Support\ApprovalRowDetails;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -43,9 +44,10 @@ class MyApprovalsController extends Controller
             $this->sort($steps, $sort);
         }
 
-        return $this->paginated(ApprovalInboxResource::collection(
-            $steps->with(ApprovalRelations::inbox())->paginate($this->perPage($request)),
-        ));
+        $page = $steps->with(ApprovalRelations::inbox())->paginate($this->perPage($request));
+        ApprovalRowDetails::attach($page->getCollection(), $request->wantsDecided());
+
+        return $this->paginated(ApprovalInboxResource::collection($page));
     }
 
     /**

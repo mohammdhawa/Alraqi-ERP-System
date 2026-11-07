@@ -238,6 +238,8 @@ config/            Laravel runtime configuration
 
 ### 5.1 Login and token use
 
+> ⚙️ **Corrected 2026-11-04.** §5.1 and §5.2 describe tokens as the code has them since sessions landed on 2026-10-10. The rest of this guide stays the 2026-07-19 snapshot.
+
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -246,22 +248,22 @@ sequenceDiagram
     participant DB as Database / Sanctum
     participant Audit as AuditLogService
     C->>R: POST /api/auth/login
-    R->>R: throttle 5/min/IP; validate email/password
-    R->>A: login(email, password)
+    R->>R: throttle 5/min/IP; validate login/password
+    R->>A: login(login, password, device, platform)
     A->>DB: find user; verify password and is_active
-    A->>DB: transaction: delete old access tokens
-    A->>DB: create 15-minute Sanctum token
+    A->>DB: transaction: start a new session
+    A->>DB: create 15-minute Sanctum token for this session
     A->>DB: create hashed 30-day refresh token
     A->>DB: update last_login_at quietly
     A->>Audit: user_logged_in
     A-->>C: user + access token + refresh token
 ```
 
-**Observed:** bad email and bad password share a generic 401. Disabled accounts return 403. Access tokens have `*` ability and expire after 15 minutes. Refresh tokens are 64 random characters, SHA-256 hashed at rest, and expire after 30 days.
+**Observed:** a bad login and a bad password share a generic 401. Disabled accounts return 403. Access tokens have `*` ability and expire after 15 minutes. Refresh tokens are 64 random characters, SHA-256 hashed at rest, and expire after 30 days.
 
-**Observed:** issuing an access token deletes all existing Sanctum access tokens for that user. Login does not revoke older refresh tokens. Logout revokes all access and active refresh tokens, so logout is “all sessions,” not “this device.”
+**Observed:** issuing an access token deletes only the previous token of that session (`AuthService::createAccessToken`, the token named `session:<id>`). Login starts a new session and leaves the others alone. `POST /api/auth/logout` ends the caller's session; `POST /api/auth/logout-all` ends every session.
 
-**Inferred consequence:** the access side behaves as one active access token per user, while several refresh tokens can remain usable. An older device can refresh later and invalidate the access token held by another device. This is a product/security behavior to preserve or deliberately redesign, not an incidental controller detail.
+**Observed consequence:** a user holds one active access token per signed-in device, and refreshing on one device leaves the others signed in (`SessionTest`).
 
 ### 5.2 Refresh rotation and replay
 
@@ -276,7 +278,7 @@ sequenceDiagram
         A-->>C: 401
     else valid
         A->>DB: revoke old refresh token
-        A->>DB: delete old access tokens; issue new pair
+        A->>DB: delete this session's old access token; issue new pair
         A-->>C: new access + refresh tokens
     else already revoked (replay)
         A->>DB: rollback lookup transaction
@@ -626,7 +628,7 @@ Before relying on this convention, decide whether changing the public URL by ren
 
 These are recommendations, not a roadmap:
 
-1. Decide and document session semantics: single-device vs multi-device, logout-current vs logout-all.
+1. ~~Decide and document session semantics: single-device vs multi-device, logout-current vs logout-all.~~ ⚙️ Done 2026-10-10: multi-device, with both kinds of logout (§5.1).
 2. Standardize all API error envelopes and remove or align `/api/user` scaffold behavior.
 3. Introduce API versioning before external clients make the current paths expensive to change.
 4. Fix concurrency gaps for root updates and employee numbering.

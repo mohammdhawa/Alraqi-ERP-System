@@ -4,9 +4,10 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-09-23, after the **account model**
-> (login by employee number + the forced first-login password change) landed on
-> branch `phase_1`, on top of Phase 1.5 **Batch 2**.
+> **Last verified against the code:** 2026-11-04, on branch `phase_1` at
+> `5becbc7`: attendance, approvals, leave, `/api/me`, the employee import by
+> upload and Kobo employee numbers are built, and the Flutter app is on slice 4
+> of 8. The real import and the pilot have not happened.
 > When you change the system, update the sections marked ⚙️ — they state facts
 > about the code and go stale if ignored.
 
@@ -23,7 +24,7 @@
 7. [The API surface](#7-the-api-surface)
 8. [The roadmap — the real one](#8-the-roadmap--the-real-one)
 9. [Where we are, in detail](#9-where-we-are-in-detail)
-10. [What to do next — Batch 3, the import tooling](#10-what-to-do-next--batch-3-the-import-tooling)
+10. [What to do next](#10-what-to-do-next)
 11. [Open questions waiting for an answer](#11-open-questions-waiting-for-an-answer)
 12. [Known limitations](#12-known-limitations)
 13. [Conventions — how code is written here](#13-conventions--how-code-is-written-here)
@@ -35,7 +36,8 @@
 
 An **ERP system for شركة الراقي للإنشاءات**, a Syrian construction company.
 This repository is the **backend only** — a Laravel API. The React web dashboard
-and the Flutter mobile app are separate projects that consume this API.
+(`../erp-dashboard`) and the Flutter mobile app (`../alraqi-erp-app`) are separate
+projects that consume this API.
 
 Built by one developer (the technical department manager) with AI assistance.
 
@@ -44,8 +46,8 @@ Built by one developer (the technical department manager) with AI assistance.
 | | This ERP | The legacy system |
 |---|---|---|
 | Stack | Laravel 12, backend only | Laravel 10 + React + Flutter |
-| State | Foundation built, **no production data** | **In daily production use** |
-| Holds | Org tree, employees, users, RBAC, audit, notifications | Documents, approvals, attendance, leave |
+| State | ⚙️ v1 modules built, **no production data** | **In daily production use** |
+| Holds | ⚙️ Org tree, employees, users, RBAC, audit, notifications, attendance, approvals, leave | Documents, approvals, attendance, leave |
 
 The ratified decision is to **merge the legacy system into this one**, module by
 module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
@@ -66,19 +68,25 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | `phase_1` |
-| **Test suite** | **618 passing**, 2664 assertions (2026-10-15) — the latest work is the §4.4 importer; its handoff is the last entry of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
-| **Working tree** | Batch 2, سجل التدقيق, the account model and GAP-3/14/15 are committed on `phase_1`; check `git status` for anything since |
-| **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (GAP-16 to 19 all closed 2026-09-28) |
-| **Production data** | none — the database has never held a real employee |
+| **Branch** | `phase_1` at `5becbc7`; `main` is that commit plus the merge of pull request 6 |
+| **Test suite** | **1267 passing**, 5575 assertions, Pint clean (`php artisan test`, 2026-11-04) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **API** | 94 routes under `/api`, 46 permissions |
+| **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
+| **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
+| **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
+| **Flutter app** | `../alraqi-erp-app`: slices 0–4 of the 0–8 plan are merged to its `main`; next is slice 5, approvals |
 
-**Done:** Phase 1 (the whole foundation) + Batches 1 and 2 of Phase 1.5
-(departments, then the employees rebuild).
+**Done:** Phase 1 (the whole foundation), Batches 1–3 of Phase 1.5 (departments,
+the employees rebuild, the import tooling), and the backend of the Employee App
+v1 — sessions, devices and push, attendance, the approvals engine, leave, the
+`/api/me` surface, the import by upload, and Kobo employee numbers.
 
-**Not done:** Batches 3 and 4 of Phase 1.5 — the import tooling and the real data
-import.
+**Not done:** Batch 4, the real import; the app's slices 5–8; the pilot; documents
+on the approvals engine; the Stage 3 parallel month; payroll.
 
-**Next:** the Employee App v1 pilot, due 2026-11-01 — [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md). It starts with §10, Batch 3.
+**Next:** §10. The pilot's 2026-11-01 date has passed and stopped being binding on
+2026-10-16 ([`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §5):
+work goes in dependency order.
 
 ---
 
@@ -105,7 +113,7 @@ before migrating.
 
 **What seeding gives you** (`database/seeders/DatabaseSeeder.php`):
 
-1. `PermissionSeeder` — the 18 permission rows (16 route-level + 2 field-level)
+1. `PermissionSeeder` — ⚙️ the 46 permission rows (43 route-level + 3 field-level)
 2. `RoleSeeder` — the `super_admin` role
 3. `DepartmentSeeder` — **the real Al-Raqi org tree**, 119 rows, read from the HR
    workbook and cross-checked against the org chart
@@ -122,23 +130,28 @@ one by looking.
 
 ## 4. Which document to read for what
 
-`docs/` holds nineteen files written at different times. Several describe states the
-code has since moved past. This table says which one to trust for what.
+⚙️ `docs/` holds twenty-eight top-level files written at different times, plus the
+specs and plans in `docs/superpowers/`. Several describe states the code has since
+moved past. This table says which one to trust for what.
 
 | Document | Trust it for | Caution |
 |---|---|---|
 | **START_HERE.md** (this file) | Current state, the map, what to do next | — |
 | **`API_BUILD_STANDARD.md`** | **How to build any feature.** The binding rules, the layer contracts, the build workflow, the review checklist | Its §12 gap register lists where the code does not yet comply — read it before copying an existing pattern |
-| `phase-1.5-foundation-truth-up.md` | **The active plan.** §5–§7 are your next work | §4 is done; its status markers record what changed |
+| `phase-1.5-foundation-truth-up.md` | ⚙️ The specification behind Batches 1–3 | All three are built; what is left of Stage 1 is the real import, work order §4.9 |
 | `legacy-system-merge-plan.md` | **The real phase order** (stages 0–5) | Supersedes the design doc's phases 2 and 3 |
 | **`EMPLOYEE_APP_REQUIREMENTS.md`** | **What the employee mobile app needs from HR**, mapped onto the stages, plus the decisions it forces before the import | Requirements captured 2026-09-21, not scheduled work. It settles GAP-3 and names work no stage owns |
-| ⚙️ **`EMPLOYEE_APP_V1_WORK_ORDER.md`** | **The plan for October 2026**: the app's v1 pilot on the ERP, built through Batch 3/4, attendance, leave and the approvals engine. Its §3 lists thirteen decisions with defaults and deadlines | Written 2026-10-05; nothing in it is built yet |
+| ⚙️ **`EMPLOYEE_APP_V1_WORK_ORDER.md`** | **The app's v1 pilot on the ERP**, and in its §8 **the running record of what was built and decided**, entry by entry. Its §3 lists thirteen decisions | §4.1–§4.8 are built. §4's text is the original plan, so trust §8 over it where they differ |
+| ⚙️ `ATTENDANCE_BUILD.md`, `APPROVALS_ENGINE_DESIGN.md`, `LEAVE_BUILD.md` | **How each module was designed** — its rules, its slices, what differs from legacy | Attendance predates the work-site episode, which left nothing behind (work order §8, 2026-11-02) |
+| ⚙️ `DECISION_ROUND_ATTENDANCE_LEAVE.md`, `PARITY_AUDIT_ATTENDANCE_LEAVE.md` | The 14 questions the attendance and leave rules rest on, and the rule-by-rule check against legacy | Both closed; the answers are in work order §8 (2026-10-16, 2026-10-20) |
+| ⚙️ `EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`, `WORKBOOK_COLUMN_MAP.md` | The import by upload, and what each workbook column becomes | The صرح file is no longer read (2026-10-24) |
+| ⚙️ `KOBO_EMPLOYEE_NUMBER_DESIGN.md`, `EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md` | The number a person signs in with, and the account made with a hand-added employee | — |
 | ⚙️ **`LEGACY_TO_ERP_MAPPING.md`** | **What every legacy attendance, leave, approval, device and notification table, route and permission becomes** in the ERP, and which data moves | First pass, 2026-10-05. Documents are not mapped yet (November) |
 | **`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`** | **The build plan for row-level authorization** — the four pieces, the traps, and what is out of the first slice | Written 2026-09-24 as a handoff. The decisions it implements are §9 (14, 18, 19); this file is the *how* |
 | `phase1-completion-report.md` | Why Phase 1 is shaped the way it is; the decision index in §5 | Written before Phase 1.5; its "what comes next" (§7) is superseded |
-| `API_DOCUMENTATION.md` | The API contract, for frontend work | Reflects today's employees shape — Batch 2 will change it |
+| `API_DOCUMENTATION.md` | The API contract, for frontend work | — |
 | `PROJECT_ARCHITECTURE_REPORT.md` | Deep architecture reference; code docblocks cite its §16 | Long; several numbering schemes coexist across docs |
-| `SYSTEM_ARCHITECTURE_GUIDE.md` | Architecture walkthrough | Overlaps the report above |
+| `SYSTEM_ARCHITECTURE_GUIDE.md` | Architecture walkthrough | Overlaps the report above. ⚙️ A snapshot of 2026-07-19, except §5.1–§5.2 on tokens, corrected 2026-11-04 |
 | `al-raqi-erp-design.md` | The original nine-module vision, in Arabic | **Phases 2 and 3 are superseded**; keep it for the later modules |
 | `erp-phase1-architecture.md` | Only §7.2 (notifications) is ratified | Mostly a stub — the original full spec was never committed |
 | `phase1-audit-report.md` | Historical record of the 27 audit findings | **Describes the pre-fix state.** Do not read as current |
@@ -157,13 +170,17 @@ for *why*.
 ### 5.1 The shape: a modular monolith
 
 One Laravel application, split into self-contained modules under `app/Modules/`.
-Three exist today:
+⚙️ Seven exist today:
 
 ```
 app/Modules/
-  Auth/           users, roles, permissions, login, refresh tokens, notifications
+  Auth/           users, roles, permissions, login, sessions, refresh tokens, notifications
   Departments/    the organizational tree
-  HR/             employees
+  HR/             employees, job titles, postings, warnings, the import
+  Attendance/     check-in and check-out, oversight, reports, the scheduled day
+  Approvals/      the generic approval engine
+  Leave/          types, balances, requests and excuses, on the engine
+  Me/             the self-service /api/me surface
 ```
 
 Each module has the same anatomy:
@@ -199,6 +216,7 @@ Shared, cross-module code lives in `app/Shared/`:
 app/Shared/
   Middleware/CheckPermission.php     the `permission:` route middleware
   Middleware/AuditLogMiddleware.php  the `audit` route middleware
+  Push/                              push delivery: the transport interface, FCM, the job
   Services/AuditLogService.php       writes the audit trail
   Traits/ApiRespond.php              the standard response envelope
   Traits/HasAuditLog.php             put on a model to audit its changes
@@ -222,9 +240,10 @@ moment someone writes one without the other.
 *every* writer crosses. Never rely on someone remembering to call the validator.
 *Examples:* the org-tree invariants live in the `Department` model's `saving`
 hook — the one layer the controller, service, seeder, tinker and future jobs all
-pass through — not only in the FormRequest. `employee_number` is generated in a
-`creating` hook so every write path gets one. Nullable-unique indexes make "two
-logins for one employee" impossible in the schema itself.
+pass through — not only in the FormRequest. ⚙️ `employee_number` is required at
+creation and refused any change after it, in model hooks, so no write path gets
+round either rule. Nullable-unique indexes make "two logins for one employee"
+impossible in the schema itself.
 **This is the single most important idea in the codebase.**
 
 **P3 — Explicit over implicit.** A forgotten value should fail loudly, not resolve
@@ -327,14 +346,19 @@ bypass are all fully controlled.
   Requires a **shared** cache store in production; it is process-local under the
   SQLite test driver.
 
-⚙️ The **30** permissions today — 27 route-level:
+⚙️ The **46** permissions today — 43 route-level:
 `departments.{view,create,update,delete}`,
-`hr.employees.{view,create,update,delete}`,
+`hr.employees.{view,create,update,delete,import}`,
 `hr.job_titles.{view,create,update,delete}`,
 `hr.assignments.{view,create}`,
 `hr.warnings.{view,create,update,delete}`,
-`auth.users.{view,create,update,delete}`, `auth.roles.{view,create,update,delete}`,
-`auth.audit.view`;
+`auth.users.{view,create,update,delete}`,
+`auth.roles.{view,create,update,delete,assign}`,
+`auth.audit.view`,
+`attendance.records.{view,correct,reject}`,
+`approvals.{view,reassign}`,
+`leave.types.{create,update,delete}`, `leave.balances.{view,update}`,
+`leave.requests.{view,returnToWork}`, `leave.excuses.{create,delete}`;
 plus 3 **field-level**, checked inside a Resource rather than by any route:
 `hr.employees.viewSalary`, `hr.employees.viewIdentity` and
 `auth.audit.viewValues`. Without them the keys are absent from the payload, not
@@ -395,9 +419,12 @@ when a company-wide message is sent, one row is written per recipient, capturing
 the message as it was at that moment. Laravel's stock notification schema and
 `$user->notify()` are unusable here by design.
 
-**Transport is still undecided** (FCM / mail / websockets / polling). The merge
-plan closes this in Stage 3 by adopting the legacy system's working FCM layer
-rather than inventing a new answer.
+⚙️ **The transport is FCM, built 2026-10-11.** `NotificationService::deliver()`
+dispatches `SendPushNotification` after commit, and the job sends through
+`PushTransport`: `FcmPushTransport` when `FIREBASE_CREDENTIALS` is set,
+`LogPushTransport` otherwise. Its tests mock Firebase, so **a real send is still
+unproven**: it needs the legacy project's service account on the server and a
+`queue:work` process (work order §8, 2026-10-10).
 
 ### 5.9 Deletion
 
@@ -474,20 +501,21 @@ because a self-referencing FK can be declared at creation.
 
 ### `employees` — every person who works here ⚙️ (rebuilt in Batch 2)
 
-Roughly 45 columns now, in six groups. The full list is in the migration
+⚙️ 49 business columns now, in the groups below. The full list is in the migration
 `database/migrations/HR/2026_09_13_110000_restructure_employees_table.php`, which
-also records what was dropped and why.
+also records what was dropped and why, and in the later migration that added
+`nickname` and `payroll_location`.
 
 | Group | Columns |
 |---|---|
-| Identity | `employee_number` (unique, auto-generated, **overridable** — a hand-typed `M024333` is kept as given), `first_name`, `middle_name`, `last_name`, `mother_name`, `national_id`, `gender`, `birth_date`, `birth_place`, `origin_governorate`, `residence_governorate`, `nationality`, `second_nationality` |
+| Identity | `employee_number` (⚙️ unique, **the person's Kobo id**: required, digits only, no leading zero, at most 20, never changed — deleting frees it as `<number>-deleted-<id>`; §9, 2026-10-24), `first_name`, `middle_name`, `last_name`, `mother_name`, `nickname` (⚙️ اللقب, free text), `national_id`, `gender`, `birth_date`, `birth_place`, `origin_governorate`, `residence_governorate`, `nationality`, `second_nationality` |
 | Family | `marital_status`, `wives_count`, `sons_count`, `daughters_count` |
 | Contact | `phone`, `phone_secondary`, `email`, `address` |
 | Military | `did_military_service`, `military_discharge_date` |
 | Education | `education_level`, `qualification`, `specialization`, `is_graduated`, `graduation_date` |
 | **Classification (pay-determining)** | `activity_type`, `organizational_grade`, `experience_level`, `engineering_rank`, `industrial_experience_years`, `has_hazard_pay`, `has_scarcity_pay`, `has_dual_role_pay`, `distinction_grade` |
 | Employment | `department_id`, `job_title_id`, `employment_type`, `workplace`, `hire_date`, `termination_date`, `status` |
-| Pay reference | `sham_cash_account` (16 digits, unique), `salary_mode`, `agreed_salary` |
+| Pay reference | `sham_cash_account` (16 digits, unique), `payroll_location` (⚙️ مكان الراتب, free text, pay-gated), `salary_mode`, `agreed_salary` |
 | | timestamps + `deleted_at` |
 
 **Three things are deliberately absent**, and each has a reason worth keeping:
@@ -538,11 +566,11 @@ index, which MySQL does not have, so it lives in the model's `saving` hook.
 
 ### `employee_documents`, `employee_warnings` ⚙️ (new in Batch 2)
 
-`employee_documents` — schema and model only, **no endpoints yet**. It exists so
-the Batch 3/4 importer can attach the intake form's four images per hire; upload
-and download belong to the Documents module arriving by port in Stage 2.
-⚠️ Its `ShamCash` type is a payment account and must read through
-`hr.employees.viewSalary` when those endpoints are built.
+`employee_documents` — ⚙️ one type has endpoints: `PersonalPhoto`, through
+`POST` / `GET /api/me/photo`. The import attaches no images — the owner ruled out
+importing photos on 2026-10-14. Upload and download of the other types belong to
+the Documents module. ⚠️ Its `ShamCash` type is a payment account and must read
+through `hr.employees.viewSalary` when those endpoints are built.
 
 `employee_warnings` — `type`, `number`, `issued_on`, `issued_by`, `notes`. Rows,
 not the workbook's three columns, which let an employee hold exactly one warning
@@ -563,10 +591,21 @@ already-unique `employee_id`: **no number is copied onto this table.**
 ### `refresh_tokens`
 
 `id`, `user_id` (FK), `token_hash` (sha-256, 64 chars), `revoked` (bool),
-`expires_at`, `created_at`, index on `(user_id, revoked)`.
+`expires_at`, `created_at`, index on `(user_id, revoked)`. ⚙️ Since 2026-10-10 also
+`session_id`, `device_name`, `platform`, `signed_in_at`, with an index on
+`(user_id, session_id)`: a session is one sign-in on one device, and every refresh
+continues it.
 
 Rotation with **replay detection**: presenting an already-used refresh token is
-treated as theft. `PruneExpiredRefreshTokens` is the scheduled cleanup command.
+treated as theft. ⚙️ `revoked` means only "rotated"; a deliberately ended token is
+deleted, so ending a session never reads as theft. `PruneExpiredRefreshTokens` is
+the scheduled cleanup command.
+
+### `device_tokens` ⚙️ (new 2026-10-10)
+
+`user_id`, `token` (unique), `platform`, `session_id`, `last_seen_at`, timestamps.
+A push token belongs to the session that registered it and goes when that session
+ends.
 
 ### `roles`, `permissions`, and the two pivots
 
@@ -574,7 +613,8 @@ treated as theft. `PruneExpiredRefreshTokens` is the scheduled cleanup command.
 - `permissions` — `name` (unique), `label`, `module` (indexed), `description`
   (the column is `module`, not `group`, because `group` is a MySQL reserved word)
 - `role_permissions` — `(role_id, permission_id)` composite PK, cascade
-- `user_roles` — `(user_id, role_id)` composite PK, cascade
+- `user_roles` — ⚙️ one row per **grant** since 2026-09-24: `id`, `user_id`,
+  `role_id`, `scope_type` and `scope_department_id`, unique across all four
 
 ### `audit_logs`
 
@@ -596,6 +636,63 @@ system, so an index here is paid for on every authenticated request.
 `user_id` (FK, cascade), `title`, `body`, `type`, nullable morph `reference`,
 `is_read` (indexed), timestamps.
 
+### `attendance_records` ⚙️ (new 2026-10-16)
+
+One row per check-in or check-out: `employee_id`, `type`, `status` (a missing
+check-out only), `source`, `recorded_at`, `work_hours`, `latitude`, `longitude`,
+`selfie_path`, `selfie_purged_at`, `client_uuid`, the correction columns
+(`corrected_by`, `corrected_at`, `correction_note`), the refusal columns
+(`rejected_at`, `rejected_by`, `rejection_reason`, `rejection_note`,
+`rejection_batch`), timestamps + soft deletes.
+
+`unique(employee_id, client_uuid)` makes a retried offline submission a repeat of
+the saved record, not a second one. Rows carry no unit snapshot: scope follows the
+employee's current unit (D6). Records are kept for good; selfie **files** go after
+three months and `selfie_purged_at` says so (D7).
+
+### `approvals`, `approval_steps`, `approval_reassignments` ⚙️ (new 2026-10-16)
+
+`approvals` is morph-keyed on `approvable_type` + `approvable_id` (unique, so one
+approval per subject), with `requested_by`, `status`, `rejection_policy` and
+`decided_at`. `approval_steps` holds `step_order`, `resolver`, `resolver_ref`,
+`approver_id`, `decisive`, `status`, `skip_reason`, `acted_by`, `acted_at` and
+`note`. `approval_reassignments` records each handover, with a required `reason`.
+Acting is by being the step's approver, not by permission.
+
+### `leave_types`, `leave_requests`, `leave_balances` ⚙️ (new 2026-10-18)
+
+`leave_types` is the catalogue, seeded with the nine live types by its migration:
+`code`, `name_ar`, `name_en`, `deducts_balance`, `for_requests`, `for_excuses`,
+`requires_reason`, `requires_attachment`, `is_active`.
+
+`leave_requests` holds requests and HR's excuses: `origin` tells them apart, and
+`deducts_balance` is copied onto the row. It also carries the dates,
+`requested_days`, `status`, and the cancellation and return-to-work columns
+(`returned_to_work_on`, `original_end_date`, `shortened_at`, …).
+
+`leave_balances` is one row per employee and year: `allocated_days`,
+`adjustment_days`, `note`, `updated_by`. What remains is computed, not stored.
+
+### `attachments` ⚙️ (new 2026-10-18)
+
+Polymorphic and shared: `attachable_type` + `attachable_id`, `disk`, `path`,
+`original_name`, `mime_type`, `size`, `uploaded_by`. Leave uses it now; documents
+are meant to reuse it.
+
+### `employee_import_sources`, `employee_import_runs` ⚙️ (new 2026-10-10, 2026-10-22)
+
+`employee_import_sources` is decision 11's staging table: `source_key` (unique,
+`kobo:<id>`) → `employee_id`, plus where the row came from. It is what makes a
+re-run an update.
+
+`employee_import_runs` is one upload: `created_by`, `status`, the workbook's name,
+path and hash, `summary`, `report`, `importable_rows`, `excluded_rows`,
+`checked_at`, `executed_at`, `expires_at`.
+
+⚙️ **Four tables came and went:** `work_sites`, `work_site_versions`,
+`employee_work_site_assignments` and `attendance_location_reviews` existed from
+2026-10-31 to 2026-11-02. See §11, question 7.
+
 ### Framework tables
 
 `personal_access_tokens` (Sanctum), `cache`, `cache_locks`, `jobs`,
@@ -605,10 +702,10 @@ system, so an index here is paid for on every authenticated request.
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **60 routes**
-today (`route:list`, 2026-10-16) — the 41 below, the sessions and device-token
-routes of work order §4.3 (six), and thirteen attendance routes. The last two
-groups are rows 42–60 at the end of the table.
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **94 routes** under
+`/api` today (`route:list`, 2026-11-04): rows 1–41 are the foundation, 42–47 the
+sessions and device tokens of work order §4.3, 48–60 attendance, 61–70 the rest of
+`/api/me`, 71–76 approvals, 77–89 leave, and 90–94 the import by upload.
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -648,6 +745,33 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 55–56 | PATCH/DELETE | `/api/attendance/records/{record}/reject` | bearer | `attendance.records.reject`, row-scoped |
 | 57–59 | GET | `/api/attendance/report` (+ `/monthly`, `/employee`) | bearer | `attendance.records.view`, row-scoped |
 | 60 | GET | `/api/attendance/absent-today` | bearer | `attendance.records.view`, row-scoped |
+| 61 | GET | `/api/me/attendance/days` | bearer | self-scoped |
+| 62 | GET | `/api/me/profile` | bearer | self-scoped |
+| 63–64 | POST/GET | `/api/me/photo` | bearer | self-scoped |
+| 65 | GET | `/api/me/summary` | bearer | self-scoped |
+| 66 | GET | `/api/me/leave-balance` | bearer | self-scoped |
+| 67–68 | GET/POST | `/api/me/leave-requests` | bearer | self-scoped |
+| 69 | POST | `/api/me/leave-requests/{leaveRequest}/cancel` | bearer | self-scoped |
+| 70 | GET | `/api/me/approvals` | bearer | self-scoped |
+| 71 | GET | `/api/approvals` | bearer | `approvals.view`, row-scoped |
+| 72 | GET | `/api/approvals/{approval}` | bearer | policy |
+| 73–74 | POST | `/api/approvals/{approval}/steps/{step}/{approve,reject}` | bearer | the step's approver — no permission |
+| 75 | PATCH | `/api/approvals/{approval}/steps/{step}/assignee` | bearer | `approvals.reassign`, row-scoped |
+| 76 | POST | `/api/approvals/{approval}/withdraw` | bearer | the requester — no permission |
+| 77 | GET | `/api/leave/types` | bearer | — |
+| 78–80 | POST/PATCH/DELETE | `/api/leave/types` (+ `/{leaveType}`) | bearer | `leave.types.{create,update,delete}` |
+| 81 | GET | `/api/leave/balances` | bearer | `leave.balances.view` |
+| 82 | PUT | `/api/leave/balances/{employee}/{year}` | bearer | `leave.balances.update` |
+| 83 | GET | `/api/leave/requests` | bearer | `leave.requests.view` |
+| 84–85 | GET | `/api/leave/requests/{leaveRequest}` (+ `/attachments/{attachment}`) | bearer | policy |
+| 86 | POST | `/api/leave/requests/{leaveRequest}/return-to-work` | bearer | `leave.requests.returnToWork` |
+| 87–88 | POST/DELETE | `/api/leave/excuses` (+ `/{leaveRequest}`) | bearer | `leave.excuses.{create,delete}` |
+| 89 | GET | `/api/leave/on-leave` | bearer | `attendance.records.view` |
+| 90 | POST | `/api/hr/employee-imports` | bearer | `hr.employees.import` |
+| 91 | GET | `/api/hr/employee-imports/{run}` | bearer | `hr.employees.import` |
+| 92 | PUT | `/api/hr/employee-imports/{run}/exclusions` | bearer | `hr.employees.import` |
+| 93 | POST | `/api/hr/employee-imports/{run}/execute` | bearer | `hr.employees.import` |
+| 94 | GET | `/api/hr/employee-imports/{run}/report` | bearer | `hr.employees.import` |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.
@@ -676,6 +800,11 @@ reads an employee must be updated. Written up as
 `/api/auth/me` and `/api/auth/users` still return `name` — that key is an
 *account's* display name and is unchanged. Only the employee resource split.
 
+⚠️⚙️ **Contract changes on 2026-10-24.** `POST /api/hr/employees` now requires
+`employee_number` (the Kobo id), the number cannot be changed afterwards, and the
+`201` carries `account: {user_id, login, temporary_password}` beside `data` — the
+only time that password is shown.
+
 ---
 
 ## 8. The roadmap — the real one
@@ -698,9 +827,9 @@ module**, and the phase order changed accordingly.
 | Stage | Work | State |
 |---|---|---|
 | **0** | Freeze legacy schema changes (bug fixes excepted) | not started |
-| **1** | **Phase 1.5 truth-up + real data import** | **in progress — 1 of 4 batches done** |
-| **2** | Documents + a shared approval engine (ported from legacy) | not started |
-| **3** | Attendance + Leave (ported from legacy) | not started |
+| **1** | **Phase 1.5 truth-up + real data import** | ⚙️ **in progress — Batches 1–3 done; Batch 4, the real import, has not run** |
+| **2** | Documents + a shared approval engine (ported from legacy) | ⚙️ **engine built (2026-10-18), leave its first consumer; documents not started** |
+| **3** | Attendance + Leave (ported from legacy) | ⚙️ **both built (2026-10-16, 2026-10-19); the pilot, the parallel month and the cutover are still to come** |
 | **4** | Payroll (built new) | not started |
 | **5** | Decommission the legacy backend | not started |
 | later | Tasks, Projects, Purchasing, Warehouses, Assets, Finance | design doc phases 4–9 |
@@ -711,6 +840,12 @@ attendance + leave (a pilot by 2026-11-01), then documents onto the same engine
 (November), then the Stage 3 parallel month and cutover (~2026-12-01). One
 approval implementation, as before — only the order of its consumers changed.
 The plan is [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md).
+
+⚙️ **Those dates no longer bind (2026-10-16).** The project owner withdrew the
+calendar: the target is a complete v1, in dependency order. Two rulings of that
+day also shape what follows: **no record moves from legacy** — the ERP's people
+come from HR's workbook and everything else starts empty — and no open decision
+is defaulted by date.
 
 ⚙️ **One dependency is missing from this table.** Stage 4 payroll reads
 `التمييز` (`employees.distinction_grade`), and **no stage builds the performance
@@ -767,9 +902,10 @@ side is a separate question — §11, question 6.
 
 ### Exit criteria worth writing down
 
-- **Stage 1:** the ERP holds the real tree and all 242 active + 223 terminated
-  employees, HR has reviewed the import, and **the ERP is the identity source of
-  truth**.
+- **Stage 1:** the ERP holds the real tree and ~~all 242 active + 223 terminated
+  employees~~ ⚙️ the 185 people of the October workbook (2026-10-14: leavers are
+  deferred, and the production division moved to صلد and is not imported), HR has
+  reviewed the import, and **the ERP is the identity source of truth**.
 - **Stage 2:** documents and approvals run entirely on the ERP; the legacy
   document endpoints are dark.
 - **Stage 3:** a full month of attendance runs on the ERP, closes cleanly, and
@@ -821,8 +957,8 @@ once.
 |---|---|---|
 | **1** | `Office` tier + `Sector` enum + `departments.sector` + resource/guard updates + the real tree seeded | **done, 2026-08-05/06** |
 | **2** | `employees` restructure (§5) + the new tables (§6) + permission additions | **done, 2026-09-13** |
-| **3** | Import tooling (§7) + the reviewable org-tree artefact | **not started — do this next** |
-| **4** | HR review pass, corrections, the real import | not started |
+| **3** | Import tooling (§7) + the reviewable org-tree artefact | ⚙️ **done** — review file 2026-10-10, `hr:import-employees` 2026-10-15, the upload screen 2026-10-22/23, one file 2026-10-24 |
+| **4** | HR review pass, corrections, the real import | ⚙️ **not run** — §10 says what it waits on |
 
 Estimate for the whole of Phase 1.5 was 2–3 weeks, in four commits that each
 leave the suite green.
@@ -834,8 +970,8 @@ These are binding — do not re-open them:
 | # | Question | Answer |
 |---|---|---|
 | 1 | Is `الجهة` a tier or an attribute? | **Attribute** — a `sector` column |
-| 2 | Is `اللقب` an official identifier? | **No** — full name only, first + middle + last |
-| 3 | Is `مكان الراتب` a payroll grouping? | **No** — finance pays everyone. Column dropped |
+| 2 | Is `اللقب` an official identifier? | **No** — full name only, first + middle + last. ⚙️ Still no identifier, but it is stored since 2026-10-14 as `employees.nickname`, free text |
+| 3 | Is `مكان الراتب` a payroll grouping? | **No** — finance pays everyone. Column dropped. ⚙️ **Reversed 2026-10-14**: needed in v1, so `employees.payroll_location` exists, free text and pay-gated |
 | 4 | Currency? | **USD only** — no `currency` column anywhere |
 | 5 | Migrate the Access DB (`HR-Raki.accdb`)? | **No** — records move manually later |
 | 6 | Do `ورشة` / `فريق` / machine groupings belong in the tree? | **No** — they are job titles and asset categories |
@@ -850,7 +986,7 @@ Four more on **2026-09-13**:
 |---|---|---|
 | 7 | Is a job title per-division or company-wide? | **One shared row.** `job_titles.name` is unique and `department_id` is dropped — `محاسب` is a single title with a single description however many divisions employ accountants. Was §11 question 3 |
 | 8 | Should the ERP store الديانة، المذهب، السوابق الجنائية? | **No.** The intake form collects them; nothing here reads them, so they are never imported. Data that is not stored cannot leak |
-| 9 | `employee_number` format | **Auto-generate when blank, allow a manual override** where it is unique. ~~`legacy_number` keeps the imported `M024333`~~ — ⚙️ **amended 2026-09-23, see below: that column is dropped.** Closes §11 question 1 |
+| 9 | `employee_number` format | ~~**Auto-generate when blank, allow a manual override** where it is unique.~~ ⚙️ **Superseded 2026-10-24: the number is the Kobo id, required and never changed.** ~~`legacy_number` keeps the imported `M024333`~~ — ⚙️ **amended 2026-09-23, see below: that column is dropped.** Closes §11 question 1 |
 | 10 | Scope of the HR build | **Batch 2 as ratified.** Payroll, attendance, leave and documents are *not* rebuilt — attendance, leave and documents already run in production in the legacy system and arrive by port (Stages 2–3); payroll is Stage 4 |
 
 And one on **2026-09-13**: a job title is **one shared, company-wide row** —
@@ -898,12 +1034,12 @@ and `me`. Changing the password revokes every other session. 16 tests in
 ⚠️ **This is a breaking change for every client** — the login field was `email`.
 `API_DOCUMENTATION.md` carries the notice at the top and in §3.1/§3.5.
 
-What is **not** done: the five obligations this puts on the Batch 3 importer —
-accounts for active employees only, termination disabling an account, the
-credential artefact, the soft-delete re-run trap, and coverage as a Stage 3 exit
-criterion. They are in
-[`EMPLOYEE_APP_REQUIREMENTS.md` §7.1](EMPLOYEE_APP_REQUIREMENTS.md) and belong to
-the importer, which does not exist yet.
+✅ ⚙️ **The five obligations this put on the Batch 3 importer are met** — accounts
+for the rows it imports, all of them active since leavers were deferred;
+termination disabling an account (`TerminationDisablesAccountTest`); the
+credential artefact; the soft-delete re-run trap (`EmployeeImporterTest`); and
+coverage as a cutover criterion (work order §6). The list is in
+[`EMPLOYEE_APP_REQUIREMENTS.md` §7.1](EMPLOYEE_APP_REQUIREMENTS.md).
 
 And one on **2026-09-23**: **`employees.legacy_number` is dropped.** The company
 keeps **one** staff number, not two. The column was added in Batch 2 to hold the
@@ -928,7 +1064,7 @@ cheaper to answer as a set than one at a time.
 
 | # | Question | Answer | What it unblocks |
 |---|---|---|---|
-| 11 | **The staff number after the import** | **New generated numbers** (`EMP-00001`). The `M024333` series is not carried in. The importer keys its re-runs on **a staging table mapping source row → employee**, not on a domain column | Batch 3. Consistent with decision 10 — no legacy identifier returns to `employees` by the back door |
+| 11 | **The staff number after the import** | ~~**New generated numbers** (`EMP-00001`).~~ ⚙️ **Superseded 2026-10-24: the Kobo id, and the generator is gone.** The `M024333` series is not carried in. The importer keys its re-runs on **a staging table mapping source row → employee**, not on a domain column | Batch 3. Consistent with decision 10 — no legacy identifier returns to `employees` by the back door |
 | 12 | **`إدارة الإمداد والتوريد`** | **It exists. The seeded tree is correct** — `SUP`, a division, per the org chart | Batch 3. Closes §11 question 1 |
 | 13 | **GAP-12 — writing a field you cannot read** | **من لا يرى لا يكتُب.** Writing `agreed_salary`, `sham_cash_account` or any of the nine classification axes requires `hr.employees.viewSalary`; writing `national_id` requires `hr.employees.viewIdentity` | The asymmetry the real import would have shipped with. No new permission needed |
 | 14 | **GAP-3 — a manager's scope** | **The whole subtree.** A division head sees every section and office beneath them and all their staff — not just the rows whose `department_id` is their own unit | Row-level authorization, and لوحة المدير with it |
@@ -999,6 +1135,12 @@ discrepancy rather than drop it silently — the same rule it already follows fo
 `#N/A` criteria and malformed Sham Cash numbers. A disagreement between the
 workbook and the org chart is a fact about the company, and the import is the
 last moment anyone will be looking at both.
+
+⚠️ ⚙️ **Checked 2026-11-04: this report is not built.** The importer keeps the
+workbook's `المدير المباشر بداية التعيين` as `legacy_manager_name` and compares it
+with nothing. No document records dropping the obligation, so it stands; §10 lists
+it. That column names the manager at the *start* of the posting, which is worth
+weighing before building the comparison.
 
 What it touched: the Batch 2 migration (the column is simply not in it now), the
 model's `directManager` and `directReports` relations, the request rule and its
@@ -1097,35 +1239,79 @@ built once. Scope, the thirteen open decisions and the calendar are in
 [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md); the table-by-table
 port is [`LEGACY_TO_ERP_MAPPING.md`](LEGACY_TO_ERP_MAPPING.md).
 
+### ⚙️ What decision 25 has built so far (to 2026-11-04)
+
+Each piece has its entry, with its decisions, in the work order's §8.
+
+| Piece | Work order | State |
+|---|---|---|
+| Sessions, device tokens, push | §4.3 | Built 2026-10-10/11. A real FCM send is unproven (§5.8) |
+| Employee importer | §4.4 | Built 2026-10-15; a dry run only, on the development database |
+| Attendance | §4.5 | Built 2026-10-16: recording, oversight, reports, the scheduled day |
+| Approvals engine | §4.6 | Built 2026-10-16/18 |
+| Leave | §4.7 | Built 2026-10-18/19 on the engine |
+| `/api/me` | §4.8 | Built 2026-10-19; `/api/me/attendance/days` added 2026-10-26 |
+| Parity audit | — | 2026-10-20: 103 rules checked against legacy, sixteen findings answered by the owner |
+| Import by upload | — | Built 2026-10-22/24: dry run, excluding rows, real run, one file |
+| Kobo employee numbers | — | Built 2026-10-24; `hr:renumber-from-kobo` exists and has not been run |
+| Account on hand-adding an employee | — | Built 2026-10-24 |
+| Attendance work sites, location review | — | Built 2026-10-31, **removed 2026-11-02** (§11, question 7) |
+| Refused check-ins counted | — | Built 2026-11-02 |
+| The Flutter app | §4.10 | A new repository, `../alraqi-erp-app`, copied from `doc_approval` (`tech.alraqi_company.erp`, «موظف الراقي»). Slices 0–4 merged 2026-11-04 |
+| The real import | §4.9 | Not run |
+| The pilot | §4.11 | Not released |
+
 ---
 
-## 10. What to do next — Batch 3, the import tooling
+## 10. What to do next
 
-⚙️ **Batch 2 is done (2026-09-13).** Jump to
-[Batch 3](#batch-3--import-tooling) for the next work. The rest of this section
-is the record of what Batch 2 built and why — it is the reference for anyone
-touching `employees` now, and it is written in the imperative because that is how
-it was specified.
+⚙️ **Rewritten 2026-11-04.** In dependency order. Nothing here has a date: the
+project owner withdrew the calendar on 2026-10-16.
 
-> ⚙️ **Two things are in flight ahead of Batch 3 (2026-09-24), and both are
-> written down rather than remembered:**
->
-> 1. ~~**GAP-3, row-level authorization** — decided, not built.~~ ✅ **Built
->    2026-09-24** for employees, per
->    [`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`](GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md)
->    (its §8 records what was decided while building). ⚙️ **GAP-15**, which it
->    left behind, was registered and closed on 2026-09-26 (§9, decisions
->    21–23). Narrowed grants can roll out — ~~except `auth.roles.assign`,
->    which stays company-wide until GAP-16 is fixed~~ — ⚙️ `auth.roles.assign`
->    included since **GAP-16** closed on 2026-09-28 (decision 24).
-> 2. **Batch 3 itself gained a prerequisite and an obligation** — the `users`
->    migration must land first (§9, the account model), and the importer now owes
->    a report wherever the source names a manager the org tree disagrees with
->    (§9, decision 20).
-> 3. ⚙️ **And a second prerequisite (2026-09-28): GAP-19** — ✅ **closed the
->    same day.** Correcting an employee's `hire_date` did not move their opening
->    posting, and the importer re-runs against HR corrections. It moves now, in
->    the model; see "Two things the importer gets for free" below.
+**1. The app, slices 5–8** (`../alraqi-erp-app`,
+`docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there): 5 approvals,
+6 notifications and push, 7 حسابي and راتبي, 8 pilot hardening. The routes they
+name all exist (§7), so this is app work. The owner owes, by that design's §9: the
+registration of `tech.alraqi_company.erp` in the legacy Firebase project and its
+two config files (slice 6, push on a device), then the launcher icon and the
+deployed ERP URL (slice 8).
+
+**2. Batch 4, the real import** (work order §4.9). It needs, in order:
+
+1. **HR confirms the tree changes** in
+   [`hr-review/org-tree-review-2026-10-10.xlsx`](hr-review/org-tree-review-2026-10-10.xlsx)
+   — the fourteenth division among them. They go into `DepartmentSeeder` and its
+   exact-count test **first**; the seeder has not changed since 2026-08-06 and
+   still seeds 13 divisions and 119 rows.
+2. **HR checks each person's pay block.** D10 shows it to every employee from day
+   one, so every axis must be right per person before the import.
+3. **HR answers what `التمييز بحسب التقييم` holds.** Not imported until answered.
+4. **A decision on the manager report** (decision 20): build it, or drop the
+   obligation. Unbuilt today.
+5. **A fresh dry run, then the real one**, through `/api/hr/employee-imports` or
+   `hr:import-employees`. The real run waits for the project owner.
+   `hr.employees.import` is in no seeded role, so over the API only a super admin
+   can run it until a role carries it.
+
+**3. The pilot** (work order §4.11). Beyond the app and the import it needs:
+
+- a deployed ERP (the app's design still lists its URL as owed), with
+  `FIREBASE_CREDENTIALS` and a `queue:work` process;
+- a reverse proxy allowing the import's ~2 minutes;
+- the go-live grant plan the parity audit left open (C-2): which roles, with which
+  scope;
+- the D12 group, and a first-login run-through with them in one sitting.
+
+**4. Documents onto the engine, the parallel month and the cutover.** The cutover
+date is still owed by the project owner (work order §8, 2026-10-16).
+
+**5. Questions waiting on the owner:** §11, above all question 7.
+
+### The record of Batch 2
+
+The rest of this section is the record of what Batch 2 built and why — the
+reference for anyone touching `employees` now, written in the imperative because
+that is how it was specified — and then the specification of Batches 3 and 4.
 
 ### Why it had to happen before the import
 
@@ -1239,10 +1425,22 @@ constant the calculator can `match` on exhaustively.
 
 ### Batch 3 — import tooling
 
+⚙️ **Built (2026-10-15 to 2026-10-24).** What follows is the original
+specification, kept as the record. The build moved away from it in five places,
+each logged in the work order's §8:
+
+- **The source** is `Program_HR_10_2026.xlsx`, sheet `قاعدة البيانات`: **185
+  people**. Leavers and the production division are not imported. HR merges the
+  seven صرح columns into that one file.
+- **The key** is `kobo:<id>` in `employee_import_sources`.
+- **The number** is the Kobo id, not a generated `EMP-00001`.
+- **No image is imported.** The employee uploads their own photo.
+- **HR can run it**, through the upload screen, as well as the developer through
+  `hr:import-employees`.
+
 ⚙️ **Since 2026-10-05 Batch 3 is the first half of a larger plan** — the Employee
-App v1 pilot (decision 25). Build order and calendar are in
-[`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §4–§5; what
-follows here is still the specification of the importer itself. ⚙️ **One
+App v1 pilot (decision 25). Build order is in
+[`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §4. ⚙️ **One
 correction to the paragraph below:** the `users` migration it asks for first
 **is done** — it shipped on 2026-09-23 with the account model (`76f533c`).
 
@@ -1299,8 +1497,9 @@ the real cut, and without one, run two duplicates run one. `legacy_number` was
 that key until the column was dropped.
 
 **The replacement is a staging table owned by the importer**, mapping *source row
-→ employee id*, and **not** a column on `employees`. Everyone gets a newly
-generated `EMP-00001`; the `M024333` series is not carried in. Three properties
+→ employee id*, and **not** a column on `employees`. ~~Everyone gets a newly
+generated `EMP-00001`~~ ⚙️ (superseded 2026-10-24: the Kobo id); the `M024333`
+series is not carried in. Three properties
 this buys, which are the reason it was chosen over reusing `employee_number` or
 `national_id`:
 
@@ -1315,8 +1514,10 @@ this buys, which are the reason it was chosen over reusing `employee_number` or
 What it costs: the staging table and its own tests, plus HR learning new numbers
 for everyone.
 
-**Batch 4 — the real import.** 242 active rows plus 223 from `إنهاء عمل` with
-`status = terminated`, each with an opening `employee_assignments` row.
+**Batch 4 — the real import.** ~~242 active rows plus 223 from `إنهاء عمل` with
+`status = terminated`~~ ⚙️ The 185 rows of the October workbook (2026-10-14), each
+with an opening `employee_assignments` row. Not run; the top of this section says
+what it waits on.
 
 ---
 
@@ -1393,13 +1594,23 @@ decisions 7–10 in §9. What is left:
    backfilled with each employee's current values dated at go-live — so **this
    does not block Batch 4. It blocks the payroll calculator (Stage 4).**
 
+7. ⚙️ **Why were attendance work sites and location review removed, and is that
+   final?** New (2026-11-04). They were built on 2026-10-31 and removed on
+   2026-11-02 in all three repositories. **The reason is not recorded**: both
+   backend removal commits have empty messages, and the migration says only «The
+   owner requested permanent deletion of these feature records». The answer
+   belongs in the work order's §8, entry 2026-11-02, which also sets out what was
+   deleted. That entry asks a second question: the migration deletes rows from
+   `audit_logs`, which §5.7 calls append-only.
+
 ### For the merge
 
 1. **Cutover windows and sign-off** — who authorises each stage, and what notice
    does the company get? Stage 3 needs a named date and a message to every
    employee with the app.
-2. **FCM project** — reuse the legacy Firebase project and its registered device
-   tokens, or issue a new one? Reuse is the lower-risk default.
+2. ✅ ⚙️ **FCM project — reused.** The app's design took the legacy Firebase project
+   (its A5, D8 in the work order), with `tech.alraqi_company.erp` registered inside
+   it. The registration itself is still owed (§10).
 3. ✅ **Legacy audit trail — not migrated** (2026-10-16): no data moves from
    legacy at all; it stays in the archived snapshot.
 4. **Document numbering continuity** — continue the sequence unbroken across the
@@ -1409,7 +1620,7 @@ decisions 7–10 in §9. What is left:
 
 ### Technical, undecided
 
-- **Notification transport** — closes in Stage 3 by adopting the legacy FCM layer.
+- ✅ ⚙️ ~~**Notification transport**~~ — FCM, built 2026-10-11 (§5.8).
 - **Must a manager belong to the unit they manage?** Unratified and
   unimplemented; `manager_id` currently accepts any existing employee.
 - ✅ ~~**The escalation chain's operational rules**~~ — **ratified and built
@@ -1433,9 +1644,9 @@ Stated honestly, so none of these is mistaken for a bug.
   2026-09-23.** `App\Shared\Services\ManagementChain` walks it by the rules
   ratified that day (decision 15 in §9), and `EmployeeResource` now carries a
   resolved `manager` — the only manager there is, since `direct_manager_id` was
-  dropped on 2026-09-24. What remains unbuilt is
-  the *consumer* — the Stage 2 approvals engine that will climb the same chain,
-  and the manual reassignment that sits on top of it.
+  dropped on 2026-09-24. ⚙️ Its consumer is built too: the approvals engine climbs
+  the same chain, and manual reassignment sits on top of it
+  (`PATCH /api/approvals/{approval}/steps/{step}/assignee`).
 - **The المدير العام has no one above them.** By construction the chain
   terminates there. Intended, not a gap.
 - ✅ ~~**Pay-field WRITE access is ungoverned.**~~ **Closed 2026-09-23.** A write
@@ -1454,10 +1665,10 @@ Stated honestly, so none of these is mistaken for a bug.
   `POST /api/hr/employees/{employee}/assignments`. This is a deliberate split,
   not a gap: the alternative is smuggling history fields onto a person's
   profile.
-- ⚙️ **`employee_documents` has a table and no endpoints.** The importer will
-  write it; upload and download arrive with the Documents module in Stage 2.
-  Whoever builds them owes the `ShamCash` type the `viewSalary` gate — a photo
-  of a payment account is the account number.
+- ⚙️ **`employee_documents` has endpoints for one type only**, the personal photo
+  (`/api/me/photo`). Upload and download of the rest arrive with the Documents
+  module. Whoever builds them owes the `ShamCash` type the `viewSalary` gate — a
+  photo of a payment account is the account number.
 - **Concurrency guarantees are real only on MySQL with a shared lock and cache
   store.** The root-creation lock, the parent row locks and the permission cache
   are no-ops or process-local under the SQLite test driver — correct by
@@ -1534,7 +1745,7 @@ The domain is Arabic and the code is English. This is the mapping used throughou
 | التمييز بحسب التقييم | `distinction_grade` | set by performance review |
 | نظام رواتب / إتفاق | `salary_mode = scale` / `agreed` | the two pay tracks |
 | النسبة المئوية للقيمة | the company scale factor | currently `0.75`; belongs in the rate table |
-| الرقم الوظيفي | `employee_number` | ⚙️ **Amended 2026-09-23.** Mapped to `legacy_number` until that column was dropped; the `M024333` values now go in the one staff-number column, or nowhere |
+| الرقم الوظيفي | `employee_number` | ⚙️ **Amended 2026-10-24.** The person's Kobo id, which the workbook holds as `ID_Sarah`. The `M024333` values are not imported |
 | رقم الشام كاش | `sham_cash_account` | exactly 16 digits |
 | ~~متعاقد / إنهاء عمل~~ | ~~`status = active` / `terminated`~~ | ⚙️ **Superseded 2026-09-13 — this mapping read two facts as one.** See the two rows below |
 | نشط / موقوف / منتهي الخدمة | `EmployeeStatus` | *Is this person employed?* موقوف replaces the vague `inactive` |
