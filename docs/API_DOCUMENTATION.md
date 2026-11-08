@@ -2268,6 +2268,21 @@ is not the caller's to learn. **404** «لا توجد صورة لهذا السج
 has no selfie (an HR-corrected check-out) or its file was deleted after three
 months.
 
+### 12.5 One of my records
+
+⚙️ **New 2026-11-07 (app slice 6).**
+
+```
+GET /api/me/attendance/{record}
+```
+
+**200** → `{ data: <the record object of §12.1> }`, refused records included.
+
+A notification about a record carries only its id (§6: `reference` /
+`reference_id`), and this is how a client finds the day it is about. Self-scoped:
+a colleague's record, an unknown id and an account with no employee are all the
+same **404**, so whether a record exists is not the caller's to learn.
+
 ---
 
 ## 13. Attendance — oversight (HR and managers)
