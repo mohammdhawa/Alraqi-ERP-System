@@ -1608,3 +1608,39 @@ it, and 41% of their check-ins end as missing check-outs against 20% company-wid
 **S1 answered the same day: A.** The app's release is delayed and shifts are
 built first; §4.10's slice 8 comes after them, because shifts change the app's
 check-in, home card, "my days" and offline queue. S2–S13 are open.
+
+### 2026-11-09 — work shifts: the decision round, answered
+
+All thirteen answered the day the round opened; the round is closed. Q8.1, Q9 and
+Q10's reminder and close of 2026-10-16 are superseded; Q8.2 (no holiday calendar),
+the 60-minute minimum between check-in and check-out, and no check-in during
+approved leave stand.
+
+| | Answer | What it changes |
+|---|---|---|
+| **S1** | Shifts before the app's release | Slice 8 waits for shifts |
+| **S2** | Fixed day, fixed night, the guards' cycle | Rotating, flexible and dated hours are **not built** |
+| **S3** | Default: **09:00–16:00, Saturday to Thursday** | Everyone without another schedule has **Friday off**, and a start time. Not today's rules, so switching it on changes the day for everyone: it is its own step, after the re-key |
+| **S4** | Late and early recorded, no penalty; **15 minutes' grace** | Minutes beside the day's state, not new states; nothing deducted until payroll |
+| **S5** | Per shift: reminder at the end, **close 4 hours after it** | 17:00 and 23:59 go: the default reminds at 16:00 and closes at 20:00 |
+| **S6** | No holiday calendar yet | `isChargeableDay()` stays the hook |
+| **S7** | **72 hours on, 3 days off**, every duty at **08:00** | A 6-day cycle with a start date per guard; nobody else works a cycle |
+| **S8** | **One check-in and one check-out per 72-hour duty** | Split into three 24-hour shifts. A missing check-out leaves all three missing, with no hours |
+| **S9** | Leave charges scheduled working days only; a 72-hour duty charges **3 days** | Leave reads each person's schedule; Fridays off and rest days are never charged |
+| **S10** | A night shift belongs to its **start date**; check-in opens **60 minutes** early; a check-out counts up to **4 hours** late; a check-in outside every window is **accepted and flagged** | The matching rule |
+| **S11** | Hours within the shift and outside it | Both derived from the two records; no overtime approval |
+| **S12** | HR only, company-wide | New permissions are company-only, classified in `PermissionReach` |
+| **S13** | One-off changes by HR, and swaps now: a guard requests one naming the other, **no acceptance by the other guard**, one step by the **direct manager** | Swaps are a new subject on the approvals engine, with a one-step chain; the other guard is told, not asked |
+
+**Three things to settle while building, not by the owner:**
+
+- **The guards' duty and S10's window.** Check-in opens at 07:00 and the duty's
+  close falls at 12:00 on its fourth day (08:00 plus 4 hours). A guard's next duty
+  is three days later, so windows never overlap.
+- **A guard's 72 hours and today's day-based rules.** One check-in covering three
+  shifts means the per-day rules — one check-in per day, the check-out on the same
+  date — are replaced by per-shift ones, not loosened.
+- **Friday check-ins** under the default are accepted and flagged (S10), so the
+  daily board shows them as outside the schedule, not as a working day.
+
+Order of the build: `START_HERE.md` §10, item 0.

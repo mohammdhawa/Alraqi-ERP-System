@@ -146,7 +146,7 @@ moved past. This table says which one to trust for what.
 | ⚙️ **`EMPLOYEE_APP_V1_WORK_ORDER.md`** | **The app's v1 pilot on the ERP**, and in its §8 **the running record of what was built and decided**, entry by entry. Its §3 lists thirteen decisions | §4.1–§4.8 are built. §4's text is the original plan, so trust §8 over it where they differ |
 | ⚙️ `ATTENDANCE_BUILD.md`, `APPROVALS_ENGINE_DESIGN.md`, `LEAVE_BUILD.md` | **How each module was designed** — its rules, its slices, what differs from legacy | Attendance predates the work-site episode, which left nothing behind (work order §8, 2026-11-02) |
 | ⚙️ `DECISION_ROUND_ATTENDANCE_LEAVE.md`, `PARITY_AUDIT_ATTENDANCE_LEAVE.md` | The 14 questions the attendance and leave rules rest on, and the rule-by-rule check against legacy | Both closed; the answers are in work order §8 (2026-10-16, 2026-10-20) |
-| ⚙️ `DECISION_ROUND_WORK_SHIFTS.md` | The 13 questions work shifts need answered first: they reopen Q8–Q10 of the round above, with legacy's evidence on the guards | **Open** since 2026-11-09; S1 answered (shifts before the release) |
+| ⚙️ `DECISION_ROUND_WORK_SHIFTS.md` | The 13 questions work shifts need answered first: they reopen Q8–Q10 of the round above, with legacy's evidence on the guards | Closed 2026-11-09; the answers are in work order §8 (2026-11-09) |
 | ⚙️ `EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`, `WORKBOOK_COLUMN_MAP.md` | The import by upload, and what each workbook column becomes | The صرح file is no longer read (2026-10-24) |
 | ⚙️ `KOBO_EMPLOYEE_NUMBER_DESIGN.md`, `EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md` | The number a person signs in with, and the account made with a hand-added employee | — |
 | ⚙️ **`LEGACY_TO_ERP_MAPPING.md`** | **What every legacy attendance, leave, approval, device and notification table, route and permission becomes** in the ERP, and which data moves | First pass, 2026-10-05. Documents are not mapped yet (November) |
@@ -1276,13 +1276,16 @@ order. Nothing here has a date: the project owner withdrew the calendar on
 2026-10-16.
 
 **0. Work shifts, before the app's release** (decided 2026-11-09:
-[`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md), S1 = A). First
-the round's S2–S13 answered by the owner and HR; then, in this order: the
-attendance day re-keyed from the calendar date to the shift, with a default
-schedule equal to today's rules so nothing changes for anyone unassigned; shift
-templates, cycles and dated assignments; one resolver of a person's expected shift,
-read by the check-in rules, the reminder and the close, every report, `/api/me`
-and leave charging; then the dashboard and the app. Slice 8 is done after it, not
+[`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md), closed the same
+day; what each answer changes is in the work order's §8). Scope: fixed day and
+night shifts and the guards' 72-hours-on, 3-days-off cycle; late and early
+recorded with no penalty; HR-recorded one-off changes and manager-approved swaps.
+In this order: the attendance day re-keyed from the calendar date to the shift,
+first with no change in behaviour; shift templates, the cycle and dated
+assignments; one resolver of a person's expected shift, read by the check-in
+rules, the reminder and the close, every report, `/api/me` and leave charging;
+the decided default switched on (09:00–16:00, Saturday to Thursday); one-off
+changes and swaps; then the dashboard and the app. Slice 8 is done after it, not
 before, since shifts change the app's check-in, home card, "my days" and offline
 queue.
 
@@ -1327,8 +1330,7 @@ device yet.
 **4. Documents onto the engine, the parallel month and the cutover.** The cutover
 date is still owed by the project owner (work order §8, 2026-10-16).
 
-**5. Questions waiting on the owner:** §11, above all question 7, and question 8
-— the work shifts round, S2–S13, which item 0 waits on.
+**5. Questions waiting on the owner:** §11, above all question 7.
 
 ### The record of Batch 2
 
@@ -1626,12 +1628,11 @@ decisions 7–10 in §9. What is left:
    deleted. That entry asks a second question: the migration deletes rows from
    `audit_logs`, which §5.7 calls append-only.
 
-8. ⚙️ **Work shifts: thirteen questions.** New (2026-11-09), in
-   [`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md). Shifts
-   reopen Q8–Q10 of 2026-10-16 (no day off, no "late", one close at 23:59). The
-   first, S1, is answered: shifts come before the app's release. Legacy's
-   data shows why the guards need them: 41% of their check-ins end as missing
-   check-outs, because the system's day ends at midnight and their duties do not.
+8. ✅ **Closed the day it opened (2026-11-09). Work shifts: thirteen questions**,
+   in [`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md). They
+   reopened Q8–Q10 of 2026-10-16: the default schedule now has Friday off, late
+   and early are recorded, and the reminder and close run per shift. Item 0 of
+   §10 is the build.
 
 ### For the merge
 

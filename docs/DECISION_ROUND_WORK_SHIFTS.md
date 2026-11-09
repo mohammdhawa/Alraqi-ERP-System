@@ -1,8 +1,15 @@
 # Decision round — work shifts
 
-> 🟡 **OPEN since 2026-11-09**, for the project owner and HR, before work shifts
-> are built. Nothing in this file is built yet. **S1 is answered** (2026-11-09:
-> shifts first, the app's release delayed); S2–S13 are open.
+> ✅ **CLOSED 2026-11-09 — all 13 answered the day the round opened.** The
+> answers are on each `Answer:` line below and are recorded, with what they
+> change, in [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §8
+> (entry "2026-11-09 — work shifts: the decision round, answered"). Build from
+> the work order; this file is the record of what was asked and why. Nothing in
+> it is built yet.
+>
+> **Where the answers left the recommendation:** S2 (no rotating, flexible or
+> dated hours), S3 (the default is a day schedule with Friday off, not today's
+> rules) and S13 (swaps now, approved by the direct manager).
 >
 > **Why a round.** Work shifts reopen three answers the owner ratified on
 > 2026-10-16 in [`DECISION_ROUND_ATTENDANCE_LEAVE.md`](DECISION_ROUND_ATTENDANCE_LEAVE.md):
@@ -121,7 +128,7 @@ or "none":
 and the others only when this table names someone who works them. Rotating and
 dated are cheap once the cycle exists; flexible is a different matching rule.
 
-`Answer:`
+`Answer:` **Fixed day hours, fixed night hours, and the guards' cycle** (confirmed in S7: one check-in and one check-out per 72-hour duty). **No rotating, flexible or dated hours** — not built.
 
 ---
 
@@ -146,7 +153,7 @@ the import brings in.
 **Recommended: A.** It changes nothing for anyone until HR assigns them a
 schedule, so shifts can land without a migration of people.
 
-`Answer:`
+`Answer:` **Neither as written: the default is a fixed day schedule, 09:00–16:00, Saturday to Thursday.** Friday is a day off for everyone without another schedule — no absence, no leave charged. This reverses Q8.1 (no weekly day off) for everyone, and with S4 it means everyone unassigned can be late from 09:15.
 
 ### S4 — "Late" and "early departure" — reopens *Q9*
 
@@ -165,7 +172,7 @@ states — someone can be both on one day — so they sit beside the day's state
 (present, absent, on leave…) rather than replacing it. A deduction is a pay rule
 and belongs with the calculator.
 
-`Answer:`
+`Answer:` **B** — recorded, no penalty, with **one grace of 15 minutes** for every shift, applied to arriving late and to leaving early.
 
 ### S5 — The reminder and the close — reopens *Q10*
 
@@ -182,7 +189,7 @@ whole company. A night shift cannot survive 23:59.
 times for everyone else. The 60-minute minimum between a check-in and its
 check-out, and no check-in during approved leave, stay as they are.
 
-`Answer:`
+`Answer:` **A** — per shift, **the close 4 hours after the shift's end**. Since S3 gives everyone a schedule, 17:00 and 23:59 go entirely: the default shift reminds at 16:00 and closes at 20:00. The 60-minute minimum and no check-in during approved leave stay.
 
 ### S6 — Public holidays — reopens *Q8.2*
 
@@ -200,7 +207,7 @@ needs Eid not to count against office staff's leave during the pilot. The code
 keeps one hook for it (`AttendanceCalendar::isChargeableDay()`), so B is a
 contained addition later.
 
-`Answer:`
+`Answer:` **A** — still no holiday calendar; one comes before payroll, as planned.
 
 ---
 
@@ -219,7 +226,7 @@ Please confirm, for إدارة الأمن والحماية:
    The ERP needs, per guard, the date their current cycle started.
 4. **Does anyone else** work a cycle like this (drivers, site staff)?
 
-`Answer:`
+`Answer:` 1 — **72 hours on duty, then 3 days off**: a 6-day cycle, regardless of the weekday · 2 — **every duty starts at 08:00** and ends at 08:00 three days later · 3 — teams differ only in the day their cycle starts, so the ERP keeps a cycle start date per guard · 4 — nobody else (S2).
 
 ### S8 — How a guard records a duty
 
@@ -242,7 +249,7 @@ Either way: if the check-out is missing, which shifts of the duty count?
 Recommended: **the ones the evidence covers** — with A, a missing check-out
 leaves all three as missing check-outs for HR to correct, as a day is today.
 
-`Answer:`
+`Answer:` **A** — one check-in at the start of the 72-hour duty and one check-out at its end; the ERP splits the time across the three 24-hour shifts. A missing check-out leaves **all three** as missing check-outs, with no hours, until HR corrects it.
 
 ---
 
@@ -268,7 +275,7 @@ either (S3 = A).
 And a guard's 24-hour shift on leave: **one day of leave**, or more?
 Recommended: one — the balance counts shifts missed.
 
-`Answer:`
+`Answer:` **A** — only scheduled working days are charged; Fridays off and a guard's rest days never are. A guard's whole 72-hour duty on leave charges **3 days** — one per 24-hour shift.
 
 ### S10 — Which shift a check-in belongs to
 
@@ -286,7 +293,7 @@ Three numbers, and one rule:
    schedule? Recommended: **accepted and shown**, as a refused day is today, so
    no real work goes unrecorded.
 
-`Answer:`
+`Answer:` 1 — **the start date** (a guard's duty from Saturday 08:00 is Saturday's, Sunday's and Monday's shifts) · 2 — **60 minutes** before the start · 3 — **4 hours** after the end, the same as S5's close · 4 — **accepted and flagged** to HR as outside the schedule.
 
 ### S11 — The hours a shift counts
 
@@ -301,7 +308,7 @@ Three numbers, and one rule:
 stored, and payroll gets what it needs to decide overtime later. Approving
 overtime now would be a pay decision with no calculator behind it.
 
-`Answer:`
+`Answer:` **B** — both the time within the shift and the time outside it; nothing approved or paid as overtime until payroll.
 
 ---
 
@@ -318,7 +325,7 @@ overtime now would be a pay decision with no calculator behind it.
 convenience inside A, not a rule: each person gets their own dated assignment,
 so a transfer does not silently change anyone's schedule.
 
-`Answer:`
+`Answer:` **A** — HR only, company-wide.
 
 ### S13 — One-off changes and swaps
 
@@ -337,4 +344,4 @@ Beyond a person's regular schedule:
 request, an approval chain and screens in the app, and can follow once the
 guards are on the ERP.
 
-`Answer:`
+`Answer:` **B** — both now. One-off changes are recorded by HR. A swap is requested by a guard naming the other guard; **the other guard does not have to accept first**; it is approved in **one step by the direct manager** (the org tree's chain, as leave's first step). The approver decides for both.

@@ -5,6 +5,12 @@
    > [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §3 and §8
    > (entry "2026-10-16 — the decision round, answered"). Build from the work order;
    > this file is the record of what was asked and why.
+
+> ⚙️ **Partly superseded 2026-11-09** by
+> [`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md): **Q8.1**
+> (the default schedule now has Friday off), **Q9** (late and early departure are
+> recorded, with no penalty) and **Q10**'s reminder and close (per shift, not
+> 17:00 and 23:59). Q8.2 (no holiday calendar) and the rest of Q10 stand.
    
    > **Opened 2026-10-16** for the project owner, before §4.5–§4.7 of
    > [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) are built.
