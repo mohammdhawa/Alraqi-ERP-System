@@ -1644,3 +1644,43 @@ approved leave stand.
   daily board shows them as outside the schedule, not as a working day.
 
 Order of the build: `START_HERE.md` §10, item 0.
+
+### 2026-11-10 — work shifts, piece 1: the backend core, built
+
+On branch `work-shifts-core` (from `phase_1` at `c43e616`), not merged. Spec
+`docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md`, plan
+`docs/superpowers/plans/2026-11-09-work-shifts-backend-core.md`; built in six
+steps, the first changing no behaviour.
+
+- **Records belong to shifts.** `attendance_records.shift_date` (backfilled
+  with `DATE(recorded_at)`), `outside_schedule`, `checkout_reminded_at`.
+- **The Scheduling module:** shifts, weekly and cycle schedules, dated spans
+  per person; `OFFICE` and `GUARD` seeded; 16 routes and two company-only
+  permissions (API §19).
+- **One resolver** (`ExpectedShifts`, implemented by Scheduling) and **one
+  definition of a duty** — up to three back-to-back shifts.
+- **The rules:** check-in opens 60 minutes before a duty and is for the first
+  duty without one; outside every window it is accepted and flagged; a
+  check-out closes the latest check-in whose duty has not closed (end + 4 h),
+  judged on its tapped moment, so S-2 holds; HR's correction stays within the
+  close (S-3 generalised).
+- **One shift clock** every five minutes replaces the 17:00 reminder and the
+  23:59 close.
+- **One day engine** (`AttendanceDays`) for the daily board, the grid, the
+  monthly report, absent-today and `/api/me`: a duty spread over its shifts,
+  late and early beyond 15 minutes' grace, within and outside minutes.
+- **Leave** charges each person's scheduled days.
+- **`OFFICE` is the default** (09:00–16:00, Saturday to Thursday); the company
+  calendar's working days, window, reminder and close are gone.
+
+⚠️ **Contract change** for the dashboard and the app (API §14): `working_day`
+and the grid's `working_days` are per person now; day rows carry `shift`,
+`late_minutes`, `early_departure_minutes`, `minutes_within_shift`,
+`minutes_outside_shift`, `outside_schedule`. Pieces 3 and 4 adopt them.
+
+**Rulings** made while building are in the plan's ledger and the branch's final
+report; the ones that change behaviour beyond the spec: deleting a future span
+reopens the one it closed; an outside-schedule check-in is one per date; a
+guard's missing check-out counts three missing shifts.
+
+**1392 tests passing (6024 assertions), Pint clean, 111 API routes, 48 permissions.**

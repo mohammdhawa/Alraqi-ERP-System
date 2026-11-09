@@ -359,6 +359,7 @@ Permission string format: `{module}.{resource}.{action}`.
 | Auth – Users      | `auth.users.view`, `auth.users.create`, `auth.users.update`, `auth.users.delete`             |
 | Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`, `auth.roles.assign` — **`update` edits a role's definition; `assign` grants roles to users** (split 2026-09-26) |
 | Auth – Audit      | `auth.audit.view` — **no create/update/delete**, see [§9](#9-audit-log--سجل-التدقيق); `auth.audit.viewValues` — **field-level**, see below |
+| Scheduling        | `scheduling.view`, `scheduling.manage` — ⚙️ 2026-11-10, **company-only**, HR's work shifts ([§19](#19-work-shifts--الورديات-والجداول)) |
 
 > `hr.assignments` has no `update` or `delete` **by design**, not by omission:
 > سجل التعيين is append-only, because editing a historical posting changes what
@@ -1043,8 +1044,9 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
 
-⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (at 17:00, to
-everyone still checked in — §12) and `attendance.record_rejected` (§13.4).
+⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (⚙️ since
+2026-11-10 at each check-in's shift end, once — the shift clock, §12; it was
+17:00 for everyone) and `attendance.record_rejected` (§13.4).
 **Catalogued but not sent:** `attendance.missing_checkout` and
 `attendance.record_unrejected` — legacy notifies nobody when the day closes or
 a refusal is undone, and the ERP keeps that until the project owner decides
@@ -2036,6 +2038,14 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zr| GET       | `/api/approvals`                             | bearer   | `approvals.view` (§15.7) |
 | 18zs| GET       | `/api/leave/on-leave`                        | bearer   | `attendance.records.view` (§16.9) |
 | 18zt| GET       | `/api/me/attendance/{record}`                | bearer   | — (self-scoped, §12.5) |
+| 18zu| GET/POST  | `/api/scheduling/shifts`                     | bearer   | `scheduling.view` / `.manage` (§19.1) |
+| 18zv| GET/PATCH/DELETE | `/api/scheduling/shifts/{shift}`      | bearer   | `scheduling.view` / `.manage` (§19.1) |
+| 18zw| GET/POST  | `/api/scheduling/schedules`                  | bearer   | `scheduling.view` / `.manage` (§19.2) |
+| 18zx| GET/PATCH/DELETE | `/api/scheduling/schedules/{schedule}` | bearer  | `scheduling.view` / `.manage` (§19.2) |
+| 18zy| GET/POST  | `/api/hr/employees/{employee}/work-schedules` | bearer  | `scheduling.view` / `.manage` (§19.3) |
+| 18zz| PATCH/DELETE | `/api/hr/employees/{employee}/work-schedules/{assignment}` | bearer | `scheduling.manage` (§19.3) |
+| 18zza| POST     | `/api/scheduling/assignments/bulk`           | bearer   | `scheduling.manage` (§19.4) |
+| 18zzb| GET      | `/api/scheduling/calendar`                   | bearer   | `scheduling.view` (§19.5) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2066,9 +2076,10 @@ routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t
 sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
 2026-10-20, from the parity audit — `GET /api/approvals` (18zr, §15.7) and
 `GET /api/leave/on-leave` (18zs, §16.9). The count below is the one from before
-them. ⚙️ **95** today (`route:list`, 2026-11-09): those 88, the five import routes
-of §18 (18zm–18zq), `GET /api/me/attendance/days` (18zl, §17.4), and
-`GET /api/me/attendance/{record}` (18zt, §12.5, 2026-11-08).
+them. ⚙️ **111** today (`route:list`, 2026-11-10): those 88, the five import routes
+of §18 (18zm–18zq), `GET /api/me/attendance/days` (18zl, §17.4),
+`GET /api/me/attendance/{record}` (18zt, §12.5, 2026-11-08), and the sixteen work
+shifts routes of §19 (18zu–18zzb, 2026-11-10).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2124,6 +2135,25 @@ sync, but can still read their history.
   a retry of a submission that did save comes back as **success with the saved
   record** instead of "already checked in". Without it, behaviour is legacy's.
 
+⚙️ **Work shifts — 2026-11-10** (§19; decision round 2026-11-09). A record
+belongs to a **shift**, not to the calendar date it was tapped on:
+
+- Everyone has a schedule — their own (§19.3) or the default `OFFICE`,
+  09:00–16:00, Saturday to Thursday.
+- A check-in is for the first **duty** whose window — from **60 minutes before
+  its start to its end** — holds the moment and has no check-in yet. Its
+  `shift_date` is the duty's start date: a night shift's records carry the
+  evening it began, a guard's 72-hour duty its first day.
+- A check-in that fits no window — a day off, before the window opens, after
+  the shift ended — is **accepted and flagged**, `outside_schedule: true`, and
+  dated by the moment.
+- A check-out closes the latest open check-in whose duty has not **closed** —
+  its end plus **4 hours** (an outside-schedule check-in: the end of its date).
+  It is judged on the moment it was **tapped**: an offline check-out tapped
+  before the close lands whenever it syncs (S-2 still holds).
+- The reminder goes at the duty's end, once; at the close an open check-in
+  becomes a missing check-out (the shift clock, every five minutes).
+
 ### 12.1 Record a check-in or check-out
 
 ```
@@ -2147,16 +2177,19 @@ when that `client_uuid` was already saved.
 
 | Rule | `message` |
 |---|---|
-| a second check-in the same day — even after checking out | لديك تسجيل حضور قائم بالفعل لهذا اليوم. |
-| check-in on approved leave | لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم. |
-| check-out with no check-in that day, or a second check-out | لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم. |
+| ⚙️ 2026-11-10 — a check-in while another is still open | لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً. |
+| ⚙️ 2026-11-10 — a second check-in for the same shift, even after checking out | لديك تسجيل حضور قائم بالفعل لهذه الوردية. |
+| a second check-in outside the schedule on one date | لديك تسجيل حضور قائم بالفعل لهذا اليوم. |
+| check-in on approved leave over the shift the moment falls in | لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم. |
+| ⚙️ 2026-11-10 — check-out with no open check-in: none, already checked out, or tapped after its shift closed | لا يمكن تسجيل الانصراف بدون تسجيل حضور قائم. |
 | check-out at or before the check-in | وقت الانصراف يجب أن يكون بعد وقت الحضور. |
 | check-out within 60 minutes of the check-in | لا يمكن تسجيل الانصراف قبل مرور 60 دقيقة على الحضور. |
-| a non-working day / outside the check-in window — **not reachable as configured**: every day is a working day and the window is open (decisions Q8, Q9) | لا يمكن تسجيل الحضور في يوم عطلة. / … قبل الساعة … / … بعد الساعة … |
 | a suspended employee | لا يمكن تسجيل الحضور لموظف ليس على رأس عمله. |
 | ⚙️ 2026-10-20 — `recorded_at` more than 10 minutes in the future (parity audit S-6; legacy accepted it) | وقت التسجيل لا يمكن أن يكون في المستقبل. |
 
-A refused event stores no selfie.
+A refused event stores no selfie. ⚙️ **2026-11-10:** a check-in on a day off or
+outside its shift's window is **not** refused — it is saved with
+`outside_schedule: true` (S10).
 
 ⚙️ **2026-10-20 (parity audit S-2):** a check-out for a day that already
 closed — an offline queue synced the next morning — clears the check-in's
@@ -2176,6 +2209,8 @@ day was completed. Legacy left the flag.
   "source": 1,
   "source_label": "تسجيل مباشر",
   "recorded_at": "2026-06-21T16:00:00+03:00",
+  "shift_date": "2026-06-21",
+  "outside_schedule": false,
   "work_hours": 8,
   "work_hours_formatted": "8h 0m",
   "latitude": 33.5,
@@ -2194,7 +2229,12 @@ day was completed. Legacy left the flag.
 }
 ```
 
-- `work_hours` is on the **check-out** row only; `null` on a check-in.
+- `work_hours` is on the **check-out** row only; `null` on a check-in. It is
+  the actual time between the two; how a guard's 72 hours spread over three
+  shifts is §14.3's.
+- ⚙️ 2026-11-10: `shift_date` — the date of the shift the record belongs to
+  (a check-out carries its check-in's); `outside_schedule` — no shift's window
+  fitted the check-in.
 - `status` is `1` («انصراف مفقود») on a check-in the day closed on without a
   check-out, `null` otherwise.
 - `source`: `1` تسجيل مباشر · `2` مزامنة بعد انقطاع · `3` تصحيح من الموارد البشرية.
@@ -2221,7 +2261,7 @@ Each entry is recorded **on its own**: one refusal does not stop the others.
   "message": "تمت مزامنة السجلات.",
   "data": {
     "succeeded": [ <record>, ... ],
-    "failed": [ { "index": 1, "entry": { ...as sent... }, "error": "لديك تسجيل حضور قائم بالفعل لهذا اليوم." } ]
+    "failed": [ { "index": 1, "entry": { ...as sent... }, "error": "لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً." } ]
   }
 }
 ```
@@ -2371,7 +2411,11 @@ apply.
 **422:** «يجب اختيار سجل دخول لتصحيح الانصراف.» (not a check-in) · «هذا السجل لا
 يحتاج إلى تصحيح انصراف.» (the day has its check-out, or the check-in was
 refused) · «وقت الانصراف يجب أن يكون بعد وقت الحضور.» · ⚙️ 2026-10-20 (parity
-audit S-3): «وقت الانصراف يجب أن يكون في يوم الحضور نفسه.» (another date) ·
+audit S-3; ⚙️ 2026-11-10 its shift's close): «وقت الانصراف يجب أن يكون قبل
+انتهاء مهلة الوردية.» (after the shift's end plus 4 hours — a guard's missing
+check-out can be corrected to 08:00 on the fourth day) · «وقت الانصراف يجب أن
+يكون في يوم الحضور نفسه.» (after the end of the day, for a check-in outside the
+schedule) ·
 «وقت الانصراف لا يمكن أن يكون في المستقبل.»
 
 ### 13.4 Refuse a record
@@ -2437,6 +2481,31 @@ as `/api/me/summary` already read it. Both say where they stopped in
 `counted_to` (`null` when the window starts after today); `working_days` still
 names the whole window.
 
+⚠️ ⚙️ **Contract change, 2026-11-10 — work shifts (§19).** Each person's day
+comes from **their own schedule**:
+
+- **`working_day`** on a day row (§14.3, §17.4) now means **this person has a
+  shift on this date**, and the grid's **`working_days`** counts those dates.
+  The daily board's page-level `working_day` and the monthly report's
+  `working_days` are the **default** schedule's.
+- A day row gains **`shift`** (`{code, name, starts_at, ends_at}`, full
+  date-times; `null` on a day off), **`late_minutes`**,
+  **`early_departure_minutes`**, **`minutes_within_shift`**,
+  **`minutes_outside_shift`** and **`outside_schedule`**. A daily-board row
+  gains `shift`, `late_minutes`, `early_departure_minutes`, `outside_schedule`.
+- **The days so far** are per shift: a shift with nothing for it is `9` لم
+  يُسجَّل بعد until it **ends**, then absent. Absent-today lists people whose
+  shift that date has ended.
+- **A duty is spread over its shifts.** A guard's one check-in shows on each
+  of the duty's three days, each with its share of the hours (they add up to
+  the real 72); a shift with none of the presence is absent; a missing
+  check-out marks all three. Late is counted on the first shift with presence
+  when it starts more than **15 minutes** after the shift's start (09:16 is 16
+  minutes late); early departure the same against the end of the last.
+  Neither is deducted anywhere (decision S4).
+- A check-in outside the schedule is a day of its own, `outside_schedule:
+  true`, all of its time outside the shift.
+
 **The person filters**, on every report: `employee_id` / `employee_ids`,
 `department_id` / `department_ids` (each unit with everything under it),
 `search` (a name part or the staff number) — as §13.1.
@@ -2447,12 +2516,12 @@ names the whole window.
 |---|---|---|
 | `1` حاضر (لم ينصرف بعد) — checked in, not out | `2` حاضر — in and out | `3` انصراف مفقود |
 | `4` في إجازة | `5` غياب بعذر — an HR excuse | `6` غائب |
-| `7` عطلة — not a working day | `8` تسجيل مرفوض — refused by HR | `9` لم يُسجَّل بعد — after today, or today with nothing yet (2026-10-20) |
+| `7` عطلة — no shift that day (⚙️ 2026-11-10) | `8` تسجيل مرفوض — refused by HR | `9` لم يُسجَّل بعد — a shift not yet ended with nothing for it (⚙️ 2026-11-10; was: after today, or today with nothing yet) |
 
 Legacy used two names for a completed day (`checked_out` on the board,
-`present` in the grid); both are `2` here. Every day is a working day today
-(decision Q8), so `7` does not occur as configured, and until the Leave module
-exists nobody is `4` or `5`.
+`present` in the grid); both are `2` here. ⚙️ 2026-11-10: `7` is a date
+without a shift in the person's schedule — a Friday under the default, a
+guard's rest days.
 
 **Not paginated, on purpose.** The three reports are computed objects whose
 totals must cover every row — a page of a monthly report with totals for the
@@ -2493,6 +2562,8 @@ and no leave covers it.
   "status": 2, "status_label": "حاضر",
   "check_in_time": "2026-06-21T08:00:00+03:00", "check_out_time": "2026-06-21T16:30:00+03:00",
   "work_hours": 8.5, "work_hours_formatted": "8h 30m",
+  "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-06-21T09:00:00+03:00", "ends_at": "2026-06-21T16:00:00+03:00" },
+  "late_minutes": 0, "early_departure_minutes": 0, "outside_schedule": false,
   "check_in_location": { "latitude": 33.5, "longitude": 36.3 }, "check_out_location": { … },
   "check_in_has_selfie": true, "check_out_has_selfie": true,
   "correction": null,
@@ -2527,21 +2598,27 @@ and the totals are recomputed over what is left. `sort`: `employee_name`,
 
 ```json
 {
-  "from": "2026-06-01", "to": "2026-06-30", "working_days": 30, "counted_to": "2026-06-30",
+  "from": "2026-06-01", "to": "2026-06-30", "working_days": 26, "counted_to": "2026-06-30",
   "rows": [ {
     "employee": { … }, "department": { … },
-    "expected_days": 30, "present_days": 2, "on_leave_days": 2,
+    "expected_days": 26, "present_days": 2, "on_leave_days": 2,
     "excused_days": 0, "excused_deducted_days": 0, "excused_not_deducted_days": 0,
-    "absent_days": 26, "rejected_days": 0, "missing_checkouts": 0,
+    "absent_days": 22, "rejected_days": 0, "missing_checkouts": 0,
+    "late_count": 1, "late_minutes": 16, "early_departure_count": 0, "early_departure_minutes": 0,
+    "outside_schedule_count": 0,
     "total_work_hours": 15.5, "total_work_hours_formatted": "15h 30m",
-    "attendance_rate": 6.7
+    "attendance_rate": 7.7
   } ],
   "totals": { "employees": 1, "expected_days": 30, "present_days": 2, … }
 }
 ```
 
-`expected = present + on_leave + excused + absent`, always. Leave counts working
-days inside the window, and a day the employee worked is never also a leave
+`expected = present + on_leave + excused + absent`, always. ⚙️ 2026-11-10:
+`expected_days` and `present_days` count **shifts**; `missing_checkouts` too (a
+guard's one missing check-out is three); `late_count` / `early_departure_count`
+are the shifts with any, `late_minutes` / `early_departure_minutes` their sum,
+`outside_schedule_count` the days with a check-in outside the schedule — all
+in `totals` too. Leave counts the person's scheduled days inside the window, and a day the employee worked is never also a leave
 day. `rejected_days` are refusals that became absences — already inside
 `absent_days`.
 
@@ -2563,17 +2640,20 @@ employee outside the caller's reach is **403** `out_of_scope`; a departed one
 state) and `working_days_only` narrow `days` — not `summary`, which always
 covers the whole range. `sort`: `date`, `status`, `work_hours`.
 
-Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `status`,
-`status_label`, `check_in_id` (for §13.3), `check_in_time`, `check_out_time`,
-`work_hours`, `work_hours_formatted`, `leave_type` (whenever leave covers the
+Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `shift`,
+`status`, `status_label`, `check_in_id` (for §13.3; the duty's check-in, so a
+guard's three days share one), `check_in_time`, `check_out_time`, `work_hours`
+(this shift's share), `work_hours_formatted`, `late_minutes`,
+`early_departure_minutes`, `minutes_within_shift`, `minutes_outside_shift`,
+`outside_schedule`, `leave_type` (whenever leave covers the
 day), `rejection` (whenever the day had a refused check-in — even when leave or
 a later check-in outranks it; §14.1's shape, with `refused_check_ins`),
 `correction`, `excuse` (on an excused day).
 
 A day's state, by precedence: an accepted check-in (`2` / `1` / `3`), else a
 day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
-else absent (`6`) — ⚙️ 2026-10-20: else, after today or today with nothing
-yet, `9` لم يُسجَّل بعد. A day after today keeps its leave or day-off state
+else absent (`6`) — ⚙️ 2026-11-10: else, while the shift has not ended, `9`
+لم يُسجَّل بعد. A day after today keeps its leave or day-off state
 for the calendar but is not counted. `summary` carries the monthly report's
 counts plus `off_days`, over `from`…`counted_to`; the response also carries
 `working_days` (the whole window) and `counted_to`.
@@ -2584,9 +2664,10 @@ counts plus `off_days`, over `from`…`counted_to`; the response also carries
 GET /api/attendance/absent-today?date=2026-06-21
 ```
 
-Paginated. Expected employees with no accepted check-in that day — a refused
-check-in is not one — and no approved leave over it (unless the config allows
-attendance during leave). A day off lists nobody. `sort`: `employee_name`,
+Paginated. Expected employees ⚙️ **whose shift that date has ended** (2026-11-10)
+with no accepted check-in — a refused check-in is not one — and no approved
+leave over it (unless the config allows attendance during leave). Someone with
+no shift that date is never listed. `sort`: `employee_name`,
 `employee_number`; by name by default.
 
 ```json
@@ -3264,7 +3345,10 @@ roster, as legacy gated it on the attendance reports. Departed employees
 | `employee_id(s)`, `department_id(s)`, `search` | the person filters of §13.1 |
 | `sort` | `start_date` (default), `end_date`, `employee_name`; `-` for descending |
 
-Rows are the leave request of §16.3. Beside `meta`: `date` and `working_day`.
+Rows are the leave request of §16.3, each with ⚙️ (2026-11-10) its own
+**`working_day`** — whether that person has a shift on `date` (a guard's rest day
+inside a leave is not one). Beside `meta`: `date` and `working_day`, the
+**default** schedule's.
 
 ---
 
@@ -3340,7 +3424,9 @@ One object of **cards, each `null` until its module can answer** (requirements
   "attendance_today": {
     "date": "2026-10-19", "status": 1, "status_label": "حاضر (لم ينصرف بعد)",
     "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": null,
-    "work_hours": null, "work_hours_formatted": null, "leave_type": null
+    "work_hours": null, "work_hours_formatted": null, "leave_type": null,
+    "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-19T09:00:00+03:00", "ends_at": "2026-10-19T16:00:00+03:00" },
+    "next_shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-20T09:00:00+03:00", "ends_at": "2026-10-20T16:00:00+03:00" }
   },
   "attendance_month": {
     "from": "2026-10-01", "to": "2026-10-19",
@@ -3359,8 +3445,9 @@ One object of **cards, each `null` until its module can answer** (requirements
   is none. No pay key here: the pay block is §17.1's.
 - `attendance_today` — today's day from the day grid (§14.3's states).
   ⚠️ **Before anything is recorded today, `status` is `null`** with
-  «لم يُسجَّل بعد», not غائب: the day is not over and check-in is open all day
-  (the owner's answer of 2026-10-19).
+  «لم يُسجَّل بعد», not غائب: ⚙️ 2026-11-10, until today's shift has ended.
+  `shift` is today's shift (`null`: a day off) and `next_shift` the next one to
+  start, within two weeks (`null`: none).
 - `attendance_month` — the 1st of this month to today, the grid's figures. A
   today with nothing recorded yet is left out of `expected_days` and
   `absent_days` alike, so the two cards agree.
@@ -3401,8 +3488,8 @@ honoured, never an error. An account with no employee gets **403**
 `working_days_only`, `sort`) are HR's and are not read here: `days` is every
 day of the window, oldest first.
 
-**200**, for 18–25 October 2026, read on Friday the 23rd at noon with nothing
-recorded yet that day:
+**200**, for 18–25 October 2026 under the default schedule (⚙️ 2026-11-10),
+read on Thursday the 22nd at noon with nothing recorded yet that day:
 
 ```json
 {
@@ -3413,53 +3500,54 @@ recorded yet that day:
     "department": { "id": 4, "name": "قسم أ-1" },
     "from": "2026-10-18",
     "to": "2026-10-25",
-    "working_days": 8,
-    "counted_to": "2026-10-23",
+    "working_days": 7,
+    "counted_to": "2026-10-22",
     "days": [
       {
         "date": "2026-10-18", "weekday": 0, "working_day": true,
-        "status": 6, "status_label": "غائب",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
-        "work_hours": null, "work_hours_formatted": null,
-        "leave_type": null, "rejection": null, "correction": null, "excuse": null
-      },
-      {
-        "date": "2026-10-19", "weekday": 1, "working_day": true,
-        "status": 2, "status_label": "حاضر",
-        "check_in_id": 41, "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": "2026-10-19T16:32:00+03:00",
-        "work_hours": 8.5, "work_hours_formatted": "8h 30m",
-        "leave_type": null, "rejection": null, "correction": null, "excuse": null
-      },
-      {
-        "date": "2026-10-20", "weekday": 2, "working_day": true,
-        "status": 3, "status_label": "انصراف مفقود",
-        "check_in_id": 43, "check_in_time": "2026-10-20T08:10:00+03:00", "check_out_time": null,
-        "work_hours": null, "work_hours_formatted": null,
-        "leave_type": null, "rejection": null, "correction": null, "excuse": null
-      },
-      {
-        "date": "2026-10-21", "weekday": 3, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-18T09:00:00+03:00", "ends_at": "2026-10-18T16:00:00+03:00" },
         "status": 8, "status_label": "تسجيل مرفوض",
         "check_in_id": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null,
         "rejection": {
           "record_id": 44,
-          "recorded_at": "2026-10-21T08:00:00+03:00",
+          "recorded_at": "2026-10-18T09:05:00+03:00",
           "reason": 1,
           "reason_label": "الموقع المسجَّل لا يطابق موقع العمل",
           "note": "خارج الموقع",
-          "rejected_at": "2026-10-21T10:00:00+03:00",
+          "rejected_at": "2026-10-18T11:00:00+03:00",
           "rejected_by": { "id": 4, "name": "سامر خالد الحلبي" },
           "refused_check_ins": 1
         },
         "correction": null, "excuse": null
       },
       {
-        "date": "2026-10-22", "weekday": 4, "working_day": true,
+        "date": "2026-10-19", "weekday": 1, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-19T09:00:00+03:00", "ends_at": "2026-10-19T16:00:00+03:00" },
+        "status": 2, "status_label": "حاضر",
+        "check_in_id": 41, "check_in_time": "2026-10-19T08:52:00+03:00", "check_out_time": "2026-10-19T16:10:00+03:00",
+        "work_hours": 7.3, "work_hours_formatted": "7h 18m",
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 420, "minutes_outside_shift": 18, "outside_schedule": false,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-20", "weekday": 2, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-20T09:00:00+03:00", "ends_at": "2026-10-20T16:00:00+03:00" },
+        "status": 3, "status_label": "انصراف مفقود",
+        "check_in_id": 43, "check_in_time": "2026-10-20T09:20:00+03:00", "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-21", "weekday": 3, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-21T09:00:00+03:00", "ends_at": "2026-10-21T16:00:00+03:00" },
         "status": 5, "status_label": "غياب بعذر",
         "check_in_id": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": "حضور مبرر", "rejection": null, "correction": null,
         "excuse": {
           "leave_request_id": 17,
@@ -3472,45 +3560,64 @@ recorded yet that day:
         }
       },
       {
-        "date": "2026-10-23", "weekday": 5, "working_day": true,
+        "date": "2026-10-22", "weekday": 4, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-22T09:00:00+03:00", "ends_at": "2026-10-22T16:00:00+03:00" },
         "status": 9, "status_label": "لم يُسجَّل بعد",
         "check_in_id": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "leave_type": null, "rejection": null, "correction": null, "excuse": null
+      },
+      {
+        "date": "2026-10-23", "weekday": 5, "working_day": false,
+        "shift": null,
+        "status": 7, "status_label": "عطلة",
+        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-24", "weekday": 6, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-24T09:00:00+03:00", "ends_at": "2026-10-24T16:00:00+03:00" },
         "status": 4, "status_label": "في إجازة",
         "check_in_id": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": "إجازة سنوية", "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-25", "weekday": 0, "working_day": true,
+        "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-25T09:00:00+03:00", "ends_at": "2026-10-25T16:00:00+03:00" },
         "status": 9, "status_label": "لم يُسجَّل بعد",
         "check_in_id": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
+        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       }
     ],
     "summary": {
-      "expected_days": 5,
+      "expected_days": 4,
       "present_days": 2,
       "on_leave_days": 0,
       "excused_days": 1,
       "excused_deducted_days": 0,
       "excused_not_deducted_days": 1,
-      "absent_days": 2,
+      "absent_days": 1,
       "rejected_days": 1,
       "off_days": 0,
       "missing_checkouts": 1,
-      "total_work_hours": 8.5,
-      "total_work_hours_formatted": "8h 30m",
-      "attendance_rate": 40
+      "total_work_hours": 7.3,
+      "total_work_hours_formatted": "7h 18m",
+      "attendance_rate": 50
     }
   }
 }
 ```
+
+The 19th's check-in at 08:52 and check-out at 16:10 are 18 minutes outside the
+shift (8 before, 10 after), and 7.3 hours in all. A missing check-out (the 20th)
+has no hours and no minutes. The 23rd is a Friday, off under the default.
 
 **Reading it.** Every key and state is §14.3's:
 
@@ -3518,8 +3625,9 @@ recorded yet that day:
   precedence: an accepted check-in (`2` in and out, `1` in only, `3` the day
   closed without a check-out), else a day off `7`, else an excuse `5`, else
   leave `4`, else a refusal `8`, else absent `6`. **`9` لم يُسجَّل بعد** is a
-  day after today, or **today with nothing recorded yet**. It is not absent:
-  the day is not over. Today turns `1` with the check-in. Show
+  shift that has **not ended yet** with nothing for it — ⚙️ 2026-11-10; today
+  before 16:00 under the default, or any day still to come. It is not absent.
+  It turns `1` with the check-in. Show
   `status_label`; colour by `status`.
 - A day **after today** still shows leave (`4`) or a day off (`7`), so the
   calendar can shade booked leave. Nothing after today is counted.
@@ -3532,9 +3640,10 @@ recorded yet that day:
   `absent_days`. For the 1st of the month to today these are the figures of
   §17.3's `attendance_month` card. That card reports a today with nothing yet
   as `status: null`; the calendar says `9`.
-- `weekday`: `0` Sunday … `6` Saturday. `working_day` is `false` only on a
-  configured day off. As configured there are none: every day is a working
-  day (decision Q8).
+- `weekday`: `0` Sunday … `6` Saturday. ⚙️ 2026-11-10: `working_day` is
+  whether the person has a shift that date, and `shift` is that shift — a
+  Friday is off under the default; a guard's rest days are off. Future dates
+  show their shift, so the calendar shows the schedule.
 - `check_in_id` is the day's check-in. Its selfie is §12.4's
   `GET /api/me/attendance/{check_in_id}/selfie`.
 - `leave_type` names the leave over the day, whatever outranks it.
@@ -3737,3 +3846,226 @@ Refusals, each before anything is saved: **422** «السطر 99 غير موجو
 numbers) · **422** executed / expired, as §18.4 · **409** another import
 running · **404** not your run.
 
+
+---
+
+## 19. Work shifts — الورديات والجداول
+
+⚙️ **New 2026-11-10** (work shifts, piece 1:
+`docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md`; the
+decision round `DECISION_ROUND_WORK_SHIFTS.md`, 2026-11-09). Sixteen routes,
+**HR only**: `scheduling.view` reads, `scheduling.manage` writes. Both are
+**company-only** — a grant narrower than the company never confers them —
+and no seeded role carries them: an admin adds them to HR's role.
+
+**The model.**
+
+- A **shift** is a start time and a length: `DAY` 09:00 for 420 minutes, `GUARD`
+  08:00 for 1440. One past midnight ends the next day (`ends_next_day`).
+- A **schedule** says which shift falls on which day. `kind` `1` أسبوعي
+  (weekly): `position` is the weekday, `0` Sunday … `6` Saturday. `kind` `2`
+  دوري (cycle): `position` is the day of an N-day cycle, counted from each
+  person's `cycle_start_date`. A position whose `shift` is `null` is a day off.
+- A person's **schedule spans** say which schedule is theirs from which date.
+  With none in force they have the default, `OFFICE` (09:00–16:00, Saturday
+  to Thursday).
+- Back-to-back shifts — each ending as the next begins — make one **duty**, at
+  most three: the guards' 72 hours are one duty of three shifts, with one
+  check-in and one check-out (§12).
+
+**Seeded:** shifts `DAY` «الدوام الإداري» and `GUARD` «مناوبة حراسة»; schedules
+`OFFICE` (weekly, Friday off) and `GUARD` (a 6-day cycle: three `GUARD` shifts,
+then three days off).
+
+**Fixed once used.** A shift's `starts_at` and `duration_minutes` cannot change
+once a schedule uses it, and it cannot be deleted; a schedule's days cannot
+change once anyone has been assigned it, and it cannot be deleted. A new time
+is a new shift, a new pattern a new schedule. Each refusal is a **422** with its
+message (below).
+
+### 19.1 Shifts
+
+```
+GET    /api/scheduling/shifts                scheduling.view
+GET    /api/scheduling/shifts/{shift}        scheduling.view
+POST   /api/scheduling/shifts                scheduling.manage
+PATCH  /api/scheduling/shifts/{shift}        scheduling.manage
+DELETE /api/scheduling/shifts/{shift}        scheduling.manage
+```
+
+The list is every shift, by `code`. **The shift object:**
+
+```json
+{
+  "id": 3,
+  "code": "NIGHT",
+  "name": "وردية ليلية",
+  "starts_at": "22:00",
+  "duration_minutes": 480,
+  "ends_next_day": true,
+  "is_active": true
+}
+```
+
+| Field (POST) | Rules |
+|---|---|
+| `code` | required, capitals, digits and `_`, at most 30, unique across deleted shifts too; cannot be changed (PATCH refuses it) |
+| `name` | required, at most 100 |
+| `starts_at` | required, `HH:MM` |
+| `duration_minutes` | required, 1–1440 |
+| `is_active` | optional, boolean (default `true`); an inactive shift cannot be put into a schedule |
+
+PATCH takes any of `name`, `starts_at`, `duration_minutes`, `is_active`.
+**201** «تم إنشاء الوردية.» · **200** «تم تعديل الوردية.» · DELETE **200**
+«تم حذف الوردية.» (soft delete). **422** «لا يمكن تعديل وقت وردية مستخدمة في
+جدول؛ أنشئ وردية جديدة.» · «لا يمكن حذف وردية مستخدمة في جدول.»
+
+### 19.2 Schedules
+
+```
+GET    /api/scheduling/schedules             scheduling.view
+GET    /api/scheduling/schedules/{schedule}  scheduling.view
+POST   /api/scheduling/schedules             scheduling.manage
+PATCH  /api/scheduling/schedules/{schedule}  scheduling.manage
+DELETE /api/scheduling/schedules/{schedule}  scheduling.manage
+```
+
+**POST**, with its days in one body:
+
+```json
+{
+  "code": "NIGHTS",
+  "name": "ليلي",
+  "kind": 1,
+  "cycle_days": 7,
+  "days": [
+    { "position": 0, "shift_id": 3 }, { "position": 1, "shift_id": 3 },
+    { "position": 2, "shift_id": 3 }, { "position": 3, "shift_id": 3 },
+    { "position": 4, "shift_id": 3 }, { "position": 5, "shift_id": null },
+    { "position": 6, "shift_id": 3 }
+  ]
+}
+```
+
+**The schedule object** (`days` always lists every position, oldest first):
+
+```json
+{
+  "id": 2,
+  "code": "GUARD",
+  "name": "الحراسة: 72 ساعة مناوبة، ثلاثة أيام راحة",
+  "kind": 2,
+  "kind_label": "دوري",
+  "cycle_days": 6,
+  "is_active": true,
+  "days": [
+    { "position": 0, "shift": { "id": 2, "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "08:00", "duration_minutes": 1440, "ends_next_day": true, "is_active": true } },
+    { "position": 1, "shift": { "id": 2, "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "08:00", "duration_minutes": 1440, "ends_next_day": true, "is_active": true } },
+    { "position": 2, "shift": { "id": 2, "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "08:00", "duration_minutes": 1440, "ends_next_day": true, "is_active": true } },
+    { "position": 3, "shift": null },
+    { "position": 4, "shift": null },
+    { "position": 5, "shift": null }
+  ]
+}
+```
+
+| Field | Rules |
+|---|---|
+| `code` | as a shift's; cannot be changed |
+| `name` | required on POST |
+| `kind` | required on POST, `1` or `2`; cannot be changed |
+| `cycle_days` | required on POST: `7` for weekly, 1–28 for a cycle; cannot be changed |
+| `is_active` | optional; an inactive schedule cannot be newly assigned |
+| `days` | required on POST, optional on PATCH: every position `0`…`cycle_days − 1` once, each `shift_id` an existing shift or `null` |
+
+**422** on `days`: «يجب تحديد كل أيام الجدول.» · «الجدول الأسبوعي سبعة أيام.» ·
+«طول الدورة من يوم واحد إلى 28 يوماً.» · «الوردية المحددة غير متاحة.» ·
+«لا يمكن أن تتصل أكثر من ثلاث ورديات متتالية بلا فاصل.» (a fourth back-to-back
+shift, counting the wrap-around). **422** «لا يمكن تعديل أيام جدول مُسند
+لموظفين؛ أنشئ جدولاً جديداً.» · «لا يمكن حذف جدول مُسند لموظفين.»
+
+### 19.3 A person's schedule spans
+
+```
+GET    /api/hr/employees/{employee}/work-schedules                 scheduling.view
+POST   /api/hr/employees/{employee}/work-schedules                 scheduling.manage
+PATCH  /api/hr/employees/{employee}/work-schedules/{assignment}    scheduling.manage
+DELETE /api/hr/employees/{employee}/work-schedules/{assignment}    scheduling.manage
+```
+
+**POST** `{ "work_schedule_id": 2, "from_date": "2026-11-14", "cycle_start_date": "2026-11-14" }`
+— `cycle_start_date` for a cycle only (the date that is position 0). The open
+span closes the day before. **201** «تم إسناد الجدول.»:
+
+```json
+{
+  "id": 9,
+  "work_schedule": { "id": 2, "code": "GUARD", "name": "الحراسة: 72 ساعة مناوبة، ثلاثة أيام راحة", "kind": 2, "kind_label": "دوري" },
+  "from_date": "2026-11-14",
+  "to_date": null,
+  "cycle_start_date": "2026-11-14",
+  "created_by": { "id": 4, "name": "سامر خالد الحلبي" }
+}
+```
+
+**A change starts today or later** (decided 2026-11-09): past days keep the
+schedule they had. PATCH takes only `to_date` (today or later) and ends the
+span. DELETE removes a span **that has not started yet**, and reopens the span
+it had closed. The list is newest first. Another person's span is a **404**.
+
+**422** «لا يمكن أن يبدأ الجدول قبل اليوم.» · «لا يمكن أن ينتهي الجدول قبل
+اليوم.» · «تتداخل هذه الفترة مع جدول آخر مُسند للموظف.» · «يجب تحديد تاريخ
+بداية الدورة لهذا الجدول.» · «الجدول الأسبوعي لا يأخذ تاريخ بداية دورة.» ·
+«الجدول المحدد غير مفعّل.» · «لا يمكن حذف جدول بدأ العمل به؛ يمكن إنهاؤه فقط.»
+
+### 19.4 Bulk assignment
+
+```
+POST /api/scheduling/assignments/bulk        scheduling.manage
+```
+
+One schedule from one date for `employee_ids` (1–500) **or** a unit:
+`department_id` with `include_subtree`. Each person is assigned or refused on
+their own — never all-or-nothing:
+
+```json
+{
+  "success": true,
+  "message": "تم إسناد الجدول إلى 2 من 3.",
+  "data": [
+    { "employee_id": 31, "assigned": true, "reason": null },
+    { "employee_id": 32, "assigned": true, "reason": null },
+    { "employee_id": 33, "assigned": false, "reason": "تتداخل هذه الفترة مع جدول آخر مُسند للموظف." }
+  ]
+}
+```
+
+### 19.5 The calendar
+
+```
+GET /api/scheduling/calendar?from=2026-11-14&to=2026-11-20&department_id=9    scheduling.view
+```
+
+Everyone's expected shift per date, paginated by employee; `from`/`to`
+required, at most 92 days; `department_id`, `employee_id` optional. `source`
+is where the day came from: `assignment` or `default`. Every date of the
+window is listed; the example shows two of the seven.
+
+```json
+{
+  "success": true,
+  "message": "تمت العملية بنجاح.",
+  "data": [
+    {
+      "employee": { "id": 31, "full_name": "…", "employee_number": "700000031" },
+      "days": [
+        { "date": "2026-11-14", "shift": { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-14T08:00:00+03:00", "ends_at": "2026-11-15T08:00:00+03:00" }, "source": "assignment" },
+        { "date": "2026-11-17", "shift": null, "source": "assignment" }
+      ]
+    }
+  ],
+  "meta": { "current_page": 1, "last_page": 1, "per_page": 15, "total": 1, "from": 1, "to": 1 },
+  "from": "2026-11-14",
+  "to": "2026-11-20"
+}
+```
