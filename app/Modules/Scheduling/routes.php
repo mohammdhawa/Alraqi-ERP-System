@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Scheduling\Controllers\BulkAssignmentController;
 use App\Modules\Scheduling\Controllers\ShiftController;
 use App\Modules\Scheduling\Controllers\WorkScheduleController;
 use Illuminate\Support\Facades\Route;
@@ -38,4 +39,6 @@ Route::middleware(['auth:sanctum', 'audit'])->name('scheduling.')->group(functio
         Route::patch('/{schedule}', [WorkScheduleController::class, 'update'])->middleware('permission:scheduling.manage')->whereNumber('schedule')->name('update');
         Route::delete('/{schedule}', [WorkScheduleController::class, 'destroy'])->middleware('permission:scheduling.manage')->whereNumber('schedule')->name('destroy');
     });
+
+    Route::post('assignments/bulk', BulkAssignmentController::class)->middleware('permission:scheduling.manage')->name('assignments.bulk');
 });
