@@ -1,7 +1,8 @@
 # Employee App v1 on the ERP — the work order
 
-> ⚙️ **Status 2026-11-04: §4.1–§4.8 are built; the real import (§4.9), the app
-> (§4.10) and the pilot (§4.11) are not finished.** §8 is the running record.
+> ⚙️ **Status 2026-11-09: §4.1–§4.8 are built; the real import (§4.9), the app
+> (§4.10, slices 0–7 of 0–8 merged) and the pilot (§4.11) are not finished.** §8
+> is the running record.
 >
 > Planned 2026-10-05 with a **pilot release by Sunday 2026-11-01**, legacy still
 > running and still the record of pay, and a company-wide cutover around
@@ -1548,3 +1549,43 @@ is next. §4.11, the pilot, is not released. `START_HERE.md` §10 lists what eac
 waits on.
 
 **1267 tests passing (5575 assertions), Pint clean, 94 API routes, 46 permissions.**
+
+### 2026-11-07 — leave details for the approver (app slice 5)
+
+`885609c`. Two additions so an approver can decide a leave without asking HR, both
+admitted by being on the chain, with no permission asked:
+
+- **`details` on the inbox row** (`GET /api/me/approvals`, API §15.2): the leave's
+  `start_date`, `end_date`, `requested_days` and the requester's `balance`
+  (`year`, `remaining_days`, `after_request`). `null` for any subject but leave.
+  `after_request` is not clamped: pending requests reserve nothing, so two can
+  each fit and pass together, and a negative figure says so. The balance is
+  `null` when the leave does not deduct and on `?status=decided`. The engine's
+  side is `Approvable::approverRowDetails()` and `ApprovalRowDetails`.
+- **`approver_view` on the leave read** (`GET /api/leave/requests/{id}`, API
+  §16.4): the employee's current job title and department, and the same balance.
+  Absent for anyone not holding a step on the chain, the requester and an HR
+  reader off it included. Built in `LeaveApproverDetails`.
+
+The same commit corrected `API_DOCUMENTATION.md` §1 on tokens (one access token
+per session, not per user), the documentation item the app's design §9 listed as
+owed by the ERP side. No route added.
+
+### 2026-11-08 — one of my attendance records by id (app slice 6)
+
+`d8cb85e`. **`GET /api/me/attendance/{record}`** (API §12.5): a notification about
+a record carries only its id, and the app opens the day it is about from it.
+Refused records included. Self-scoped: a colleague's record, an unknown id and an
+account with no employee are the same 404. **95 API routes (one added).**
+
+### 2026-11-09 — where this leaves the work order
+
+§4.1–§4.8 are built. §4.9, the real import, has not run. §4.10: slices 5
+approvals and 6 notifications were merged to the app's `main` on 2026-11-08
+(`c5d9ea7`, `4c81c54`), and slice 7, حسابي and راتبي, on 2026-11-09 (`0598ccf`).
+Slice 8, pilot hardening, is next: on-device checks and the release build. The
+app holds the Android Firebase config for `tech.alraqi_company.erp`; the iOS one
+is not there yet. §4.11, the pilot, is not released. `START_HERE.md` §10 lists
+what each waits on.
+
+**1289 tests passing (5667 assertions), Pint clean, 95 API routes, 46 permissions.**

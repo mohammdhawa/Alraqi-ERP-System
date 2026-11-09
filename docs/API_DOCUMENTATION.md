@@ -2035,6 +2035,7 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zq| PUT       | `/api/hr/employee-imports/{run}/exclusions`  | bearer   | `hr.employees.import` (§18) |
 | 18zr| GET       | `/api/approvals`                             | bearer   | `approvals.view` (§15.7) |
 | 18zs| GET       | `/api/leave/on-leave`                        | bearer   | `attendance.records.view` (§16.9) |
+| 18zt| GET       | `/api/me/attendance/{record}`                | bearer   | — (self-scoped, §12.5) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2065,8 +2066,9 @@ routes), thirteen attendance routes (18c–18n), six approvals routes (18o–18t
 sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
 2026-10-20, from the parity audit — `GET /api/approvals` (18zr, §15.7) and
 `GET /api/leave/on-leave` (18zs, §16.9). The count below is the one from before
-them. ⚙️ **94** today (`route:list`, 2026-11-04): those 88, the five import routes
-of §18 (18zm–18zq), and `GET /api/me/attendance/days` (18zl, §17.4).
+them. ⚙️ **95** today (`route:list`, 2026-11-09): those 88, the five import routes
+of §18 (18zm–18zq), `GET /api/me/attendance/days` (18zl, §17.4), and
+`GET /api/me/attendance/{record}` (18zt, §12.5, 2026-11-08).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two

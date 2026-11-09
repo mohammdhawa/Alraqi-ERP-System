@@ -4,10 +4,10 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-11-04, on branch `phase_1` at
-> `5becbc7`: attendance, approvals, leave, `/api/me`, the employee import by
-> upload and Kobo employee numbers are built, and the Flutter app is on slice 4
-> of 8. The real import and the pilot have not happened.
+> **Last verified against the code:** 2026-11-09, on branch `phase_1` at
+> `d8cb85e`: attendance, approvals, leave, `/api/me`, the employee import by
+> upload and Kobo employee numbers are built, and the Flutter app has slices 0–7
+> of 0–8 merged. The real import and the pilot have not happened.
 > When you change the system, update the sections marked ⚙️ — they state facts
 > about the code and go stale if ignored.
 
@@ -68,20 +68,20 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | `phase_1` at `5becbc7`; `main` is that commit plus the merge of pull request 6 |
-| **Test suite** | **1267 passing**, 5575 assertions, Pint clean (`php artisan test`, 2026-11-04) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
-| **API** | 94 routes under `/api`, 46 permissions |
+| **Branch** | `phase_1` at `d8cb85e`, two commits past `5becbc7` (approver details on leave, and one of my attendance records); `main` is `5becbc7` plus the merge of pull request 6 |
+| **Test suite** | **1289 passing**, 5667 assertions, Pint clean (`php artisan test`, 2026-11-09) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **API** | 95 routes under `/api`, 46 permissions |
 | **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
 | **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
-| **Flutter app** | `../alraqi-erp-app`: slices 0–4 of the 0–8 plan are merged to its `main`; next is slice 5, approvals |
+| **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan are merged to its `main` (`0598ccf`, 2026-11-09); next is slice 8, pilot hardening |
 
 **Done:** Phase 1 (the whole foundation), Batches 1–3 of Phase 1.5 (departments,
 the employees rebuild, the import tooling), and the backend of the Employee App
 v1 — sessions, devices and push, attendance, the approvals engine, leave, the
 `/api/me` surface, the import by upload, and Kobo employee numbers.
 
-**Not done:** Batch 4, the real import; the app's slices 5–8; the pilot; documents
+**Not done:** Batch 4, the real import; the app's slice 8; the pilot; documents
 on the approvals engine; the Stage 3 parallel month; payroll.
 
 **Next:** §10. The pilot's 2026-11-01 date has passed and stopped being binding on
@@ -702,10 +702,11 @@ path and hash, `summary`, `report`, `importable_rows`, `excluded_rows`,
 
 ## 7. The API surface
 
-Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **94 routes** under
-`/api` today (`route:list`, 2026-11-04): rows 1–41 are the foundation, 42–47 the
+Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **95 routes** under
+`/api` today (`route:list`, 2026-11-09): rows 1–41 are the foundation, 42–47 the
 sessions and device tokens of work order §4.3, 48–60 attendance, 61–70 the rest of
-`/api/me`, 71–76 approvals, 77–89 leave, and 90–94 the import by upload.
+`/api/me`, 71–76 approvals, 77–89 leave, 90–94 the import by upload, and 95 one of
+my attendance records (2026-11-08).
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -772,6 +773,7 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 92 | PUT | `/api/hr/employee-imports/{run}/exclusions` | bearer | `hr.employees.import` |
 | 93 | POST | `/api/hr/employee-imports/{run}/execute` | bearer | `hr.employees.import` |
 | 94 | GET | `/api/hr/employee-imports/{run}/report` | bearer | `hr.employees.import` |
+| 95 | GET | `/api/me/attendance/{record}` | bearer | self-scoped — a colleague's record is a 404 |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.
@@ -1239,7 +1241,7 @@ built once. Scope, the thirteen open decisions and the calendar are in
 [`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md); the table-by-table
 port is [`LEGACY_TO_ERP_MAPPING.md`](LEGACY_TO_ERP_MAPPING.md).
 
-### ⚙️ What decision 25 has built so far (to 2026-11-04)
+### ⚙️ What decision 25 has built so far (to 2026-11-09)
 
 Each piece has its entry, with its decisions, in the work order's §8.
 
@@ -1250,14 +1252,15 @@ Each piece has its entry, with its decisions, in the work order's §8.
 | Attendance | §4.5 | Built 2026-10-16: recording, oversight, reports, the scheduled day |
 | Approvals engine | §4.6 | Built 2026-10-16/18 |
 | Leave | §4.7 | Built 2026-10-18/19 on the engine |
-| `/api/me` | §4.8 | Built 2026-10-19; `/api/me/attendance/days` added 2026-10-26 |
+| `/api/me` | §4.8 | Built 2026-10-19; `/api/me/attendance/days` added 2026-10-26, `/api/me/attendance/{record}` 2026-11-08 |
 | Parity audit | — | 2026-10-20: 103 rules checked against legacy, sixteen findings answered by the owner |
 | Import by upload | — | Built 2026-10-22/24: dry run, excluding rows, real run, one file |
 | Kobo employee numbers | — | Built 2026-10-24; `hr:renumber-from-kobo` exists and has not been run |
 | Account on hand-adding an employee | — | Built 2026-10-24 |
 | Attendance work sites, location review | — | Built 2026-10-31, **removed 2026-11-02** (§11, question 7) |
 | Refused check-ins counted | — | Built 2026-11-02 |
-| The Flutter app | §4.10 | A new repository, `../alraqi-erp-app`, copied from `doc_approval` (`tech.alraqi_company.erp`, «موظف الراقي»). Slices 0–4 merged 2026-11-04 |
+| Approver details on leave | — | Built 2026-11-07 for app slice 5: `details` on the inbox row, `approver_view` on the leave read |
+| The Flutter app | §4.10 | A new repository, `../alraqi-erp-app`, copied from `doc_approval` (`tech.alraqi_company.erp`, «موظف الراقي»). Slices 0–4 merged 2026-11-04, 5 and 6 on 2026-11-08, 7 on 2026-11-09 |
 | The real import | §4.9 | Not run |
 | The pilot | §4.11 | Not released |
 
@@ -1265,16 +1268,20 @@ Each piece has its entry, with its decisions, in the work order's §8.
 
 ## 10. What to do next
 
-⚙️ **Rewritten 2026-11-04.** In dependency order. Nothing here has a date: the
-project owner withdrew the calendar on 2026-10-16.
+⚙️ **Rewritten 2026-11-04, item 1 updated 2026-11-09.** In dependency order.
+Nothing here has a date: the project owner withdrew the calendar on 2026-10-16.
 
-**1. The app, slices 5–8** (`../alraqi-erp-app`,
-`docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there): 5 approvals,
-6 notifications and push, 7 حسابي and راتبي, 8 pilot hardening. The routes they
-name all exist (§7), so this is app work. The owner owes, by that design's §9: the
-registration of `tech.alraqi_company.erp` in the legacy Firebase project and its
-two config files (slice 6, push on a device), then the launcher icon and the
-deployed ERP URL (slice 8).
+**1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,
+`docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there, its §5).
+Slices 5 approvals, 6 notifications and push, and 7 حسابي and راتبي are merged.
+What is left is checks on a device (the refresh race after 15 minutes idle with an
+offline queue, an offline check-in then reconnect, the first login through the
+forced change) and the release build (the approved launcher icon, a new Android
+keystore kept out of the repository, a build pointed at the pilot URL). The owner
+owes, by that design's §9, the launcher icon and the deployed ERP URL. The
+Android Firebase config for `tech.alraqi_company.erp` is in the app; **the iOS
+`GoogleService-Info.plist` is not**, and no record says a push has reached a
+device yet.
 
 **2. Batch 4, the real import** (work order §4.9). It needs, in order:
 
