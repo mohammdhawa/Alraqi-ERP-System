@@ -256,6 +256,22 @@ class ShiftCheckInRulesTest extends TestCase
         app(ScheduleAssigner::class)->assign($office, WorkSchedule::where('code', 'GUARD')->sole(), '2026-11-14', '2026-11-14', User::factory()->create());
     }
 
+    /**
+     * Final review (look-back): a 72-hour duty starting at 21:00 ends at
+     * 21:00 on day four and closes at 01:00 on day five — four dates after
+     * its shift date. A check-out before that close is still the duty's.
+     */
+    public function test_a_late_starting_72_hour_duty_can_be_checked_out_on_its_fifth_date(): void
+    {
+        $late = Shift::create(['code' => 'LATE', 'name' => 'مناوبة مسائية', 'starts_at' => '21:00', 'duration_minutes' => 1440]);
+        WorkSchedule::createWithDays(['code' => 'LATEGUARD', 'name' => 'حراسة مسائية', 'kind' => 2, 'cycle_days' => 6], [$late->id, $late->id, $late->id, null, null, null]);
+        $this->actAs($this->person('LATEGUARD', '2026-11-14'));
+
+        $this->record('2026-11-14 20:30:00')->assertCreated();
+
+        $this->out('2026-11-18 00:30:00')->assertCreated()->assertJsonPath('data.shift_date', '2026-11-14');
+    }
+
     public function test_a_sync_with_a_check_out_after_the_close_lands_the_rest(): void
     {
         $this->actAs($this->person('OFFICE'));

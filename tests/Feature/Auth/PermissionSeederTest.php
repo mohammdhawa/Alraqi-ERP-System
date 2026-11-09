@@ -52,7 +52,7 @@ class PermissionSeederTest extends TestCase
      * `.delete`, `leave.balances.view`, `.update`, `leave.requests.view`,
      * `.returnToWork`, and `leave.excuses.create`, `.delete`.
      *
-     * Work shifts added two (2026-11-10): `scheduling.view`, `.manage`.
+     * Work shifts added two (2026-11-09): `scheduling.view`, `.manage`.
      */
     private const TOTAL = 48;
 

@@ -4,7 +4,7 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-11-10, on branch `work-shifts-core`
+> **Last verified against the code:** 2026-11-09, on branch `work-shifts-core`
 > (from `phase_1`): attendance, approvals, leave, `/api/me`, the employee import
 > by upload, Kobo employee numbers and the **work shifts backend core** are
 > built, and the Flutter app has slices 0–7 of 0–8 merged. The real import and
@@ -70,7 +70,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `work-shifts-core`, from `phase_1` at `c43e616`: the work shifts backend core, piece 1 of 4 — not merged, not pushed. `main` is `5becbc7` plus the merge of pull request 6 |
-| **Test suite** | **1392 passing**, 6024 assertions, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **Test suite** | **1402 passing**, 6063 assertions, Pint clean (`php artisan test`, 2026-11-09) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 111 routes under `/api`, 48 permissions |
 | **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
@@ -81,7 +81,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 the employees rebuild, the import tooling), and the backend of the Employee App
 v1 — sessions, devices and push, attendance, the approvals engine, leave, the
 `/api/me` surface, the import by upload, and Kobo employee numbers. ⚙️ And the
-work shifts backend core (2026-11-10, §10 item 0).
+work shifts backend core (2026-11-09, §10 item 0).
 
 **Not done:** work shifts pieces 2–4 (one-off changes and swaps, the dashboard,
 the app); Batch 4, the real import; the app's slice 8; the pilot; documents
@@ -656,14 +656,14 @@ the saved record, not a second one. Rows carry no unit snapshot: scope follows t
 employee's current unit (D6). Records are kept for good; selfie **files** go after
 three months and `selfie_purged_at` says so (D7).
 
-⚙️ **2026-11-10 (work shifts):** `shift_date` — the date of the shift a record
+⚙️ **2026-11-09 (work shifts):** `shift_date` — the date of the shift a record
 belongs to, its duty's start date (a night shift's check-out carries the evening
 it began; existing rows were backfilled with `DATE(recorded_at)`),
 `outside_schedule` (no shift's window fitted the check-in), and
 `checkout_reminded_at` (the shift clock's reminder, sent once). Every report
 groups by `shift_date`.
 
-### `shifts`, `work_schedules`, `work_schedule_days`, `employee_work_schedules` ⚙️ (new 2026-11-10)
+### `shifts`, `work_schedules`, `work_schedule_days`, `employee_work_schedules` ⚙️ (new 2026-11-09)
 
 The Scheduling module (work shifts spec §3). A **shift** is a start time and a
 length (`DAY` 09:00 / 420 min, `GUARD` 08:00 / 1440). A **schedule** is weekly
@@ -728,10 +728,10 @@ path and hash, `summary`, `report`, `importable_rows`, `excluded_rows`,
 ## 7. The API surface
 
 Base URL `{APP_URL}/api`. Bearer token in `Authorization`. ⚙️ **111 routes** under
-`/api` today (`route:list`, 2026-11-10): rows 1–41 are the foundation, 42–47 the
+`/api` today (`route:list`, 2026-11-09): rows 1–41 are the foundation, 42–47 the
 sessions and device tokens of work order §4.3, 48–60 attendance, 61–70 the rest of
 `/api/me`, 71–76 approvals, 77–89 leave, 90–94 the import by upload, 95 one of
-my attendance records (2026-11-08), and 96–111 work shifts (2026-11-10).
+my attendance records (2026-11-08), and 96–111 work shifts (2026-11-09).
 
 ⚙️ **Every** route carries the baseline `api` throttle at 60/min; login and
 refresh carry tighter named limiters on top. Every response — success and error
@@ -1317,11 +1317,15 @@ before, since shifts change the app's check-in, home card, "my days" and offline
 queue.
 
 ⚙️ **Built as four pieces, each with its own spec, plan and build.** **Piece 1,
-the backend core, is built** on branch `work-shifts-core` (2026-11-10; spec and
+the backend core, is built** on branch `work-shifts-core` (2026-11-09; spec and
 plan in `docs/superpowers/`; work order §8): the re-key, the Scheduling module
 and its 16 routes, the resolver, the rules, the shift clock, the reports and
 `/api/me` per shift, leave on scheduled days, and `OFFICE` switched on as the
-default. Not merged. **Next:** piece 2, one-off changes and swaps on the
+default; then the final whole-branch review's fixes (the default schedule
+protected, no change inside a recorded duty, outside check-ins judged against
+the shift, the clock batched, a data migration seeding the schedules). Not
+merged. **Deploy:** `migrate` seeds the schedules; `db:seed
+--class=PermissionSeeder` adds the two permissions. **Next:** piece 2, one-off changes and swaps on the
 approvals engine; then piece 3, the dashboard; then piece 4, the app.
 
 **1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,

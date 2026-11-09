@@ -1645,7 +1645,7 @@ approved leave stand.
 
 Order of the build: `START_HERE.md` §10, item 0.
 
-### 2026-11-10 — work shifts, piece 1: the backend core, built
+### 2026-11-09 — work shifts, piece 1: the backend core, built
 
 On branch `work-shifts-core` (from `phase_1` at `c43e616`), not merged. Spec
 `docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md`, plan
@@ -1683,4 +1683,30 @@ report; the ones that change behaviour beyond the spec: deleting a future span
 reopens the one it closed; an outside-schedule check-in is one per date; a
 guard's missing check-out counts three missing shifts.
 
-**1392 tests passing (6024 assertions), Pint clean, 111 API routes, 48 permissions.**
+**After the final review's fixes (below): see the closing line.**
+
+**The final whole-branch review** (a fresh reviewer, the same day) found two
+critical and four important issues; all are fixed, each with a test that failed
+first:
+
+- **The default schedule was unprotected:** deleting or deactivating `OFFICE`
+  made every attendance call fail, and re-drawing it re-read every unassigned
+  person's past days. It is now fixed in place.
+- **A schedule change cut a guard's duty short.** Assigning a new schedule from
+  a date inside a duty that already has its check-in is now refused, naming
+  the first allowed date — the day after the duty. (The build had changed the
+  plan's expected behaviour without a ruling; the plan's intent is restored.)
+- **An outside-schedule check-in after the shift showed the shift present.** It
+  now counts as the shift's presence only where it overlaps the shift.
+- **An ended span could be stretched back over past days.** Refused.
+- **The shift clock and the leave register read schedules once per record**
+  (about 1,500 queries every five minutes at 185 people). Batched.
+- **A deploy without the seeder broke attendance.** A data migration seeds the
+  schedules.
+- **A check-out on the fifth date of a late-starting 72-hour duty was refused**
+  (the look-back was a day short). Fixed.
+
+Nine minor findings are deferred, listed in the branch's final report.
+
+**1402 tests passing (6063 assertions), Pint clean, 111 API routes, 48 permissions.**
+

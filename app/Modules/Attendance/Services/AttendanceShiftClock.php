@@ -35,7 +35,7 @@ use Illuminate\Support\Collection;
 class AttendanceShiftClock
 {
     /** A duty closes at most four days after its shift date. */
-    private const LOOKBACK_DAYS = 4;
+    private const LOOKBACK_DAYS = OpenCheckIns::LOOKBACK_DAYS;
 
     public function __construct(
         private readonly AttendanceCalendar $calendar,

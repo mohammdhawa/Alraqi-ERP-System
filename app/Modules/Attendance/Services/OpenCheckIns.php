@@ -26,9 +26,11 @@ class OpenCheckIns
 {
     /**
      * How far back a check-in's shift date can lie and still be open: a duty
-     * is at most three days, and its close falls on the fourth.
+     * is at most three 24-hour shifts, and one starting late on its date ends
+     * late on the fourth date after it — its close (end + 4 h) can fall on
+     * the fifth. One constant with the shift clock, so the two agree.
      */
-    private const LOOKBACK_DAYS = 3;
+    public const LOOKBACK_DAYS = Duty::MAX_SHIFTS + 1;
 
     public function __construct(
         private readonly AttendanceCalendar $calendar,
