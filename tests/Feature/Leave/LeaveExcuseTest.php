@@ -20,6 +20,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
 
@@ -32,6 +33,7 @@ use Tests\TestCase;
 class LeaveExcuseTest extends TestCase
 {
     use LeaveFixtures;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const CREATE = ['leave.excuses.create'];
@@ -172,7 +174,7 @@ class LeaveExcuseTest extends TestCase
 
     public function test_a_span_with_no_working_day_is_refused(): void
     {
-        config(['attendance.working_days' => [0, 1, 2, 3, 4]]);
+        $this->pinDayOff(5, 6);   // Friday and Saturday off, through the default schedule
 
         $this->excuse(['start_date' => '2026-06-26', 'end_date' => '2026-06-27'])
             ->assertStatus(422)

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Leave\Services;
 
 use App\Modules\Approvals\Services\ApprovalService;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
@@ -39,6 +40,7 @@ class LeaveRequestService
 {
     public function __construct(
         private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
         private readonly LeaveBalances $balances,
         private readonly AttachmentStore $attachments,
         private readonly ApprovalService $engine,
@@ -57,7 +59,9 @@ class LeaveRequestService
         $type = LeaveType::query()->findOrFail($data['leave_type_id']);
         $start = Carbon::parse($data['start_date'])->toDateString();
         $end = Carbon::parse($data['end_date'])->toDateString();
-        $days = $this->calendar->workingDaysBetween($start, $end);
+        // The person's own scheduled days (work shifts S9): a day off or a
+        // guard's rest day is never charged.
+        $days = $this->shifts->workingDaysBetween($employee, $start, $end);
 
         if ($days < 1) {
             throw new LeaveException('الفترة المحددة لا تتضمن أيام عمل.');

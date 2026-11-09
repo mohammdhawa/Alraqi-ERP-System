@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Services\NotificationService;
@@ -34,6 +35,7 @@ class ReturnToWorkService
 {
     public function __construct(
         private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
         private readonly NotificationService $notifications,
     ) {}
 
@@ -86,7 +88,7 @@ class ReturnToWorkService
             } else {
                 $leave->update([
                     'end_date'            => $newEnd->toDateString(),
-                    'requested_days'      => $this->calendar->workingDaysBetween($start, $newEnd),
+                    'requested_days'      => $this->shifts->workingDaysBetween($leave->employee, $start->toDateString(), $newEnd->toDateString()),
                     'returned_to_work_on' => $returned->toDateString(),
                     'original_end_date'   => $originalEnd->toDateString(),
                     'shortened_at'        => now(),

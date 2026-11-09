@@ -74,6 +74,8 @@ class LeaveRequestResource extends JsonResource
             'start_date'      => $this->start_date->toDateString(),
             'end_date'        => $this->end_date->toDateString(),
             'requested_days'  => $this->requested_days,
+            // Only on the on-leave list: whether the person has a shift that day.
+            'working_day'     => $this->when(array_key_exists('working_day', $this->resource->getAttributes()), fn (): bool => (bool) $this->resource->getAttribute('working_day')),
             'status'          => $this->status->value,
             'status_label'    => $this->status->label(),
             'decided_at'      => $this->decided_at?->toIso8601String(),

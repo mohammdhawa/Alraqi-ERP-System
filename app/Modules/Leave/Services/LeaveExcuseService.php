@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Services;
 
-use App\Modules\Attendance\Models\AttendanceRecord;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
+use App\Modules\Attendance\Services\AttendanceDays;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Services\NotificationService;
@@ -40,6 +41,8 @@ class LeaveExcuseService
 {
     public function __construct(
         private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
+        private readonly AttendanceDays $attendanceDays,
         private readonly LeaveBalances $balances,
         private readonly AttachmentStore $attachments,
         private readonly LeaveRequestService $requests,
@@ -59,7 +62,7 @@ class LeaveExcuseService
         $type = LeaveType::query()->findOrFail($data['leave_type_id']);
         $start = Carbon::parse($data['start_date'])->toDateString();
         $end = Carbon::parse($data['end_date'])->toDateString();
-        $days = $this->calendar->workingDaysBetween($start, $end);
+        $days = $this->shifts->workingDaysBetween($employee, $start, $end);
 
         // An excuse justifies an absence that happened (parity audit S-5;
         // legacy took future days, which then blocked checking in on them).
@@ -78,7 +81,7 @@ class LeaveExcuseService
                 Employee::query()->whereKey($employee->id)->lockForUpdate()->first();
 
                 $this->requests->ensureNoOverlap((int) $employee->id, $start, $end);
-                $this->ensureAbsent((int) $employee->id, $start, $end);
+                $this->ensureAbsent($employee, $start, $end);
 
                 if ($type->deducts_balance && ! $force) {
                     $remaining = $this->balances->remaining((int) $employee->id, Carbon::parse($start)->year);
@@ -170,19 +173,12 @@ class LeaveExcuseService
     /**
      * @throws LeaveException
      */
-    private function ensureAbsent(int $employeeId, string $start, string $end): void
+    private function ensureAbsent(Employee $employee, string $start, string $end): void
     {
-        $attended = AttendanceRecord::query()
-            ->forEmployee($employeeId)
-            ->checkIns()
-            ->accepted()
-            ->inDateRange($start, $end)
-            ->pluck('recorded_at')
-            ->map(static fn (mixed $at): string => Carbon::parse($at)->toDateString())
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
+        // The dates whose shift holds presence — a guard's day two shares
+        // day one's check-in (work shifts spec §6.1).
+        $days = $this->attendanceDays->for(collect([$employee]), $start, $end)[(int) $employee->getKey()] ?? [];
+        $attended = array_values(array_keys(array_filter($days, static fn ($day): bool => $day->in !== null)));
 
         if ($attended !== []) {
             throw new LeaveException('للموظف حضور مسجّل في بعض هذه الأيام، فلا يوجد غياب لتبريره: '.implode('، ', $attended).'.');

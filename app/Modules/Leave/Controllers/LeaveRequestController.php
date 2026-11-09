@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Controllers;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Requests\LeaveRegisterRequest;
@@ -24,7 +25,6 @@ use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -57,17 +57,26 @@ class LeaveRequestController extends Controller
      * /approved-leave-users; parity audit X2). `date` defaults to today in
      * the attendance timezone.
      */
-    public function onLeave(OnLeaveRequest $request, OnLeaveRoster $roster, AttendanceCalendar $calendar): JsonResponse
+    public function onLeave(OnLeaveRequest $request, OnLeaveRoster $roster, AttendanceCalendar $calendar, ExpectedShifts $shifts): JsonResponse
     {
         $filters = $request->validated();
         $filters['date'] ??= $calendar->today();
+        $date = (string) $filters['date'];
         RequestRowScopes::warm($request, ['approvals.reassign']);
 
+        $page = $roster->page($request->user(), $filters, $this->perPage($request));
+
+        // Each person's own day (work shifts spec §6.4): a guard's rest day
+        // inside a leave is not a working day for them.
+        $working = $shifts->shiftsFor($page->getCollection()->pluck('employee_id')->map(fn ($id): int => (int) $id)->all(), $date, $date);
+        $page->getCollection()->each(fn (LeaveRequest $leave) => $leave->setAttribute('working_day', isset($working[(int) $leave->employee_id][$date])));
+
         return $this->paginated(
-            LeaveRequestResource::collection($roster->page($request->user(), $filters, $this->perPage($request))),
+            LeaveRequestResource::collection($page),
             extra: [
-                'date'        => $filters['date'],
-                'working_day' => $calendar->isWorkingDay(Carbon::parse($filters['date'])),
+                'date'        => $date,
+                // The DEFAULT schedule's (employee id 0 has none of its own).
+                'working_day' => ($shifts->shiftsFor([0], $date, $date)[0] ?? []) !== [],
             ],
         );
     }

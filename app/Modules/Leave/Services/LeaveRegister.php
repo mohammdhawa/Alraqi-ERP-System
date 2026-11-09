@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Services\AttendancePopulation;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
@@ -34,6 +35,7 @@ class LeaveRegister
 {
     public function __construct(
         private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
         private readonly LeaveRequestQuery $requests,
     ) {}
 
@@ -143,8 +145,11 @@ class LeaveRegister
         ];
     }
 
+    /** @var array<int, list<string>> employee id → their scheduled dates in the window */
+    private array $scheduledDates = [];
+
     /**
-     * The leave clipped to the window: [working days, calendar days].
+     * The leave clipped to the window: [scheduled days, calendar days].
      *
      * @return array{0: int, 1: int}
      */
@@ -157,8 +162,12 @@ class LeaveRegister
             return [0, 0];
         }
 
+        $dates = $this->scheduledDates[(int) $leave->employee_id] ??= array_keys(
+            $this->shifts->shiftsFor([(int) $leave->employee_id], $from, $to)[(int) $leave->employee_id] ?? [],
+        );
+
         return [
-            $this->calendar->workingDaysBetween($start, $end),
+            count(array_filter($dates, static fn (string $d): bool => $d >= $start && $d <= $end)),
             (int) Carbon::parse($start)->diffInDays(Carbon::parse($end)) + 1,
         ];
     }
