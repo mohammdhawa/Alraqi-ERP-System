@@ -6,6 +6,7 @@ use App\Modules\Approvals\Models\Approval;
 use App\Modules\Approvals\Models\ApprovalReassignment;
 use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Attendance\Contracts\ApprovedLeave;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
@@ -26,6 +27,7 @@ use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Models\WorkScheduleDay;
+use App\Modules\Scheduling\Services\ScheduleResolver;
 use App\Shared\Models\Attachment;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
@@ -68,6 +70,11 @@ class AppServiceProvider extends ServiceProvider
         // requests and excuses (§4.7) — so the dependency runs Leave →
         // Attendance only. NoApprovedLeave stays for a test that wants none.
         $this->app->bind(ApprovedLeave::class, ApprovedLeaveFromRequests::class);
+
+        // Who is expected when (work shifts spec §4.1): a contract Attendance
+        // owns, answered by the Scheduling module from people's schedules — the
+        // dependency runs Scheduling → Attendance, as Leave's does.
+        $this->app->bind(ExpectedShifts::class, ScheduleResolver::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).

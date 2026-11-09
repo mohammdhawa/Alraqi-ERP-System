@@ -67,6 +67,24 @@ return [
     'allow_attendance_during_leave' => (bool) env('ATTENDANCE_ALLOW_DURING_LEAVE', false),
 
     /*
+    | Work shifts (DECISION_ROUND_WORK_SHIFTS.md; the work shifts spec §3.3).
+    |
+    | default_schedule        the code of the schedule for anyone with none
+    |                         assigned. Unset, they get the open day — the
+    |                         rules above, unchanged (build steps 3–4).
+    | grace_minutes           late or early beyond this counts (S4).
+    | check_in_opens_minutes  how early before a shift check-in opens (S10).
+    | close_after_minutes     how long after a shift's end the day closes:
+    |                         an open check-in becomes a missing check-out
+    |                         (S5); a check-out recorded later finds no
+    |                         check-in to close.
+    */
+    'default_schedule'       => env('ATTENDANCE_DEFAULT_SCHEDULE') ?: null,
+    'grace_minutes'          => (int) env('ATTENDANCE_GRACE_MINUTES', 15),
+    'check_in_opens_minutes' => (int) env('ATTENDANCE_CHECK_IN_OPENS_MINUTES', 60),
+    'close_after_minutes'    => (int) env('ATTENDANCE_CLOSE_AFTER_MINUTES', 240),
+
+    /*
     | Selfie FILES are kept this many months, then deleted by
     | attendance:purge-selfies; the attendance record itself is never deleted
     | (Q11). Stored on the private `local` disk under `selfie_directory`.
