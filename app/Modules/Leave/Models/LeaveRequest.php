@@ -17,6 +17,7 @@ use App\Modules\HR\Models\Employee;
 use App\Modules\Leave\Enums\LeaveOrigin;
 use App\Modules\Leave\Enums\LeaveStatus;
 use App\Modules\Leave\Policies\LeaveRequestPolicy;
+use App\Modules\Leave\Services\LeaveApproverDetails;
 use App\Modules\Leave\Services\LeaveBalances;
 use App\Shared\Models\Attachment;
 use App\Shared\Support\NotificationEventCatalogue;
@@ -32,6 +33,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
 /**
@@ -255,6 +257,11 @@ class LeaveRequest extends Model implements Approvable, FiltersApprovals
     public static function approvalSummaryRelations(): array
     {
         return ['type', 'employee'];
+    }
+
+    public static function approverRowDetails(Collection $subjects, bool $decided): array
+    {
+        return app(LeaveApproverDetails::class)->rowDetails($subjects, $decided);
     }
 
     // ── Filters on the approval lists (FiltersApprovals, parity audit C-4) ─

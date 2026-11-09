@@ -78,6 +78,10 @@ final class AuditTargetStub
         'leave_request'         => 'طلب إجازة',
         'leave_balance'         => 'رصيد إجازات',
         'attachment'            => 'مرفق',
+        'shift'                  => 'وردية',
+        'work_schedule'          => 'جدول دوام',
+        'work_schedule_day'      => 'يوم في جدول دوام',
+        'employee_work_schedule' => 'جدول دوام موظف',
     ];
 
     /**

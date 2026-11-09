@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -28,6 +29,7 @@ class AttendanceAbsentTodayTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const DAY = '2026-06-21';
@@ -36,7 +38,10 @@ class AttendanceAbsentTodayTest extends TestCase
     {
         parent::setUp();
 
-        Carbon::setTestNow(self::DAY.' 11:00:00');
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
+        Carbon::setTestNow(self::DAY.' 23:59:30');   // the day's shift has ended (00:00–23:59)
         $this->buildTree();
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
     }
@@ -111,7 +116,7 @@ class AttendanceAbsentTodayTest extends TestCase
 
     public function test_a_day_off_has_no_absentees(): void
     {
-        config(['attendance.working_days' => [1, 2, 3, 4, 5, 6]]);   // Sunday off
+        $this->pinDayOff(0);   // Sunday off, through the default schedule
 
         $this->absent()->assertOk()->assertJsonPath('meta.total', 0);
     }

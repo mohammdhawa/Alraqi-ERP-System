@@ -16,6 +16,7 @@ use App\Modules\Leave\Models\LeaveRequest;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
 
@@ -35,6 +36,7 @@ use Tests\TestCase;
 class MySummaryTest extends TestCase
 {
     use LeaveFixtures;
+    use PinsADayOff;
     use RefreshDatabase;
 
     /** Sunday 21 June 2026 — every day is a working day (Q8). */
@@ -44,6 +46,9 @@ class MySummaryTest extends TestCase
     {
         parent::setUp();
 
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
         Carbon::setTestNow(self::TODAY.' 12:00:00');
         $this->buildLeaveTree();
     }

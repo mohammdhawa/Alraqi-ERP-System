@@ -5,11 +5,12 @@
 | Attendance — ported from legacy's config/attendance.php
 |--------------------------------------------------------------------------
 |
-| The same keys and the same values legacy ships (work order §4.5), with the
-| decision round's answers (2026-10-16, work order §8): no weekly day off and
-| no holiday calendar (Q8), no "late" — the check-in window stays open (Q9),
-| and the day closes at 23:59 (Q10). AttendanceCalendar is the only reader;
-| its fallbacks match these values, so a missing key cannot change policy.
+| Legacy's keys and values (work order §4.5), except where the work shifts
+| decision round (2026-11-09, DECISION_ROUND_WORK_SHIFTS.md) replaced the
+| company calendar with each person's schedule: the working days, the
+| check-in window, the 17:00 reminder and the 23:59 close are per shift now
+| (the work shifts spec §3.3, §8). Q8.2 (no holiday calendar) still stands.
+| AttendanceCalendar and the Scheduling resolver are the readers.
 |
 */
 
@@ -20,23 +21,6 @@ return [
     | close) are judged in this one timezone, as legacy does.
     */
     'timezone' => env('ATTENDANCE_TIMEZONE', config('app.timezone')),
-
-    /*
-    | Days on which attendance is recorded and expected, as Carbon dayOfWeek
-    | integers (Sunday = 0 … Saturday = 6). Every day — there is no weekly day
-    | off (Q8). The same calendar decides absent days and which leave days are
-    | charged, so every surface reads one policy.
-    */
-    'working_days' => [0, 1, 2, 3, 4, 5, 6],
-
-    /*
-    | The check-in window, "H:i", inclusive. An empty bound is no bound; both
-    | empty — as shipped — means check-in is open all day (Q9: no "late").
-    */
-    'check_in' => [
-        'start' => env('ATTENDANCE_CHECKIN_START', ''),
-        'end'   => env('ATTENDANCE_CHECKIN_END', ''),
-    ],
 
     /*
     | The shortest gap, in minutes, between a check-in and its check-out — a
@@ -54,17 +38,27 @@ return [
     'max_clock_ahead_minutes' => (int) env('ATTENDANCE_MAX_CLOCK_AHEAD', 10),
 
     /*
-    | reminder_at   push a check-out reminder to everyone still checked in.
-    | auto_close_at close the day: an open check-in becomes a missing check-out,
-    |               with no invented check-out and no hours.
-    */
-    'reminder_at'   => env('ATTENDANCE_REMINDER_AT', '17:00'),
-    'auto_close_at' => env('ATTENDANCE_AUTO_CLOSE_AT', '23:59'),
-
-    /*
     | When false, approved leave on a day blocks checking in on it.
     */
     'allow_attendance_during_leave' => (bool) env('ATTENDANCE_ALLOW_DURING_LEAVE', false),
+
+    /*
+    | Work shifts (DECISION_ROUND_WORK_SHIFTS.md; the work shifts spec §3.3).
+    |
+    | default_schedule        the code of the schedule for anyone with none
+    |                         assigned (S3: OFFICE, 09:00–16:00, Saturday to
+    |                         Thursday). It must exist: SchedulingSeeder.
+    | grace_minutes           late or early beyond this counts (S4).
+    | check_in_opens_minutes  how early before a shift check-in opens (S10).
+    | close_after_minutes     how long after a shift's end the day closes:
+    |                         an open check-in becomes a missing check-out
+    |                         (S5); a check-out recorded later finds no
+    |                         check-in to close.
+    */
+    'default_schedule'       => env('ATTENDANCE_DEFAULT_SCHEDULE', 'OFFICE'),
+    'grace_minutes'          => (int) env('ATTENDANCE_GRACE_MINUTES', 15),
+    'check_in_opens_minutes' => (int) env('ATTENDANCE_CHECK_IN_OPENS_MINUTES', 60),
+    'close_after_minutes'    => (int) env('ATTENDANCE_CLOSE_AFTER_MINUTES', 240),
 
     /*
     | Selfie FILES are kept this many months, then deleted by

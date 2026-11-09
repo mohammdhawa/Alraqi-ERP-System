@@ -51,8 +51,10 @@ class PermissionSeederTest extends TestCase
      * Leave added nine (2026-10-18): `leave.types.create`, `.update`,
      * `.delete`, `leave.balances.view`, `.update`, `leave.requests.view`,
      * `.returnToWork`, and `leave.excuses.create`, `.delete`.
+     *
+     * Work shifts added two (2026-11-09): `scheduling.view`, `.manage`.
      */
-    private const TOTAL = 46;
+    private const TOTAL = 48;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -74,6 +76,7 @@ class PermissionSeederTest extends TestCase
             'hr.warnings.create', 'hr.warnings.delete', 'hr.warnings.update', 'hr.warnings.view',
             'leave.balances.update', 'leave.balances.view', 'leave.excuses.create', 'leave.excuses.delete', 'leave.requests.returnToWork', 'leave.requests.view',
             'leave.types.create', 'leave.types.delete', 'leave.types.update',
+            'scheduling.manage', 'scheduling.view',
         ];
 
         $this->assertSame($expected, Permission::orderBy('name')->pluck('name')->all());

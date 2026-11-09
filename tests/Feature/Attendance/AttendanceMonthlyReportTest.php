@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -33,6 +34,7 @@ class AttendanceMonthlyReportTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const JUNE = 30;
@@ -41,6 +43,9 @@ class AttendanceMonthlyReportTest extends TestCase
     {
         parent::setUp();
 
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
         $this->buildTree();
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
     }

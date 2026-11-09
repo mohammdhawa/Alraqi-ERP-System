@@ -82,6 +82,13 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::get('/attendance/days', [MyAttendanceDaysController::class, 'index'])
         ->name('me.attendance.days');
 
+    // The caller's own record by id: a notification carries only the id
+    // (API §6), and the app opens the day it is about (app slice 6, N1). A
+    // colleague's record is a 404, as the selfie below.
+    Route::get('/attendance/{record}', [MyAttendanceController::class, 'show'])
+        ->whereNumber('record')
+        ->name('me.attendance.show');
+
     // The caller's own selfie — streamed, never a URL (Q11). The id is looked
     // up among the caller's own records only: a colleague's is a 404.
     Route::get('/attendance/{record}/selfie', [MyAttendanceController::class, 'selfie'])

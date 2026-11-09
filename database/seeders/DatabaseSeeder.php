@@ -44,6 +44,7 @@ class DatabaseSeeder extends Seeder
             PermissionSeeder::class,
             RoleSeeder::class,
             DepartmentSeeder::class,
+            SchedulingSeeder::class,
         ]);
 
         if (! app()->isProduction()) {

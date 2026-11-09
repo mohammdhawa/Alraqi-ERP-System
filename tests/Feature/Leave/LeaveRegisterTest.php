@@ -12,6 +12,7 @@ use App\Modules\Leave\Models\LeaveRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
 
@@ -24,6 +25,7 @@ use Tests\TestCase;
 class LeaveRegisterTest extends TestCase
 {
     use LeaveFixtures;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const VIEW = ['leave.requests.view'];
@@ -104,7 +106,7 @@ class LeaveRegisterTest extends TestCase
 
     public function test_days_in_range_are_working_days(): void
     {
-        config(['attendance.working_days' => [0, 1, 2, 3, 4]]);
+        $this->pinDayOff(5, 6);   // Friday and Saturday off, through the default schedule
         // Thursday 25 June → Sunday 28: two working days, four calendar days.
         $this->leave($this->people['staff'], '2026-06-25', '2026-06-28', 2);
         $this->actingAsScopedUser(self::VIEW, ScopeType::Company);

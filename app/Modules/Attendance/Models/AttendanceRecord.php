@@ -57,6 +57,9 @@ class AttendanceRecord extends Model
         'status',
         'source',
         'recorded_at',
+        'shift_date',
+        'outside_schedule',
+        'checkout_reminded_at',
         'work_hours',
         'latitude',
         'longitude',
@@ -84,6 +87,9 @@ class AttendanceRecord extends Model
             'source'           => AttendanceSource::class,
             'rejection_reason' => RejectionReason::class,
             'recorded_at'      => 'datetime',
+            'shift_date'       => 'date',
+            'outside_schedule' => 'boolean',
+            'checkout_reminded_at' => 'datetime',
             'work_hours'       => 'float',
             'latitude'         => 'float',
             'longitude'        => 'float',
@@ -100,6 +106,22 @@ class AttendanceRecord extends Model
     protected static function newFactory(): Factory
     {
         return AttendanceRecordFactory::new();
+    }
+
+    /**
+     * A record written without a shift date belongs to the date it was
+     * recorded on, read in the attendance timezone. AttendanceService always
+     * sets it; this is the default for everything else that writes rows
+     * (factories, seeders, tinker), and it is today's grouping exactly.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (AttendanceRecord $record): void {
+            if ($record->shift_date === null && $record->recorded_at !== null) {
+                $timezone = (string) (config('attendance.timezone') ?: config('app.timezone'));
+                $record->shift_date = $record->recorded_at->copy()->setTimezone($timezone)->toDateString();
+            }
+        });
     }
 
     /**
@@ -165,16 +187,21 @@ class AttendanceRecord extends Model
         return $query->whereNull('rejected_at');
     }
 
+    /**
+     * Records of the shift dated $date — the shift's date, not the calendar
+     * date of the tap: a night shift's check-out belongs to the evening it
+     * started (work shifts spec §2).
+     */
     public function scopeOnDate(Builder $query, string $date): Builder
     {
-        return $query->whereDate('recorded_at', $date);
+        return $query->whereDate('shift_date', $date);
     }
 
     public function scopeInDateRange(Builder $query, ?string $from, ?string $to): Builder
     {
         return $query
-            ->when($from !== null, fn (Builder $q) => $q->whereDate('recorded_at', '>=', $from))
-            ->when($to !== null, fn (Builder $q) => $q->whereDate('recorded_at', '<=', $to));
+            ->when($from !== null, fn (Builder $q) => $q->whereDate('shift_date', '>=', $from))
+            ->when($to !== null, fn (Builder $q) => $q->whereDate('shift_date', '<=', $to));
     }
 
     public function scopeInMonth(Builder $query, int $month, int $year): Builder
