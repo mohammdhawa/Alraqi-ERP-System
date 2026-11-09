@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Leave\Services;
 
 use App\Modules\Attendance\Contracts\ExpectedShifts;
+use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Services\AttendanceDays;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
@@ -178,7 +179,7 @@ class LeaveExcuseService
         // The dates whose shift holds presence — a guard's day two shares
         // day one's check-in (work shifts spec §6.1).
         $days = $this->attendanceDays->for(collect([$employee]), $start, $end)[(int) $employee->getKey()] ?? [];
-        $attended = array_values(array_keys(array_filter($days, static fn ($day): bool => $day->in !== null)));
+        $attended = array_values(array_keys(array_filter($days, static fn ($day): bool => in_array($day->state, [AttendanceDayState::CheckedIn, AttendanceDayState::CheckedOut, AttendanceDayState::MissingCheckout], true))));
 
         if ($attended !== []) {
             throw new LeaveException('للموظف حضور مسجّل في بعض هذه الأيام، فلا يوجد غياب لتبريره: '.implode('، ', $attended).'.');

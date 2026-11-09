@@ -73,6 +73,19 @@ class LeaveExcuseTest extends TestCase
     // ── Filing ───────────────────────────────────────────────────────────
 
     /**
+     * Final review I3: a check-in outside the schedule that never reached the
+     * day's shift is no attendance on it — the shift was missed, so HR may
+     * excuse it.
+     */
+    public function test_an_outside_check_in_after_the_shift_does_not_block_an_excuse(): void
+    {
+        Carbon::setTestNow('2026-06-23 10:00:00');
+        $this->checkInOn('2026-06-21 16:30:00', ['outside_schedule' => true]);   // Sunday, after 09:00–16:00
+
+        $this->excuse()->assertCreated();
+    }
+
+    /**
      * Parity audit S-5 (owner, 2026-10-20): an excuse justifies an absence
      * that happened, so no day after today; today itself is allowed.
      */

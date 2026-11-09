@@ -258,4 +258,41 @@ class ShiftReportsTest extends TestCase
             ->assertJsonPath('data.attendance_today.shift.starts_at', '2026-11-19T09:00:00+03:00')
             ->assertJsonPath('data.attendance_today.next_shift.starts_at', '2026-11-21T09:00:00+03:00');
     }
+
+    /**
+     * Final review I3: a check-in outside the schedule on a working date does
+     * not satisfy the shift unless its presence overlaps the shift.
+     */
+    public function test_an_outside_check_in_after_the_shift_does_not_make_the_shift_present(): void
+    {
+        $office = $this->person('OFFICE');
+        $this->in($office, '2026-11-14 16:30:00', '2026-11-14', ['outside_schedule' => true]);
+        $this->out($office, '2026-11-14 17:40:00', '2026-11-14', 1.17);
+        Carbon::setTestNow('2026-11-15 10:00:00');
+        $this->actingAsAdmin();
+
+        $day = $this->days($this->grid($office, '2026-11-14', '2026-11-14'))['2026-11-14'];
+        $this->assertSame(AttendanceDayState::Absent->value, $day['status']);
+        $this->assertTrue($day['outside_schedule']);
+        $this->assertSame([0, 70], [$day['minutes_within_shift'], $day['minutes_outside_shift']]);
+        $this->assertSame('2026-11-14T16:30:00+03:00', $day['check_in_time']);
+
+        $row = $this->getJson('/api/attendance/report/monthly?from=2026-11-14&to=2026-11-14')->assertOk()->json('data.rows.0');
+        $this->assertSame([1, 0, 1, 1], [$row['expected_days'], $row['present_days'], $row['absent_days'], $row['outside_schedule_count']]);
+        $this->assertEquals(1.17, $row['total_work_hours']);
+    }
+
+    public function test_an_outside_check_in_before_the_window_that_runs_into_the_shift_is_its_presence(): void
+    {
+        $office = $this->person('OFFICE');
+        $this->in($office, '2026-11-14 07:59:00', '2026-11-14', ['outside_schedule' => true]);
+        $this->out($office, '2026-11-14 16:00:00', '2026-11-14', 8.02);
+        Carbon::setTestNow('2026-11-15 10:00:00');
+        $this->actingAsAdmin();
+
+        $day = $this->days($this->grid($office, '2026-11-14', '2026-11-14'))['2026-11-14'];
+
+        $this->assertSame(AttendanceDayState::CheckedOut->value, $day['status']);
+        $this->assertSame([0, 420, 61, true], [$day['late_minutes'], $day['minutes_within_shift'], $day['minutes_outside_shift'], $day['outside_schedule']]);
+    }
 }

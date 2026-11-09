@@ -100,22 +100,26 @@ class AttendanceDays
     }
 
     /**
-     * @param  array{0: AttendanceRecord, 1: ?AttendanceRecord, 2: ShiftPresence, 3: int}|null  $entry  in, out, presence, the duty's shift count
+     * @param  array{0: AttendanceRecord, 1: ?AttendanceRecord, 2: ShiftPresence, 3: int, 4: bool}|null  $entry  in, out, presence, the duty's shift count, whether it satisfies the date's shift
      * @param  list<AttendanceRecord>  $refusedIns
      * @param  array<int, LeaveSpan>  $spans
      */
     private function facts(int $id, string $date, ?ExpectedShift $shift, ?array $entry, array $refusedIns, array $spans, CarbonImmutable $now, string $today): DayFacts
     {
-        [$in, $out, $presence, $dutyShifts] = $entry ?? [null, null, null, 0];
+        [$in, $out, $presence, $dutyShifts, $satisfies] = $entry ?? [null, null, null, 0, true];
         $missing = $in !== null && $out === null && $in->status === AttendanceRecordStatus::MissingCheckout;
         $hasRecord = $in !== null && ($presence->present || $missing);
         if (! $hasRecord) {
             [$in, $out, $presence] = [null, null, null];
         }
+        // An outside-schedule check-in that does not reach the date's shift
+        // (final review I3): the row still shows it, but the shift is judged
+        // as if nothing were recorded — absent once it has ended.
+        $decides = $hasRecord && ($satisfies || $shift === null);
 
         $span = $this->spanOn($spans, $id, $date);
         $state = match (true) {
-            $hasRecord          => $out !== null ? AttendanceDayState::CheckedOut
+            $decides            => $out !== null ? AttendanceDayState::CheckedOut
                 : ($missing ? AttendanceDayState::MissingCheckout : AttendanceDayState::CheckedIn),
             $shift === null     => AttendanceDayState::Off,
             (bool) $span?->isExcuse => AttendanceDayState::Excused,
@@ -133,7 +137,7 @@ class AttendanceDays
 
         $hours = match (true) {
             ! $hasRecord || $out === null => null,
-            // One shift: the record's own hours, exactly as recorded.
+            // One shift, or a record of its own: its hours, exactly as recorded.
             $dutyShifts <= 1             => $out->work_hours,
             default                      => $presence->workHours,
         };
@@ -158,7 +162,11 @@ class AttendanceDays
      *
      * @param  Collection<int, AttendanceRecord>  $records
      * @param  array<string, Duty>  $duties  by start date
-     * @return array<string, array{0: AttendanceRecord, 1: ?AttendanceRecord, 2: ShiftPresence, 3: int}>
+     *                                       An outside-schedule check-in is the duty's presence where it overlaps
+     *                                       the duty that starts on its date (07:59 to 16:00 is the 09:00 shift's,
+     *                                       an hour outside); otherwise it is a record of its own that does not
+     *                                       satisfy that date's shift (final review I3).
+     * @return array<string, array{0: AttendanceRecord, 1: ?AttendanceRecord, 2: ShiftPresence, 3: int, 4: bool}>
      */
     private function entries(Collection $records, array $duties, CarbonImmutable $now, int $grace): array
     {
@@ -172,17 +180,19 @@ class AttendanceDays
                 continue; // one accepted check-in per shift date; the first stands
             }
             $out = $checkOuts->get($shiftDate);
-            $duty = $in->outside_schedule ? null : ($duties[$shiftDate] ?? null);
+            $duty = $duties[$shiftDate] ?? null;
+            $split = $duty === null ? [] : DutyPresence::split($duty, $in->recorded_at, $out?->recorded_at, $now, $grace);
+            $reaches = array_filter($split, static fn (ShiftPresence $p): bool => $p->present) !== [];
 
-            if ($duty === null) {
+            if ($duty === null || ($in->outside_schedule && ! $reaches)) {
                 $minutes = intdiv(max(0, ($out?->recorded_at ?? $now)->getTimestamp() - $in->recorded_at->getTimestamp()), 60);
-                $entries[$shiftDate] = [$in, $out, new ShiftPresence(true, 0, 0, 0, $minutes, round($minutes / 60, 2)), 1];
+                $entries[$shiftDate] = [$in, $out, new ShiftPresence(true, 0, 0, 0, $minutes, round($minutes / 60, 2)), 1, ! $in->outside_schedule || $duty === null];
 
                 continue;
             }
 
-            foreach (DutyPresence::split($duty, $in->recorded_at, $out?->recorded_at, $now, $grace) as $date => $presence) {
-                $entries[$date] = [$in, $out, $presence, count($duty->shifts)];
+            foreach ($split as $date => $presence) {
+                $entries[$date] = [$in, $out, $presence, count($duty->shifts), true];
             }
         }
 

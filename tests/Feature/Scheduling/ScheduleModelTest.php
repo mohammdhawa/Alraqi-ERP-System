@@ -154,12 +154,12 @@ class ScheduleModelTest extends TestCase
 
     public function test_an_assigned_schedules_days_cannot_change(): void
     {
-        $this->assign(Employee::factory()->create(), 'OFFICE', '2026-11-14');
+        $this->assign(Employee::factory()->create(), 'GUARD', '2026-11-14', '2026-11-14');
 
         $this->expectException(SchedulingException::class);
         $this->expectExceptionMessage('لا يمكن تعديل أيام جدول مُسند لموظفين؛ أنشئ جدولاً جديداً.');
 
-        WorkSchedule::where('code', 'OFFICE')->sole()->replaceDays(array_fill(0, 7, null));
+        WorkSchedule::where('code', 'GUARD')->sole()->replaceDays(array_fill(0, 6, null));
     }
 
     public function test_overlapping_assignments_are_refused(): void

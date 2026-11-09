@@ -95,6 +95,21 @@ class EmployeeWorkScheduleEndpointsTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['to_date']);
     }
 
+    /** Final review I4: an ended span is history; stretching it re-reads past days. */
+    public function test_an_ended_span_cannot_be_stretched_back_over_past_days(): void
+    {
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+        $span = app(ScheduleAssigner::class)->assign($this->employee, WorkSchedule::where('code', 'GUARD')->sole(), '2026-11-14', '2026-11-14', User::factory()->create());
+        $this->patchJson($this->url("/{$span->id}"), ['to_date' => '2026-11-15'])->assertOk();
+
+        Carbon::setTestNow('2026-11-25 10:00:00');
+
+        $this->patchJson($this->url("/{$span->id}"), ['to_date' => '2026-11-30'])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'لا يمكن تعديل جدول انتهى؛ أسند جدولاً جديداً.');
+        $this->assertSame('2026-11-15', $span->fresh()->to_date->toDateString());
+    }
+
     public function test_only_an_assignment_not_yet_started_can_be_deleted(): void
     {
         $this->actingAsUserWithPermissions(['scheduling.manage']);

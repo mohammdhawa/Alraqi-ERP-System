@@ -108,14 +108,14 @@ class WorkScheduleEndpointsTest extends TestCase
     public function test_an_assigned_schedules_days_are_refused_and_it_cannot_be_deleted(): void
     {
         $this->actingAsUserWithPermissions(['scheduling.manage']);
-        $office = WorkSchedule::where('code', 'OFFICE')->sole();
+        $office = WorkSchedule::where('code', 'GUARD')->sole();   // assigned, and not the default
         EmployeeWorkSchedule::create([
             'employee_id' => Employee::factory()->create()->id, 'work_schedule_id' => $office->id,
-            'from_date' => '2026-11-14', 'created_by' => User::factory()->create()->id,
+            'from_date' => '2026-11-14', 'cycle_start_date' => '2026-11-14', 'created_by' => User::factory()->create()->id,
         ]);
 
         $this->patchJson("/api/scheduling/schedules/{$office->id}", ['days' => array_map(
-            fn (int $p): array => ['position' => $p, 'shift_id' => null], range(0, 6),
+            fn (int $p): array => ['position' => $p, 'shift_id' => null], range(0, 5),
         )])->assertUnprocessable()
             ->assertJsonPath('message', 'لا يمكن تعديل أيام جدول مُسند لموظفين؛ أنشئ جدولاً جديداً.');
 
@@ -133,5 +133,30 @@ class WorkScheduleEndpointsTest extends TestCase
 
         $this->deleteJson("/api/scheduling/schedules/{$guard->id}")->assertOk();
         $this->assertSoftDeleted($guard);
+    }
+
+    /**
+     * Final review C1: the default schedule is everyone's who has no
+     * assignment, so it is in use even though no span names it. Deleting,
+     * deactivating or re-drawing it would make every attendance call fail,
+     * or re-read every unassigned person's past days.
+     */
+    public function test_the_default_schedule_cannot_be_deleted_deactivated_or_redrawn(): void
+    {
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+        $office = WorkSchedule::where('code', 'OFFICE')->sole();
+        $message = 'لا يمكن حذف الجدول الافتراضي أو إيقافه أو تعديل أيامه.';
+
+        $this->patchJson("/api/scheduling/schedules/{$office->id}", ['days' => array_map(
+            fn (int $p): array => ['position' => $p, 'shift_id' => null], range(0, 6),
+        )])->assertUnprocessable()->assertJsonPath('message', $message);
+        $this->patchJson("/api/scheduling/schedules/{$office->id}", ['is_active' => false])
+            ->assertUnprocessable()->assertJsonPath('message', $message);
+        $this->deleteJson("/api/scheduling/schedules/{$office->id}")
+            ->assertUnprocessable()->assertJsonPath('message', $message);
+
+        $this->patchJson("/api/scheduling/schedules/{$office->id}", ['name' => 'الدوام الإداري'])->assertOk();
+        $this->assertTrue($office->fresh()->is_active);
+        $this->assertNotSoftDeleted($office);
     }
 }

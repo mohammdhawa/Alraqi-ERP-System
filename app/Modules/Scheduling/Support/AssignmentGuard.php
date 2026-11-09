@@ -18,6 +18,7 @@ final class AssignmentGuard
 {
     /**
      * @param  list<array{from: string, to: ?string}>  $otherSpans  the person's other spans
+     * @param  ?string  $endedOn  the stored to_date being changed, when an existing span's end moves
      * @return list<string>
      */
     public static function violations(
@@ -29,8 +30,15 @@ final class AssignmentGuard
         ?string $cycleStart,
         string $today,
         array $otherSpans,
+        ?string $endedOn = null,
     ): array {
         $violations = [];
+
+        // A span that ended before yesterday is history: stretching it would
+        // re-read past days under it (final review I4).
+        if ($endedOn !== null && $endedOn < date('Y-m-d', strtotime($today.' -1 day'))) {
+            return ['لا يمكن تعديل جدول انتهى؛ أسند جدولاً جديداً.'];
+        }
 
         if ($creating && ! $scheduleActive) {
             $violations[] = 'الجدول المحدد غير مفعّل.';

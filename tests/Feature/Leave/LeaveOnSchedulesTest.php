@@ -12,6 +12,7 @@ use App\Modules\Scheduling\Services\ScheduleAssigner;
 use Database\Seeders\SchedulingSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
@@ -134,5 +135,27 @@ class LeaveOnSchedulesTest extends TestCase
         $this->getJson('/api/leave/requests?from=2026-11-01&to=2026-11-30')->assertOk()
             ->assertJsonPath('data.0.days_in_range', 3)
             ->assertJsonPath('data.0.calendar_days_in_range', 6);
+    }
+
+    /** Final review I5: the register reads schedules once for the page, not once per person. */
+    public function test_the_register_reads_schedules_once_for_the_page(): void
+    {
+        $this->actingAsAdmin();
+        $count = function (int $people): int {
+            LeaveRequest::query()->forceDelete();
+            foreach (range(1, $people) as $i) {
+                LeaveRequest::factory()->forType('annual')->approved()->create(['employee_id' => $this->person()->id, 'start_date' => '2026-11-14', 'end_date' => '2026-11-15', 'requested_days' => 2]);
+            }
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson('/api/leave/requests?from=2026-11-01&to=2026-11-30')->assertOk();
+            $queries = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $queries;
+        };
+
+        $count(1);   // the first request warms the permission cache
+        $this->assertSame($count(2), $count(10));
     }
 }

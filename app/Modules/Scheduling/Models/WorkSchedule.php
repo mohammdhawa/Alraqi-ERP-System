@@ -40,12 +40,18 @@ class WorkSchedule extends Model
     protected static function booted(): void
     {
         static::updating(function (self $schedule): void {
+            if ($schedule->isDefault() && ($schedule->isDirty(['kind', 'cycle_days', 'code']) || ($schedule->isDirty('is_active') && ! $schedule->is_active))) {
+                throw new SchedulingException(self::DEFAULT_FIXED);
+            }
             if ($schedule->isDirty(['kind', 'cycle_days']) && $schedule->isAssigned()) {
                 throw new SchedulingException(self::ASSIGNED_DAYS);
             }
         });
 
         static::deleting(function (self $schedule): void {
+            if ($schedule->isDefault()) {
+                throw new SchedulingException(self::DEFAULT_FIXED);
+            }
             if ($schedule->isAssigned()) {
                 throw new SchedulingException('لا يمكن حذف جدول مُسند لموظفين.');
             }
@@ -53,6 +59,8 @@ class WorkSchedule extends Model
     }
 
     public const ASSIGNED_DAYS = 'لا يمكن تعديل أيام جدول مُسند لموظفين؛ أنشئ جدولاً جديداً.';
+
+    public const DEFAULT_FIXED = 'لا يمكن حذف الجدول الافتراضي أو إيقافه أو تعديل أيامه.';
 
     /**
      * @param  array<string, mixed>  $attributes
@@ -74,6 +82,9 @@ class WorkSchedule extends Model
     /** @param  array<int, int|null>  $days */
     public function replaceDays(array $days): void
     {
+        if ($this->isDefault()) {
+            throw new SchedulingException(self::DEFAULT_FIXED);
+        }
         if ($this->isAssigned()) {
             throw new SchedulingException(self::ASSIGNED_DAYS);
         }
@@ -83,6 +94,16 @@ class WorkSchedule extends Model
             $this->days()->delete();
             $this->writeDays($days);
         });
+    }
+
+    /**
+     * The schedule of everyone with none assigned (config
+     * attendance.default_schedule): in use by everyone, though no span names
+     * it, so it is never deleted, deactivated or re-drawn (final review C1).
+     */
+    public function isDefault(): bool
+    {
+        return $this->code === config('attendance.default_schedule');
     }
 
     public function isAssigned(): bool

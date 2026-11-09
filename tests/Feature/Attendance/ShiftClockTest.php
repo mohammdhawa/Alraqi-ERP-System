@@ -7,6 +7,7 @@ namespace Tests\Feature\Attendance;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\RejectionReason;
 use App\Modules\Attendance\Models\AttendanceRecord;
+use App\Modules\Attendance\Services\AttendanceShiftClock;
 use App\Modules\Auth\Models\Notification;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
@@ -20,6 +21,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -198,5 +200,25 @@ class ShiftClockTest extends TestCase
         $this->assertNull($event('attendance:checkout-reminder'));
         $this->assertNull($event('attendance:auto-close'));
         $this->assertSame('0 3 * * *', $event('attendance:purge-selfies')?->expression);
+    }
+
+    /** Final review I5: the clock's queries do not grow with the number of open check-ins. */
+    public function test_the_clock_reads_schedules_once_for_everyone(): void
+    {
+        $count = function (int $people): int {
+            AttendanceRecord::query()->forceDelete();
+            foreach (range(1, $people) as $i) {
+                $this->in($this->person(), '2026-11-14 09:00:00', '2026-11-14');
+            }
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            app(AttendanceShiftClock::class)->run(Carbon::parse('2026-11-14 12:00:00'));
+            $queries = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $queries;
+        };
+
+        $this->assertSame($count(2), $count(20));
     }
 }

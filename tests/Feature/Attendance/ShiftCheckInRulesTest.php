@@ -9,6 +9,7 @@ use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
+use App\Modules\Scheduling\Exceptions\SchedulingException;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Services\ScheduleAssigner;
@@ -214,6 +215,12 @@ class ShiftCheckInRulesTest extends TestCase
         $this->assertSame('2026-11-14', AttendanceRecord::query()->checkOuts()->sole()->shift_date->toDateString());
     }
 
+    /**
+     * Review Focus 3 (final review C2): a schedule change cannot start inside
+     * a duty that already has its check-in — it would cut the duty short and
+     * lose the guard's hours. It may start the day after the duty's last
+     * shift; the duty then keeps its three shifts and its check-out.
+     */
     public function test_a_schedule_change_today_keeps_the_open_duty(): void
     {
         $guard = $this->person('GUARD', '2026-11-14');
@@ -221,13 +228,32 @@ class ShiftCheckInRulesTest extends TestCase
         $this->record('2026-11-14 07:30:00')->assertCreated();
 
         Carbon::setTestNow('2026-11-15 10:00:00');
-        app(ScheduleAssigner::class)->assign($guard, WorkSchedule::where('code', 'OFFICE')->sole(), '2026-11-15', null, User::factory()->create());
+        $office = WorkSchedule::where('code', 'OFFICE')->sole();
+        $by = User::factory()->create();
 
-        $this->out('2026-11-17 08:00:00')->assertUnprocessable();
-        // The span the duty began under now ends on 11-14, so the duty is one
-        // shift (11-14 08:00 → 11-15 08:00) and closes at 12:00 on 11-15: the
-        // schedule change takes effect from today, as decided.
-        $this->out('2026-11-15 11:00:00', now: '2026-11-15 11:00:00')->assertCreated();
+        try {
+            app(ScheduleAssigner::class)->assign($guard, $office, '2026-11-15', null, $by);
+            $this->fail('a change inside the duty must be refused');
+        } catch (SchedulingException $refused) {
+            $this->assertSame('لدى الموظف تسجيل حضور في مناوبة تمتد إلى 2026-11-16؛ لا يمكن أن يبدأ الجدول الجديد قبل 2026-11-17.', $refused->getMessage());
+        }
+
+        app(ScheduleAssigner::class)->assign($guard, $office, '2026-11-17', null, $by);
+
+        $this->out('2026-11-17 08:00:00')->assertCreated()->assertJsonPath('data.shift_date', '2026-11-14');
+    }
+
+    public function test_a_schedule_change_cannot_rejudge_a_day_already_checked_into(): void
+    {
+        $office = $this->person('OFFICE');
+        $this->actAs($office);
+        $this->record('2026-11-14 09:00:00')->assertCreated();
+
+        Carbon::setTestNow('2026-11-14 10:00:00');
+        $this->expectException(SchedulingException::class);
+        $this->expectExceptionMessage('لا يمكن أن يبدأ الجدول الجديد قبل 2026-11-15.');
+
+        app(ScheduleAssigner::class)->assign($office, WorkSchedule::where('code', 'GUARD')->sole(), '2026-11-14', '2026-11-14', User::factory()->create());
     }
 
     public function test_a_sync_with_a_check_out_after_the_close_lands_the_rest(): void

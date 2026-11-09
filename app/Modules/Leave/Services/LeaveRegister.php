@@ -100,6 +100,9 @@ class LeaveRegister
     {
         $rows = $query->get(['id', 'employee_id', 'leave_type_id', 'deducts_balance', 'origin', 'status', 'start_date', 'end_date']);
         $types = LeaveType::withTrashed()->whereKey($rows->pluck('leave_type_id')->unique()->all())->get()->keyBy('id');
+        // Every person's scheduled dates in the window, in one read; the page's
+        // rows are among these, so they read it too (final review I5).
+        $this->preload($rows->pluck('employee_id')->map(fn ($id): int => (int) $id)->unique()->values()->all(), $from, $to);
 
         $totals = ['days' => 0, 'calendar_days' => 0, 'deducted_days' => 0, 'excuses' => 0];
         $employees = $byType = $byStatus = [];
@@ -145,8 +148,22 @@ class LeaveRegister
         ];
     }
 
-    /** @var array<int, list<string>> employee id → their scheduled dates in the window */
+    /** @var array<string, array<int, list<string>>> window → employee id → their scheduled dates in it */
     private array $scheduledDates = [];
+
+    /** @param  list<int>  $ids */
+    private function preload(array $ids, string $from, string $to): void
+    {
+        $window = $from.'|'.$to;
+        $missing = array_values(array_filter($ids, fn (int $id): bool => ! isset($this->scheduledDates[$window][$id])));
+        if ($missing === []) {
+            return;
+        }
+
+        foreach ($this->shifts->shiftsFor($missing, $from, $to) as $id => $byDate) {
+            $this->scheduledDates[$window][(int) $id] = array_keys($byDate);
+        }
+    }
 
     /**
      * The leave clipped to the window: [scheduled days, calendar days].
@@ -162,9 +179,8 @@ class LeaveRegister
             return [0, 0];
         }
 
-        $dates = $this->scheduledDates[(int) $leave->employee_id] ??= array_keys(
-            $this->shifts->shiftsFor([(int) $leave->employee_id], $from, $to)[(int) $leave->employee_id] ?? [],
-        );
+        $this->preload([(int) $leave->employee_id], $from, $to);
+        $dates = $this->scheduledDates[$from.'|'.$to][(int) $leave->employee_id];
 
         return [
             count(array_filter($dates, static fn (string $d): bool => $d >= $start && $d <= $end)),

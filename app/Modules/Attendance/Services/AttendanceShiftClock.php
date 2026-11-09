@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
+use App\Modules\Attendance\Support\Duty;
 use App\Modules\Auth\Models\User;
 use App\Modules\Auth\Services\NotificationService;
 use App\Shared\Support\NotificationEventCatalogue;
@@ -37,7 +39,7 @@ class AttendanceShiftClock
 
     public function __construct(
         private readonly AttendanceCalendar $calendar,
-        private readonly OpenCheckIns $openCheckIns,
+        private readonly ExpectedShifts $shifts,
         private readonly NotificationService $notifications,
     ) {}
 
@@ -46,16 +48,24 @@ class AttendanceShiftClock
     {
         $at = CarbonImmutable::instance($at)->setTimezone($this->calendar->timezone());
 
+        $open = $this->open($at);
+        $duties = $this->dutiesOf($open, $at);
+
         $toClose = [];
         $toRemind = [];
-        foreach ($this->open($at) as $checkIn) {
-            if ($this->openCheckIns->closeOf($checkIn)->lte($at)) {
+        foreach ($open as $checkIn) {
+            $shiftDate = $checkIn->shift_date->toDateString();
+            $duty = $checkIn->outside_schedule ? null : ($duties[(int) $checkIn->employee_id][$shiftDate] ?? null);
+            // A duty closes at its end plus the margin; a check-in outside the
+            // schedule, or whose duty is gone, at the end of its shift date.
+            $close = $duty?->closesAt ?? CarbonImmutable::parse($shiftDate, $this->calendar->timezone())->endOfDay()->startOfSecond();
+            if ($close->lte($at)) {
                 $toClose[] = $checkIn->id;
 
                 continue;
             }
 
-            $remindAt = $this->remindAt($checkIn);
+            $remindAt = $duty?->endsAt();
             if ($remindAt !== null && $checkIn->checkout_reminded_at === null && $remindAt->lte($at)) {
                 $toRemind[] = $checkIn;
             }
@@ -80,10 +90,32 @@ class AttendanceShiftClock
         return ['reminded' => count($toRemind), 'closed' => count($toClose)];
     }
 
-    /** When a still-open check-in is reminded; null when it never is. */
-    private function remindAt(AttendanceRecord $checkIn): ?CarbonImmutable
+    /**
+     * Every open check-in's possible duties, from ONE schedule read for all
+     * their employees (final review I5): employee id → start date → duty.
+     *
+     * @param  Collection<int, AttendanceRecord>  $open
+     * @return array<int, array<string, Duty>>
+     */
+    private function dutiesOf(Collection $open, CarbonImmutable $at): array
     {
-        return $this->openCheckIns->dutyOf($checkIn)?->endsAt();
+        if ($open->isEmpty()) {
+            return [];
+        }
+
+        $ids = $open->pluck('employee_id')->map(fn ($id): int => (int) $id)->unique()->values()->all();
+        $shifts = $this->shifts->shiftsFor($ids, $at->subDays(self::LOOKBACK_DAYS + 6)->toDateString(), $at->addDay()->toDateString());
+        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
+        $closes = max(0, (int) config('attendance.close_after_minutes', 240));
+
+        $duties = [];
+        foreach ($shifts as $id => $byDate) {
+            foreach (Duty::runs(array_values($byDate), $opens, $closes) as $duty) {
+                $duties[$id][$duty->shiftDate()] = $duty;
+            }
+        }
+
+        return $duties;
     }
 
     /**
@@ -94,7 +126,6 @@ class AttendanceShiftClock
     private function open(CarbonImmutable $at): Collection
     {
         return AttendanceRecord::query()
-            ->with('employee')
             ->checkIns()->accepted()->whereNull('status')
             ->inDateRange($at->subDays(self::LOOKBACK_DAYS)->toDateString(), $at->toDateString())
             ->whereNotExists(fn ($out) => $out->selectRaw('1')

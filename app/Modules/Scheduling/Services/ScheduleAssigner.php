@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Scheduling\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
+use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
@@ -23,13 +25,20 @@ use Illuminate\Support\Facades\DB;
  */
 class ScheduleAssigner
 {
-    public function __construct(private readonly AttendanceCalendar $calendar) {}
+    /** How far back a check-in's duty can start and still reach a new span. */
+    private const DUTY_LOOKBACK_DAYS = 6;
+
+    public function __construct(
+        private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
+    ) {}
 
     /** @throws SchedulingException */
     public function assign(Employee $employee, WorkSchedule $schedule, string $from, ?string $cycleStart, User $by): EmployeeWorkSchedule
     {
         return DB::transaction(function () use ($employee, $schedule, $from, $cycleStart, $by): EmployeeWorkSchedule {
             Employee::whereKey($employee->getKey())->lockForUpdate()->first();
+            $this->assertNoDutyReaches($employee, $from);
 
             $open = EmployeeWorkSchedule::query()->where('employee_id', $employee->getKey())->whereNull('to_date')->first();
             if ($open !== null && $open->from_date->toDateString() < $from) {
@@ -70,6 +79,37 @@ class ScheduleAssigner
                 return ['employee_id' => $id, 'assigned' => false, 'reason' => $refused->getMessage()];
             }
         }, array_values(array_map('intval', $employeeIds)));
+    }
+
+    /**
+     * A new span may not start inside a duty that already has its check-in
+     * (final review C2): the change would cut the duty short — a guard's
+     * open check-in closed after one shift, his hours lost — or re-judge a
+     * day already recorded. It may start the day after the duty's last shift.
+     * An outside-schedule check-in reaches only its own date.
+     *
+     * @throws SchedulingException
+     */
+    private function assertNoDutyReaches(Employee $employee, string $from): void
+    {
+        $checkIns = AttendanceRecord::query()
+            ->forEmployee((int) $employee->getKey())->checkIns()->accepted()
+            ->inDateRange(CarbonImmutable::parse($from)->subDays(self::DUTY_LOOKBACK_DAYS)->toDateString(), null)
+            ->get();
+
+        $last = null;
+        foreach ($checkIns as $checkIn) {
+            $shiftDate = $checkIn->shift_date->toDateString();
+            $duty = $checkIn->outside_schedule ? null : $this->shifts->dutyOn($employee, $shiftDate);
+            $reaches = $duty === null ? $shiftDate : $duty->shifts[array_key_last($duty->shifts)]->date;
+            $last = max($last ?? $reaches, $reaches);
+        }
+
+        if ($last !== null && $last >= $from) {
+            $first = CarbonImmutable::parse($last)->addDay()->toDateString();
+
+            throw new SchedulingException("لدى الموظف تسجيل حضور في مناوبة تمتد إلى {$last}؛ لا يمكن أن يبدأ الجدول الجديد قبل {$first}.");
+        }
     }
 
     /** End a span on $to (today or later — the request checks; the model allows yesterday). */

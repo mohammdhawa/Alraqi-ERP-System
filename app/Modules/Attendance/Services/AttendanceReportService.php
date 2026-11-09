@@ -280,7 +280,7 @@ class AttendanceReportService
                 continue;
             }
             $c['expected'] += $day->working() ? 1 : 0;
-            $c['present'] += $day->in !== null ? 1 : 0;
+            $c['present'] += in_array($day->state, [AttendanceDayState::CheckedIn, AttendanceDayState::CheckedOut, AttendanceDayState::MissingCheckout], true) ? 1 : 0;
             $c['missing'] += $day->state === AttendanceDayState::MissingCheckout ? 1 : 0;
             $c['off'] += $day->state === AttendanceDayState::Off ? 1 : 0;
             $c['on_leave'] += $day->state === AttendanceDayState::OnLeave ? 1 : 0;

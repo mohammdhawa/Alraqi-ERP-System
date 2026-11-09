@@ -13,6 +13,7 @@ use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * A person's schedule over a dated span (work shifts spec §3.1), in the
@@ -58,6 +59,9 @@ class EmployeeWorkSchedule extends Model
                 cycleStart: $span->cycle_start_date?->toDateString(),
                 today: app(AttendanceCalendar::class)->today(),
                 otherSpans: $others,
+                endedOn: $span->exists && $span->isDirty('to_date') && $span->getOriginal('to_date') !== null
+                    ? Carbon::parse($span->getOriginal('to_date'))->toDateString()
+                    : null,
             );
 
             if ($violations !== []) {
