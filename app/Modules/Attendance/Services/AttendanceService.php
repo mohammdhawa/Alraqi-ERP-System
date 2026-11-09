@@ -42,6 +42,7 @@ class AttendanceService
         private readonly ApprovedLeave $leave,
         private readonly AttendeeResolver $attendees,
         private readonly SelfieStore $selfies,
+        private readonly OpenCheckIns $openCheckIns,
     ) {}
 
     /**
@@ -87,6 +88,7 @@ class AttendanceService
                 $type = AttendanceEventType::from((int) $data['type']);
                 $moment = $this->calendar->parse($data['recorded_at']);
                 $workHours = null;
+                $shiftDate = $moment->toDateString();
 
                 // A phone whose clock runs ahead (parity audit S-6).
                 if ($moment->gt(Carbon::now($this->calendar->timezone())->addMinutes($this->calendar->maxClockAheadMinutes()))) {
@@ -97,6 +99,7 @@ class AttendanceService
                     $this->assertCanCheckIn($employee, $moment);
                 } else {
                     $checkIn = $this->assertCanCheckOut($employee, $moment);
+                    $shiftDate = $checkIn->shift_date->toDateString();
                     // From the check-in to the check-out: Carbon 3's difference
                     // is signed, so the order matters (legacy's Carbon 2 was not).
                     $workHours = round($checkIn->recorded_at->floatDiffInRealHours($moment), 2);
@@ -119,6 +122,7 @@ class AttendanceService
                     // clock, the day the rules judged and every date filter agree
                     // even when the phone sent an offset ("…Z").
                     'recorded_at' => $moment,
+                    'shift_date'  => $shiftDate,
                     'work_hours'  => $workHours,
                     'latitude'    => $data['latitude'],
                     'longitude'   => $data['longitude'],
@@ -169,6 +173,10 @@ class AttendanceService
             throw new AttendanceException('لديك تسجيل حضور قائم بالفعل لهذا اليوم.');
         }
 
+        if ($this->openCheckIns->blocking($employee, $moment) !== null) {
+            throw new AttendanceException('لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً.');
+        }
+
         if (! $this->calendar->allowsAttendanceDuringLeave() && $this->leave->covers((int) $employee->getKey(), $date)) {
             throw new AttendanceException('لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم.');
         }
@@ -181,11 +189,11 @@ class AttendanceService
      */
     private function assertCanCheckOut(Employee $employee, Carbon $moment): AttendanceRecord
     {
-        $date = $moment->toDateString();
-        $checkIn = $this->accepted($employee)->checkIns()->onDate($date)->orderBy('recorded_at')->first();
-        $checkedOut = $this->accepted($employee)->checkOuts()->onDate($date)->exists();
+        // The open check-in, judged on moments: one the close has flagged is
+        // still open for a check-out recorded before that close (S-2).
+        $checkIn = $this->openCheckIns->forCheckOut($employee, $moment);
 
-        if ($checkIn === null || $checkedOut) {
+        if ($checkIn === null) {
             throw new AttendanceException('لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم.');
         }
 
