@@ -24,11 +24,11 @@ class DutyPresenceTest extends TestCase
         return CarbonImmutable::parse($moment, 'Asia/Damascus');
     }
 
-    private function shift(string $date, string $start, int $minutes, bool $open = false): ExpectedShift
+    private function shift(string $date, string $start, int $minutes): ExpectedShift
     {
         $startsAt = $this->at("{$date} {$start}");
 
-        return new ExpectedShift($date, $startsAt, $startsAt->addMinutes($minutes), $open ? 'OPEN' : 'S', 'وردية', $open, 'assignment');
+        return new ExpectedShift($date, $startsAt, $startsAt->addMinutes($minutes), 'S', 'وردية', 'assignment');
     }
 
     private function guardDuty(): Duty
@@ -121,14 +121,5 @@ class DutyPresenceTest extends TestCase
 
         $this->assertFalse($day->present);
         $this->assertSame([0, 0, 0, 0.0], [$day->lateMinutes, $day->minutesWithin, $day->minutesOutside, $day->workHours]);
-    }
-
-    public function test_the_open_day_has_no_late_or_outside(): void
-    {
-        $open = Duty::of([$this->shift('2026-11-14', '00:00', 1439, open: true)], 60, 240);
-
-        $day = $this->split($open, '2026-11-14 11:00:00', '2026-11-14 15:00:00')['2026-11-14'];
-
-        $this->assertSame([0, 0, 0, 240, 4.0], [$day->lateMinutes, $day->earlyDepartureMinutes, $day->minutesOutside, $day->minutesWithin, $day->workHours]);
     }
 }

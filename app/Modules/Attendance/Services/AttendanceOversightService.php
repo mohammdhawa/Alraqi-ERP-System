@@ -76,12 +76,12 @@ class AttendanceOversightService
             // Not after the check-in's close, and not yet to come: a typo would
             // otherwise file it in another shift, leaving the one it corrects
             // open (parity audit S-3; legacy took any later moment). For a
-            // check-in outside the schedule, or on the open day, the close is
-            // the end of its own day — S-3's original wording.
+            // check-in outside the schedule the close is the end of its own
+            // day — S-3's original wording.
             if ($moment->gt($this->openCheckIns->closeOf($checkIn))) {
                 $duty = $this->openCheckIns->dutyOf($checkIn);
 
-                throw new AttendanceException($duty === null || $duty->isOpen
+                throw new AttendanceException($duty === null
                     ? 'وقت الانصراف يجب أن يكون في يوم الحضور نفسه.'
                     : 'وقت الانصراف يجب أن يكون قبل انتهاء مهلة الوردية.');
             }

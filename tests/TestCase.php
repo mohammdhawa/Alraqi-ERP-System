@@ -8,11 +8,27 @@ use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\SchedulingSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Sanctum\Sanctum;
 
 abstract class TestCase extends BaseTestCase
 {
+    /**
+     * Every test with a database gets the decided schedules: everyone without
+     * an assignment is on the default (OFFICE), which must exist (work shifts
+     * spec §3.4). SchedulingSeeder is idempotent, so a test may seed it again.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (in_array(RefreshDatabase::class, class_uses_recursive(static::class), true)) {
+            $this->seed(SchedulingSeeder::class);
+        }
+    }
+
     /**
      * Seed the RBAC permission/role catalogue. Idempotent, so it is safe to
      * call from multiple helpers within a single test.

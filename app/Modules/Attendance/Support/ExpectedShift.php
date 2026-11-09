@@ -9,11 +9,7 @@ use Carbon\CarbonImmutable;
 /**
  * A person's shift on a date (work shifts spec §2): the date it belongs to
  * (its start date), its start and end as full moments in the attendance
- * timezone, and where it came from — `assignment`, `default`, or `open`.
- *
- * THE OPEN DAY (spec §4.5, build steps 3–4 only) is today's rules expressed
- * as a shift: the whole date, check-in open all day, closed at 23:59:59, no
- * late or early departure. `isOpen` marks it; step 5 deletes it.
+ * timezone, and where it came from — `assignment` or `default`.
  */
 final readonly class ExpectedShift
 {
@@ -23,7 +19,6 @@ final readonly class ExpectedShift
         public CarbonImmutable $endsAt,
         public string $code,
         public string $name,
-        public bool $isOpen,
         public string $source,
     ) {}
 

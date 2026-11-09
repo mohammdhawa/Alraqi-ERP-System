@@ -22,8 +22,7 @@ use Illuminate\Support\Collection;
  *
  * - Reminder: once the duty's end has passed — legacy's words, once per
  *   check-in (`checkout_reminded_at`), so a missed or repeated run neither
- *   skips nor repeats it. An outside-schedule check-in is not reminded. The
- *   open day (build steps 3–4) is reminded at the old reminder_at time.
+ *   skips nor repeats it. An outside-schedule check-in is not reminded.
  * - Close: once the check-in's close has passed, a missing check-out — no
  *   invented check-out, no hours, nobody notified.
  *
@@ -84,18 +83,7 @@ class AttendanceShiftClock
     /** When a still-open check-in is reminded; null when it never is. */
     private function remindAt(AttendanceRecord $checkIn): ?CarbonImmutable
     {
-        $duty = $this->openCheckIns->dutyOf($checkIn);
-        if ($duty === null) {
-            return null;
-        }
-
-        if ($duty->isOpen) {
-            [$hour, $minute] = array_map('intval', explode(':', $this->calendar->reminderAt()));
-
-            return $duty->startsAt()->setTime($hour, $minute);
-        }
-
-        return $duty->endsAt();
+        return $this->openCheckIns->dutyOf($checkIn)?->endsAt();
     }
 
     /**

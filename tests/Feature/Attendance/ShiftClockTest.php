@@ -118,17 +118,14 @@ class ShiftClockTest extends TestCase
         $this->assertSame(AttendanceRecordStatus::MissingCheckout, $checkIn->fresh()->status);
     }
 
-    public function test_the_open_day_is_reminded_at_17_00_and_closes_at_the_end_of_its_date(): void
+    public function test_someone_unassigned_follows_the_default_schedule(): void
     {
-        $checkIn = $this->in($this->person(), '2026-11-14 08:00:00', '2026-11-14');
+        $checkIn = $this->in($this->person(), '2026-11-14 09:00:00', '2026-11-14');
 
-        $this->tick('2026-11-14 17:00:00');
+        $this->tick('2026-11-14 16:00:00');
         $this->assertSame(1, $this->reminders());
 
-        $this->tick('2026-11-14 23:55:00');
-        $this->assertNull($checkIn->fresh()->status);
-
-        $this->tick('2026-11-15 00:00:00');
+        $this->tick('2026-11-14 20:00:00');
         $this->assertSame(AttendanceRecordStatus::MissingCheckout, $checkIn->fresh()->status);
     }
 

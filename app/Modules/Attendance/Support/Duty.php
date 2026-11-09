@@ -15,8 +15,7 @@ use Carbon\CarbonInterface;
  *
  * Its check-in window runs from `opensAt` (the start less the opening
  * margin) to its end; it closes — an open check-in becomes a missing
- * check-out — at `closesAt` (the end plus the close margin). The open day
- * opens at 00:00 and closes at 23:59:59 of its date.
+ * check-out — at `closesAt` (the end plus the close margin).
  */
 final readonly class Duty
 {
@@ -25,7 +24,6 @@ final readonly class Duty
         public array $shifts,
         public CarbonImmutable $opensAt,
         public CarbonImmutable $closesAt,
-        public bool $isOpen,
     ) {}
 
     /** @param  list<ExpectedShift>  $shifts */
@@ -34,9 +32,7 @@ final readonly class Duty
         $first = $shifts[0];
         $last = $shifts[array_key_last($shifts)];
 
-        return $first->isOpen
-            ? new self($shifts, $first->startsAt, $last->endsAt, true)
-            : new self($shifts, $first->startsAt->subMinutes($opensMinutes), $last->endsAt->addMinutes($closeMinutes), false);
+        return new self($shifts, $first->startsAt->subMinutes($opensMinutes), $last->endsAt->addMinutes($closeMinutes));
     }
 
     /**
@@ -53,7 +49,7 @@ final readonly class Duty
         $run = [];
         foreach ($shifts as $shift) {
             $last = $run === [] ? null : $run[array_key_last($run)];
-            $joins = $last !== null && ! $last->isOpen && ! $shift->isOpen
+            $joins = $last !== null
                 && $last->endsAt->equalTo($shift->startsAt) && count($run) < self::MAX_SHIFTS;
 
             if ($run !== [] && ! $joins) {
@@ -90,9 +86,7 @@ final readonly class Duty
     /** Whether a check-in at $moment is for this duty. */
     public function holds(CarbonInterface $moment): bool
     {
-        return $this->isOpen
-            ? $moment->gte($this->opensAt) && $moment->lte($this->closesAt)
-            : $moment->gte($this->opensAt) && $moment->lt($this->endsAt());
+        return $moment->gte($this->opensAt) && $moment->lt($this->endsAt());
     }
 
     /** The shift $moment falls in; the first when it is before the start. */

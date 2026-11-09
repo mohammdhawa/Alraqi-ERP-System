@@ -19,8 +19,7 @@ use Carbon\CarbonInterface;
  * - outside: time before the duty's start, on the first shift with presence,
  *   and after its end, on the last shift.
  *
- * An open check-in's presence runs to $now. The open day (spec §4.5) has no
- * late, early or outside minutes. Whole minutes throughout.
+ * An open check-in's presence runs to $now. Whole minutes throughout.
  */
 final class DutyPresence
 {
@@ -41,8 +40,8 @@ final class DutyPresence
         $first = $presentAt[0] ?? null;
         $last = $presentAt === [] ? null : $presentAt[array_key_last($presentAt)];
 
-        $before = $duty->isOpen ? 0 : self::minutes($in, min($end, $duty->startsAt()));
-        $after = $duty->isOpen ? 0 : self::minutes(max($in, $duty->endsAt()), $end);
+        $before = self::minutes($in, min($end, $duty->startsAt()));
+        $after = self::minutes(max($in, $duty->endsAt()), $end);
 
         $result = [];
         foreach ($duty->shifts as $index => $shift) {
@@ -50,11 +49,11 @@ final class DutyPresence
             $early = 0;
             $outside = 0;
 
-            if (! $duty->isOpen && $index === $first) {
+            if ($index === $first) {
                 $late = self::beyondGrace(self::minutes($shift->startsAt, max($in, $shift->startsAt)), $graceMinutes);
                 $outside += $before;
             }
-            if (! $duty->isOpen && $index === $last && $out !== null) {
+            if ($index === $last && $out !== null) {
                 $early = self::beyondGrace(self::minutes(min($end, $shift->endsAt), $shift->endsAt), $graceMinutes);
             }
             if ($index === array_key_last($duty->shifts)) {

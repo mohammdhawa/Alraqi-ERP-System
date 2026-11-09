@@ -21,8 +21,7 @@ use Illuminate\Support\Collection;
  * Attendance's ExpectedShifts, from the Scheduling tables (work shifts spec §4).
  *
  * A person's shift on a date: the span in force on it, else the default
- * schedule (config attendance.default_schedule), else — while no default is
- * set, build steps 3–4 — the open day. Weekly positions are the weekday; a
+ * schedule (config attendance.default_schedule). Weekly positions are the weekday; a
  * cycle's are counted from the span's cycle_start_date, wrapping in both
  * directions. Duties join back-to-back shifts, at most three.
  *
@@ -36,8 +35,6 @@ class ScheduleResolver implements ExpectedShifts
     private const LOOKBACK_DAYS = 6;
 
     private ?WorkSchedule $default = null;
-
-    private bool $defaultLoaded = false;
 
     public function __construct(private readonly AttendanceCalendar $calendar) {}
 
@@ -166,9 +163,7 @@ class ScheduleResolver implements ExpectedShifts
 
         $default = $this->defaultSchedule();
 
-        return $default !== null
-            ? [$this->fromSchedule($default, $day, null, 'default'), 'default']
-            : [new ExpectedShift($date, $day->startOfDay(), $day->endOfDay()->startOfSecond(), 'OPEN', 'يوم مفتوح', true, 'open'), 'open'];
+        return [$this->fromSchedule($default, $day, null, 'default'), 'default'];
     }
 
     private function fromSchedule(WorkSchedule $schedule, CarbonImmutable $day, ?string $cycleStart, string $source): ?ExpectedShift
@@ -188,7 +183,7 @@ class ScheduleResolver implements ExpectedShifts
         [$hour, $minute] = array_map('intval', explode(':', (string) $shift->starts_at));
         $startsAt = $day->setTime($hour, $minute);
 
-        return new ExpectedShift($day->toDateString(), $startsAt, $startsAt->addMinutes($shift->duration_minutes), $shift->code, $shift->name, false, $source);
+        return new ExpectedShift($day->toDateString(), $startsAt, $startsAt->addMinutes($shift->duration_minutes), $shift->code, $shift->name, $source);
     }
 
     /**
@@ -206,12 +201,17 @@ class ScheduleResolver implements ExpectedShifts
             ->groupBy('employee_id');
     }
 
-    private function defaultSchedule(): ?WorkSchedule
+    /**
+     * The schedule of everyone with none assigned. Missing — an unset or
+     * mistyped code, or SchedulingSeeder not run — is a deploy error, and
+     * fails loudly rather than quietly leaving everyone without a working day.
+     */
+    private function defaultSchedule(): WorkSchedule
     {
-        if (! $this->defaultLoaded) {
-            $code = config('attendance.default_schedule');
-            $this->default = $code ? WorkSchedule::query()->where('code', $code)->with('days.shift')->first() : null;
-            $this->defaultLoaded = true;
+        if ($this->default === null) {
+            $code = (string) config('attendance.default_schedule');
+            $this->default = WorkSchedule::query()->where('code', $code)->with('days.shift')->first()
+                ?? throw new \RuntimeException("The default work schedule [{$code}] does not exist: set attendance.default_schedule and run SchedulingSeeder.");
         }
 
         return $this->default;

@@ -32,7 +32,6 @@ class ScheduleResolverTest extends TestCase
 
         Carbon::setTestNow('2026-11-14 06:00:00');
         $this->seed(SchedulingSeeder::class);
-        config(['attendance.default_schedule' => null]);
     }
 
     protected function tearDown(): void
@@ -71,8 +70,8 @@ class ScheduleResolverTest extends TestCase
         $this->assertSame(['2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19'], $this->dates($employee, '2026-11-14', '2026-11-20'));
 
         $saturday = $this->shifts()->shiftsFor([$employee->id], '2026-11-14', '2026-11-14')[$employee->id]['2026-11-14'];
-        $this->assertSame(['DAY', '2026-11-14T09:00:00+03:00', '2026-11-14T16:00:00+03:00', 'assignment', false], [
-            $saturday->code, $saturday->startsAt->toIso8601String(), $saturday->endsAt->toIso8601String(), $saturday->source, $saturday->isOpen,
+        $this->assertSame(['DAY', '2026-11-14T09:00:00+03:00', '2026-11-14T16:00:00+03:00', 'assignment'], [
+            $saturday->code, $saturday->startsAt->toIso8601String(), $saturday->endsAt->toIso8601String(), $saturday->source,
         ]);
     }
 
@@ -160,22 +159,8 @@ class ScheduleResolverTest extends TestCase
         );
     }
 
-    public function test_unassigned_people_get_the_open_day_while_no_default_is_set(): void
+    public function test_unassigned_people_get_the_default(): void
     {
-        $employee = Employee::factory()->create();
-
-        $days = $this->shifts()->shiftsFor([$employee->id], '2026-11-14', '2026-11-20')[$employee->id];
-
-        $this->assertCount(7, $days);
-        $this->assertTrue($days['2026-11-20']->isOpen);
-        $this->assertSame('open', $days['2026-11-20']->source);
-        $duty = $this->shifts()->dutiesHolding($employee, $this->at('2026-11-20 00:00:00'))[0];
-        $this->assertSame(['2026-11-20 00:00:00', '2026-11-20 23:59:59'], [$duty->opensAt->format('Y-m-d H:i:s'), $duty->closesAt->format('Y-m-d H:i:s')]);
-    }
-
-    public function test_unassigned_people_get_the_default_when_one_is_set(): void
-    {
-        config(['attendance.default_schedule' => 'OFFICE']);
         $employee = Employee::factory()->create();
 
         $days = $this->shifts()->shiftsFor([$employee->id], '2026-11-14', '2026-11-20')[$employee->id];
@@ -202,6 +187,7 @@ class ScheduleResolverTest extends TestCase
         foreach ($people as $employee) {
             $this->assign($employee, 'OFFICE', '2026-11-14');
         }
+        $this->shifts()->shiftsFor([0], '2026-11-14', '2026-11-14');   // loads the default once
 
         DB::enableQueryLog();
         $all = $this->shifts()->shiftsFor($people->modelKeys(), '2026-11-14', '2026-12-13');

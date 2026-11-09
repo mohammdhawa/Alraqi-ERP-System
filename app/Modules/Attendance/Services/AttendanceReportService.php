@@ -458,8 +458,7 @@ class AttendanceReportService
      * Expected employees whose shift on $date has ended with no accepted
      * check-in — and, unless the config allows attendance during leave, no
      * approved leave over it (work shifts spec §6.3). A day off has no
-     * absentees. The open day (build steps 3–4) is due from its start, as
-     * absent-today read every day before shifts.
+     * absentees.
      *
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, Employee>
@@ -473,7 +472,7 @@ class AttendanceReportService
         $absent = [];
         foreach ($this->dayFacts->for((clone $query)->get(), $date, $date) as $employeeId => $byDate) {
             $day = $byDate[$date];
-            $due = $day->shift !== null && ($day->shift->isOpen ? $day->shift->startsAt->lte($now) : $day->shift->endsAt->lte($now));
+            $due = $day->shift !== null && $day->shift->endsAt->lte($now);
             $onLeave = in_array($day->state, [AttendanceDayState::OnLeave, AttendanceDayState::Excused], true);
             if ($due && $day->in === null && ($allowLeave || ! $onLeave)) {
                 $absent[] = (int) $employeeId;

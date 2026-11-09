@@ -38,7 +38,10 @@ class AttendanceAbsentTodayTest extends TestCase
     {
         parent::setUp();
 
-        Carbon::setTestNow(self::DAY.' 11:00:00');
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
+        Carbon::setTestNow(self::DAY.' 23:59:30');   // the day's shift has ended (00:00–23:59)
         $this->buildTree();
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
     }

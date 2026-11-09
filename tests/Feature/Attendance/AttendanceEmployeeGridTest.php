@@ -37,6 +37,9 @@ class AttendanceEmployeeGridTest extends TestCase
     {
         parent::setUp();
 
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
         $this->buildTree();
     }
 

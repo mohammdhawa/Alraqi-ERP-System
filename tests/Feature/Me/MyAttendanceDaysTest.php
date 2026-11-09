@@ -40,6 +40,9 @@ class MyAttendanceDaysTest extends TestCase
     {
         parent::setUp();
 
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
         // Wednesday 24 June 2026, midday — every day is a working day (Q8).
         Carbon::setTestNow('2026-06-24 12:00:00');
         $this->buildTree();
