@@ -56,6 +56,32 @@ class ScheduleResolver implements ExpectedShifts
         return $out;
     }
 
+    /**
+     * The calendar view (GET /api/scheduling/calendar): every date, with its
+     * shift or null for a day off, and where it came from. Scheduling's own —
+     * not on the contract, which leaves days off out.
+     *
+     * @param  array<int, int>  $employeeIds
+     * @return array<int, list<array{date: string, shift: ?ExpectedShift, source: string}>>
+     */
+    public function calendarFor(array $employeeIds, string $from, string $to): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $employeeIds)));
+        $spans = $this->spansFor($ids, $from, $to);
+        $timezone = $this->calendar->timezone();
+
+        $out = [];
+        foreach ($ids as $id) {
+            $out[$id] = [];
+            for ($day = CarbonImmutable::parse($from, $timezone), $last = CarbonImmutable::parse($to, $timezone); $day->lte($last); $day = $day->addDay()) {
+                [$shift, $source] = $this->resolve($spans->get($id, collect()), $day);
+                $out[$id][] = ['date' => $day->toDateString(), 'shift' => $shift, 'source' => $source];
+            }
+        }
+
+        return $out;
+    }
+
     public function dutiesHolding(Employee $employee, CarbonInterface $moment): array
     {
         $at = CarbonImmutable::instance($moment)->setTimezone($this->calendar->timezone());
@@ -138,19 +164,28 @@ class ScheduleResolver implements ExpectedShifts
     /** @param  Collection<int, EmployeeWorkSchedule>  $spans */
     private function shiftOn(Collection $spans, CarbonImmutable $day): ?ExpectedShift
     {
+        return $this->resolve($spans, $day)[0];
+    }
+
+    /**
+     * @param  Collection<int, EmployeeWorkSchedule>  $spans
+     * @return array{0: ?ExpectedShift, 1: string} the shift (null: a day off) and its source
+     */
+    private function resolve(Collection $spans, CarbonImmutable $day): array
+    {
         $date = $day->toDateString();
         $span = $spans->first(fn (EmployeeWorkSchedule $s): bool => $s->from_date->toDateString() <= $date
             && ($s->to_date === null || $s->to_date->toDateString() >= $date));
 
         if ($span !== null) {
-            return $this->fromSchedule($span->schedule, $day, $span->cycle_start_date?->toDateString(), 'assignment');
+            return [$this->fromSchedule($span->schedule, $day, $span->cycle_start_date?->toDateString(), 'assignment'), 'assignment'];
         }
 
         $default = $this->defaultSchedule();
 
         return $default !== null
-            ? $this->fromSchedule($default, $day, null, 'default')
-            : new ExpectedShift($date, $day->startOfDay(), $day->endOfDay()->startOfSecond(), 'OPEN', 'يوم مفتوح', true, 'open');
+            ? [$this->fromSchedule($default, $day, null, 'default'), 'default']
+            : [new ExpectedShift($date, $day->startOfDay(), $day->endOfDay()->startOfSecond(), 'OPEN', 'يوم مفتوح', true, 'open'), 'open'];
     }
 
     private function fromSchedule(WorkSchedule $schedule, CarbonImmutable $day, ?string $cycleStart, string $source): ?ExpectedShift
