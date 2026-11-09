@@ -22,6 +22,10 @@ use App\Modules\Leave\Models\LeaveBalance;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Models\LeaveType;
 use App\Modules\Leave\Services\ApprovedLeaveFromRequests;
+use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
+use App\Modules\Scheduling\Models\Shift;
+use App\Modules\Scheduling\Models\WorkSchedule;
+use App\Modules\Scheduling\Models\WorkScheduleDay;
 use App\Shared\Models\Attachment;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
@@ -130,6 +134,10 @@ class AppServiceProvider extends ServiceProvider
             'leave_request'         => LeaveRequest::class,
             'leave_balance'         => LeaveBalance::class,
             'attachment'            => Attachment::class,
+            'shift'                  => Shift::class,
+            'work_schedule'          => WorkSchedule::class,
+            'work_schedule_day'      => WorkScheduleDay::class,
+            'employee_work_schedule' => EmployeeWorkSchedule::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

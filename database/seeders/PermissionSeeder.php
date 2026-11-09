@@ -121,6 +121,13 @@ class PermissionSeeder extends Seeder
             'leave.excuses.delete',
             'leave.requests.returnToWork',
         ],
+        // Work shifts (docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md §9.1).
+        // HR only, company-wide (decision round S12): neither is on
+        // PermissionReach's allow-list, and no seeded role carries them.
+        'scheduling' => [
+            'scheduling.view',
+            'scheduling.manage',
+        ],
     ];
 
     /**
@@ -176,6 +183,8 @@ class PermissionSeeder extends Seeder
         'leave.excuses.create'       => 'تسجيل عذر غياب',
         'leave.excuses.delete'       => 'التراجع عن عذر غياب',
         'leave.requests.returnToWork' => 'تسجيل العودة إلى العمل',
+        'scheduling.view'            => 'عرض الورديات والجداول',
+        'scheduling.manage'          => 'إدارة الورديات والجداول',
     ];
 
     public function run(): void
