@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ class AttendanceEmployeeGridTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -194,7 +196,7 @@ class AttendanceEmployeeGridTest extends TestCase
 
     public function test_a_configured_day_off_is_off_even_under_leave(): void
     {
-        config(['attendance.working_days' => [1, 2, 3, 4, 5, 6]]);   // Sunday off
+        $this->pinDayOff(0);   // Sunday off, through the default schedule
         $this->grantLeave($this->people['a'], '2026-06-21', '2026-06-22');
         $this->actingAsScopedUser(['attendance.records.view'], ScopeType::Company);
 

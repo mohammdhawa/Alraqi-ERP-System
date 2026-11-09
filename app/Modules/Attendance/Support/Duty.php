@@ -39,6 +39,38 @@ final readonly class Duty
             : new self($shifts, $first->startsAt->subMinutes($opensMinutes), $last->endsAt->addMinutes($closeMinutes), false);
     }
 
+    /**
+     * Group consecutive expected shifts into duties: a shift joins the
+     * previous one when it starts exactly as that one ends, up to three. The
+     * one definition of a duty — the resolver and the reports both use it.
+     *
+     * @param  list<ExpectedShift>  $shifts  in date order
+     * @return list<self>
+     */
+    public static function runs(array $shifts, int $opensMinutes, int $closeMinutes): array
+    {
+        $duties = [];
+        $run = [];
+        foreach ($shifts as $shift) {
+            $last = $run === [] ? null : $run[array_key_last($run)];
+            $joins = $last !== null && ! $last->isOpen && ! $shift->isOpen
+                && $last->endsAt->equalTo($shift->startsAt) && count($run) < self::MAX_SHIFTS;
+
+            if ($run !== [] && ! $joins) {
+                $duties[] = self::of($run, $opensMinutes, $closeMinutes);
+                $run = [];
+            }
+            $run[] = $shift;
+        }
+        if ($run !== []) {
+            $duties[] = self::of($run, $opensMinutes, $closeMinutes);
+        }
+
+        return $duties;
+    }
+
+    public const MAX_SHIFTS = 3;
+
     /** The date the duty's records carry: its first shift's. */
     public function shiftDate(): string
     {

@@ -35,8 +35,6 @@ class ScheduleResolver implements ExpectedShifts
     /** How far back to look for the start of the duty holding a date. */
     private const LOOKBACK_DAYS = 6;
 
-    private const MAX_DUTY_SHIFTS = 3;
-
     private ?WorkSchedule $default = null;
 
     private bool $defaultLoaded = false;
@@ -99,7 +97,7 @@ class ScheduleResolver implements ExpectedShifts
     {
         $date = CarbonImmutable::parse($shiftDate, $this->calendar->timezone());
 
-        foreach ($this->dutiesAround($employee, $date->subDays(self::LOOKBACK_DAYS)->toDateString(), $date->addDays(self::MAX_DUTY_SHIFTS)->toDateString()) as $duty) {
+        foreach ($this->dutiesAround($employee, $date->subDays(self::LOOKBACK_DAYS)->toDateString(), $date->addDays(Duty::MAX_SHIFTS)->toDateString()) as $duty) {
             if ($duty->shiftDate() === $shiftDate) {
                 return $duty;
             }
@@ -123,22 +121,7 @@ class ScheduleResolver implements ExpectedShifts
         $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
         $close = max(0, (int) config('attendance.close_after_minutes', 240));
 
-        $duties = [];
-        $run = [];
-        foreach ($this->shiftsFor([(int) $employee->getKey()], $from, $to)[(int) $employee->getKey()] as $shift) {
-            $last = $run === [] ? null : $run[array_key_last($run)];
-            $joins = $last !== null && ! $last->isOpen && ! $shift->isOpen
-                && $last->endsAt->equalTo($shift->startsAt) && count($run) < self::MAX_DUTY_SHIFTS;
-
-            if ($run !== [] && ! $joins) {
-                $duties[] = Duty::of($run, $opens, $close);
-                $run = [];
-            }
-            $run[] = $shift;
-        }
-        if ($run !== []) {
-            $duties[] = Duty::of($run, $opens, $close);
-        }
+        $duties = Duty::runs(array_values($this->shiftsFor([(int) $employee->getKey()], $from, $to)[(int) $employee->getKey()]), $opens, $close);
 
         return $duties;
     }

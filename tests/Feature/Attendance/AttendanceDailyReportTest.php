@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -31,6 +32,7 @@ class AttendanceDailyReportTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const DAY = '2026-06-21';
@@ -237,7 +239,7 @@ class AttendanceDailyReportTest extends TestCase
 
     public function test_a_refused_day_on_a_day_off_is_not_listed(): void
     {
-        config(['attendance.working_days' => [1, 2, 3, 4, 5, 6]]);   // Sunday off
+        $this->pinDayOff(0);   // Sunday off, through the default schedule
         $this->checkIn($this->people['a'], self::DAY.' 08:00:00', ['rejected_at' => now(), 'rejection_reason' => RejectionReason::Other]);
         $this->asHr();
 

@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -28,6 +29,7 @@ class AttendanceAbsentTodayTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     private const DAY = '2026-06-21';
@@ -111,7 +113,7 @@ class AttendanceAbsentTodayTest extends TestCase
 
     public function test_a_day_off_has_no_absentees(): void
     {
-        config(['attendance.working_days' => [1, 2, 3, 4, 5, 6]]);   // Sunday off
+        $this->pinDayOff(0);   // Sunday off, through the default schedule
 
         $this->absent()->assertOk()->assertJsonPath('meta.total', 0);
     }
