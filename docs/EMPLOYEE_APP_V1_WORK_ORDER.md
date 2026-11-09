@@ -1589,3 +1589,22 @@ is not there yet. §4.11, the pilot, is not released. `START_HERE.md` §10 lists
 what each waits on.
 
 **1289 tests passing (5667 assertions), Pint clean, 95 API routes, 46 permissions.**
+
+### 2026-11-09 — work shifts: a plan, and a decision round opened
+
+A plan for work shifts arrived: fixed, flexible, rotating, cyclic and dated
+schedules, overnight shifts, and the guards' 3 × 24 h on, 3 days off. Not built.
+It reopens three answers of 2026-10-16 — Q8 (no day off, no holidays), Q9 (no
+"late") and Q10 (one close at 23:59) — and needs the attendance day to become the
+shift rather than the calendar date: today a check-out must fall on its
+check-in's date, so no overnight or 24-hour shift can be recorded.
+
+[`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md) asks thirteen
+questions (S1–S13), the first whether shifts come before the pilot or after it.
+The D12 pilot group has no guards. The round carries legacy's evidence: the 20
+guards' check-ins cluster just after midnight and their check-outs just before
+it, and 41% of their check-ins end as missing check-outs against 20% company-wide.
+
+**S1 answered the same day: A.** The app's release is delayed and shifts are
+built first; §4.10's slice 8 comes after them, because shifts change the app's
+check-in, home card, "my days" and offline queue. S2–S13 are open.
