@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Attendance\Services;
 
 use App\Modules\Attendance\Contracts\ApprovedLeave;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Enums\AttendanceSource;
@@ -43,6 +44,7 @@ class AttendanceService
         private readonly AttendeeResolver $attendees,
         private readonly SelfieStore $selfies,
         private readonly OpenCheckIns $openCheckIns,
+        private readonly ExpectedShifts $shifts,
     ) {}
 
     /**
@@ -88,7 +90,7 @@ class AttendanceService
                 $type = AttendanceEventType::from((int) $data['type']);
                 $moment = $this->calendar->parse($data['recorded_at']);
                 $workHours = null;
-                $shiftDate = $moment->toDateString();
+                $attribution = ['shift_date' => $moment->toDateString(), 'outside_schedule' => false];
 
                 // A phone whose clock runs ahead (parity audit S-6).
                 if ($moment->gt(Carbon::now($this->calendar->timezone())->addMinutes($this->calendar->maxClockAheadMinutes()))) {
@@ -96,10 +98,10 @@ class AttendanceService
                 }
 
                 if ($type === AttendanceEventType::CheckIn) {
-                    $this->assertCanCheckIn($employee, $moment);
+                    $attribution = $this->assertCanCheckIn($employee, $moment);
                 } else {
                     $checkIn = $this->assertCanCheckOut($employee, $moment);
-                    $shiftDate = $checkIn->shift_date->toDateString();
+                    $attribution = ['shift_date' => $checkIn->shift_date->toDateString(), 'outside_schedule' => (bool) $checkIn->outside_schedule];
                     // From the check-in to the check-out: Carbon 3's difference
                     // is signed, so the order matters (legacy's Carbon 2 was not).
                     $workHours = round($checkIn->recorded_at->floatDiffInRealHours($moment), 2);
@@ -122,7 +124,8 @@ class AttendanceService
                     // clock, the day the rules judged and every date filter agree
                     // even when the phone sent an offset ("…Z").
                     'recorded_at' => $moment,
-                    'shift_date'  => $shiftDate,
+                    'shift_date'       => $attribution['shift_date'],
+                    'outside_schedule' => $attribution['outside_schedule'],
                     'work_hours'  => $workHours,
                     'latitude'    => $data['latitude'],
                     'longitude'   => $data['longitude'],
@@ -145,41 +148,58 @@ class AttendanceService
     }
 
     /**
+     * The check-in rules on each person's duties (work shifts spec §5.1), and
+     * what the record is attributed to.
+     *
+     * 1. No check-in while another is still open.
+     * 2. The first duty whose window holds the moment and has no check-in
+     *    takes it, dated by the duty's start; one whose window holds it but
+     *    already has its check-in refuses it.
+     * 3. No duty holds it (a day off, before the window, after the shift):
+     *    accepted and flagged outside the schedule (S10), dated by the moment,
+     *    one per date — a shift date carries at most one accepted check-in,
+     *    so pairing by shift date stays unambiguous.
+     * 4. Approved leave over the shift the moment falls in refuses it, unless
+     *    attendance during leave is allowed.
+     *
+     * @return array{shift_date: string, outside_schedule: bool}
+     *
      * @throws AttendanceException
      */
-    private function assertCanCheckIn(Employee $employee, Carbon $moment): void
+    private function assertCanCheckIn(Employee $employee, Carbon $moment): array
     {
-        if (! $this->calendar->isWorkingDay($moment)) {
-            // Does not name the day: the calendar is configuration, so the
-            // message stays true whatever the policy becomes.
-            throw new AttendanceException('لا يمكن تسجيل الحضور في يوم عطلة.');
-        }
-
-        $start = $this->calendar->checkInStart();
-        $end = $this->calendar->checkInEnd();
-
-        if ($start !== '' && $moment->lt($this->calendar->timeOn($moment, $start))) {
-            throw new AttendanceException("لا يمكن تسجيل الحضور قبل الساعة {$start}.");
-        }
-        if ($end !== '' && $moment->gt($this->calendar->timeOn($moment, $end))) {
-            throw new AttendanceException("لا يمكن تسجيل الحضور بعد الساعة {$end}.");
-        }
-
-        $date = $moment->toDateString();
-
-        // One check-in a day, even after a completed day: a second open shift
-        // is one the reports cannot pair.
-        if ($this->accepted($employee)->checkIns()->onDate($date)->exists()) {
-            throw new AttendanceException('لديك تسجيل حضور قائم بالفعل لهذا اليوم.');
-        }
-
         if ($this->openCheckIns->blocking($employee, $moment) !== null) {
             throw new AttendanceException('لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً.');
         }
 
-        if (! $this->calendar->allowsAttendanceDuringLeave() && $this->leave->covers((int) $employee->getKey(), $date)) {
+        $holding = $this->shifts->dutiesHolding($employee, $moment);
+        $duty = null;
+        foreach ($holding as $candidate) {
+            if (! $this->accepted($employee)->checkIns()->onDate($candidate->shiftDate())->exists()) {
+                $duty = $candidate;
+
+                break;
+            }
+        }
+
+        if ($holding !== [] && $duty === null) {
+            throw new AttendanceException('لديك تسجيل حضور قائم بالفعل لهذه الوردية.');
+        }
+
+        $attribution = $duty === null
+            ? ['shift_date' => $moment->toDateString(), 'outside_schedule' => true]
+            : ['shift_date' => $duty->shiftDate(), 'outside_schedule' => false];
+
+        if ($duty === null && $this->accepted($employee)->checkIns()->onDate($attribution['shift_date'])->exists()) {
+            throw new AttendanceException('لديك تسجيل حضور قائم بالفعل لهذا اليوم.');
+        }
+
+        $leaveDate = $duty === null ? $attribution['shift_date'] : $duty->shiftOn($moment)->date;
+        if (! $this->calendar->allowsAttendanceDuringLeave() && $this->leave->covers((int) $employee->getKey(), $leaveDate)) {
             throw new AttendanceException('لا يمكن تسجيل الحضور أثناء إجازة معتمدة لهذا اليوم.');
         }
+
+        return $attribution;
     }
 
     /**
@@ -194,7 +214,7 @@ class AttendanceService
         $checkIn = $this->openCheckIns->forCheckOut($employee, $moment);
 
         if ($checkIn === null) {
-            throw new AttendanceException('لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم.');
+            throw new AttendanceException('لا يمكن تسجيل الانصراف بدون تسجيل حضور قائم.');
         }
 
         if ($moment->lte($checkIn->recorded_at)) {

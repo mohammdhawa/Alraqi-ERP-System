@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Enums\AttendanceEventType;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Support\AttendanceCalendar;
+use App\Modules\Attendance\Support\Duty;
 use App\Modules\HR\Models\Employee;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -28,12 +30,33 @@ class OpenCheckIns
      */
     private const LOOKBACK_DAYS = 3;
 
-    public function __construct(private readonly AttendanceCalendar $calendar) {}
+    public function __construct(
+        private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
+    ) {}
 
-    /** When the check-in stops being open: the end of its shift date. */
+    /**
+     * When the check-in stops being open: its duty's close (the end plus the
+     * close margin). An outside-schedule check-in, or one whose duty the
+     * schedule no longer has, closes at the end of its shift date, as every
+     * check-in did before shifts.
+     */
     public function closeOf(AttendanceRecord $checkIn): CarbonImmutable
     {
-        return CarbonImmutable::parse($checkIn->shift_date->toDateString(), $this->calendar->timezone())->endOfDay()->startOfSecond();
+        return $this->dutyOf($checkIn)?->closesAt
+            ?? CarbonImmutable::parse($checkIn->shift_date->toDateString(), $this->calendar->timezone())->endOfDay()->startOfSecond();
+    }
+
+    /** The duty a check-in was taken for, or null when it is outside the schedule. */
+    public function dutyOf(AttendanceRecord $checkIn): ?Duty
+    {
+        if ($checkIn->outside_schedule) {
+            return null;
+        }
+
+        $employee = $checkIn->relationLoaded('employee') ? $checkIn->employee : Employee::withTrashed()->find($checkIn->employee_id);
+
+        return $employee === null ? null : $this->shifts->dutyOn($employee, $checkIn->shift_date->toDateString());
     }
 
     /** The check-in a check-out recorded at $moment closes, or null. */

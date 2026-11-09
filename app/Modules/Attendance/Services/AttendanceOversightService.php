@@ -36,6 +36,7 @@ class AttendanceOversightService
     public function __construct(
         private readonly AttendanceCalendar $calendar,
         private readonly NotificationService $notifications,
+        private readonly OpenCheckIns $openCheckIns,
     ) {}
 
     /**
@@ -72,11 +73,17 @@ class AttendanceOversightService
                 throw new AttendanceException('وقت الانصراف يجب أن يكون بعد وقت الحضور.');
             }
 
-            // On the check-in's own day, and not yet to come: a typo would
-            // otherwise file it on another date, leaving the day it corrects
-            // open (parity audit S-3; legacy took any later moment).
-            if ($moment->toDateString() !== $date) {
-                throw new AttendanceException('وقت الانصراف يجب أن يكون في يوم الحضور نفسه.');
+            // Not after the check-in's close, and not yet to come: a typo would
+            // otherwise file it in another shift, leaving the one it corrects
+            // open (parity audit S-3; legacy took any later moment). For a
+            // check-in outside the schedule, or on the open day, the close is
+            // the end of its own day — S-3's original wording.
+            if ($moment->gt($this->openCheckIns->closeOf($checkIn))) {
+                $duty = $this->openCheckIns->dutyOf($checkIn);
+
+                throw new AttendanceException($duty === null || $duty->isOpen
+                    ? 'وقت الانصراف يجب أن يكون في يوم الحضور نفسه.'
+                    : 'وقت الانصراف يجب أن يكون قبل انتهاء مهلة الوردية.');
             }
             if ($moment->isFuture()) {
                 throw new AttendanceException('وقت الانصراف لا يمكن أن يكون في المستقبل.');

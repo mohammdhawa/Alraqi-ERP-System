@@ -44,6 +44,10 @@ class AttendanceRecordResource extends JsonResource
             'source_label' => $this->source->label(),
 
             'recorded_at'          => $this->recorded_at->toIso8601String(),
+            // The date of the shift the record belongs to — a night shift's
+            // check-out carries the evening it began (work shifts spec §2).
+            'shift_date'           => $this->shift_date?->toDateString(),
+            'outside_schedule'     => (bool) $this->outside_schedule,
             'work_hours'           => $this->work_hours,
             'work_hours_formatted' => $this->workHoursFormatted(),
             'latitude'             => $this->latitude,

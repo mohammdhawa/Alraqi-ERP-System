@@ -57,16 +57,6 @@ class AttendanceCheckInOutTest extends TestCase
         parent::tearDown();
     }
 
-    /** Legacy's own tests pin a Friday off and a 06:00–17:00 window to exercise the mechanism. */
-    private function pinFridayOffAndWindow(): void
-    {
-        config([
-            'attendance.working_days'   => [0, 1, 2, 3, 4, 6],
-            'attendance.check_in.start' => '06:00',
-            'attendance.check_in.end'   => '17:00',
-        ]);
-    }
-
     private function employee(array $attributes = []): Employee
     {
         $employee = Employee::factory()->create($attributes);
@@ -168,37 +158,6 @@ class AttendanceCheckInOutTest extends TestCase
         $this->record(self::FRIDAY.' 03:00:00')->assertCreated();
     }
 
-    public function test_check_in_accepted_at_window_boundaries(): void
-    {
-        $this->pinFridayOffAndWindow();
-
-        $this->actAs($this->employee());
-        $this->record(self::SUNDAY.' 06:00:00')->assertCreated();
-
-        $this->actAs($this->employee());
-        $this->record(self::SUNDAY.' 17:00:00')->assertCreated();
-    }
-
-    public function test_check_in_rejected_before_and_after_the_window(): void
-    {
-        $this->pinFridayOffAndWindow();
-        $this->actAs($this->employee());
-
-        $this->record(self::SUNDAY.' 05:59:00')->assertStatus(422)->assertJsonPath('message', 'لا يمكن تسجيل الحضور قبل الساعة 06:00.');
-        $this->record(self::SUNDAY.' 17:01:00')->assertStatus(422)->assertJsonPath('message', 'لا يمكن تسجيل الحضور بعد الساعة 17:00.');
-
-        $this->assertSame(0, AttendanceRecord::count());
-    }
-
-    public function test_a_configured_day_off_is_honoured(): void
-    {
-        $this->pinFridayOffAndWindow();
-        $this->actAs($this->employee());
-
-        $this->record(self::FRIDAY.' 09:00:00')->assertStatus(422);
-        $this->record(self::SATURDAY.' 09:00:00')->assertCreated();
-    }
-
     public function test_a_second_check_in_on_the_same_day_is_refused(): void
     {
         $this->actAs($this->employee());
@@ -206,7 +165,7 @@ class AttendanceCheckInOutTest extends TestCase
         $this->record(self::SUNDAY.' 08:00:00')->assertCreated();
         $this->record(self::SUNDAY.' 09:00:00')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'لديك تسجيل حضور قائم بالفعل لهذا اليوم.');
+            ->assertJsonPath('message', 'لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً.');
 
         $this->assertSame(1, AttendanceRecord::count());
     }
@@ -277,7 +236,7 @@ class AttendanceCheckInOutTest extends TestCase
 
         $this->record(self::SUNDAY.' 16:00:00', AttendanceEventType::CheckOut)
             ->assertStatus(422)
-            ->assertJsonPath('message', 'لا يمكن تسجيل الانصراف بدون تسجيل حضور صالح لنفس اليوم.');
+            ->assertJsonPath('message', 'لا يمكن تسجيل الانصراف بدون تسجيل حضور قائم.');
     }
 
     public function test_check_out_refused_before_the_check_in(): void
