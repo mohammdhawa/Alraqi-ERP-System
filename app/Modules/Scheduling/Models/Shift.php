@@ -58,7 +58,8 @@ class Shift extends Model
 
     public function isInUse(): bool
     {
-        return WorkScheduleDay::query()->where('shift_id', $this->getKey())->exists();
+        return WorkScheduleDay::query()->where('shift_id', $this->getKey())->exists()
+            || ShiftChange::query()->where('shift_id', $this->getKey())->exists();
     }
 
     public function endsNextDay(): bool

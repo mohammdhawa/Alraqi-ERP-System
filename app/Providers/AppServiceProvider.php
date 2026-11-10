@@ -25,6 +25,7 @@ use App\Modules\Leave\Models\LeaveType;
 use App\Modules\Leave\Services\ApprovedLeaveFromRequests;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\Shift;
+use App\Modules\Scheduling\Models\ShiftChange;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Models\WorkScheduleDay;
 use App\Modules\Scheduling\Services\ScheduleResolver;
@@ -145,6 +146,7 @@ class AppServiceProvider extends ServiceProvider
             'work_schedule'          => WorkSchedule::class,
             'work_schedule_day'      => WorkScheduleDay::class,
             'employee_work_schedule' => EmployeeWorkSchedule::class,
+            'shift_change'           => ShiftChange::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check
