@@ -9,8 +9,10 @@ use App\Modules\Auth\Models\Notification;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Scheduling\Enums\ShiftChangeOrigin;
+use App\Modules\Scheduling\Enums\ShiftSwapStatus;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
+use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Services\ScheduleAssigner;
 use App\Shared\Models\AuditLog;
@@ -76,7 +78,7 @@ class ShiftChangeEndpointsTest extends TestCase
 
     private function swapRow(string $date): ShiftChange
     {
-        return ShiftChange::create(['employee_id' => $this->employee->id, 'date' => $date, 'shift_id' => null, 'origin' => ShiftChangeOrigin::Swap, 'shift_swap_id' => 1]);
+        return ShiftChange::create(['employee_id' => $this->employee->id, 'date' => $date, 'shift_id' => null, 'origin' => ShiftChangeOrigin::Swap, 'shift_swap_id' => $this->anExchange($this->employee)->id]);
     }
 
     public function test_hr_records_a_night_change_and_it_is_listed(): void
@@ -231,5 +233,11 @@ class ShiftChangeEndpointsTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('reason');
         $this->getJson($this->url('?from=2026-11-01&to=2027-02-02'))
             ->assertStatus(422)->assertJsonValidationErrors('to');
+    }
+
+    /** An exchange row for a Swap-origin change to point at (the FK, Task 5). */
+    private function anExchange(Employee $requester): ShiftSwap
+    {
+        return ShiftSwap::create(['requester_id' => $requester->id, 'partner_id' => Employee::factory()->create()->id, 'requester_duty_date' => '2026-11-20', 'partner_duty_date' => '2026-11-17', 'status' => ShiftSwapStatus::Approved]);
     }
 }

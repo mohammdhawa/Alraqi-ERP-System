@@ -160,6 +160,7 @@ class AuditLogDetailResource extends AuditLogResource
         'work_schedule_day'      => ['scheduling.view'],
         'employee_work_schedule' => ['scheduling.view'],
         'shift_change'           => ['scheduling.view'],
+        'shift_swap'             => ['scheduling.view'],
     ];
 
     /**

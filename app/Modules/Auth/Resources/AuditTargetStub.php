@@ -83,6 +83,7 @@ final class AuditTargetStub
         'work_schedule_day'      => 'يوم في جدول دوام',
         'employee_work_schedule' => 'جدول دوام موظف',
         'shift_change'           => 'تعديل وردية',
+        'shift_swap'             => 'تبديل مناوبة',
     ];
 
     /**

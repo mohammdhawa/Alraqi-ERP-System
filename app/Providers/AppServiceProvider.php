@@ -23,9 +23,12 @@ use App\Modules\Leave\Models\LeaveBalance;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Models\LeaveType;
 use App\Modules\Leave\Services\ApprovedLeaveFromRequests;
+use App\Modules\Leave\Services\BlockingLeaveFromRequests;
+use App\Modules\Scheduling\Contracts\BlockingLeave;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
+use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Models\WorkScheduleDay;
 use App\Modules\Scheduling\Services\ScheduleResolver;
@@ -76,6 +79,11 @@ class AppServiceProvider extends ServiceProvider
         // owns, answered by the Scheduling module from people's schedules — the
         // dependency runs Scheduling → Attendance, as Leave's does.
         $this->app->bind(ExpectedShifts::class, ScheduleResolver::class);
+
+        // What Scheduling must know of leave to check a duty exchange (work
+        // shifts piece 2, §6.2): a contract Scheduling owns, answered by Leave,
+        // so Scheduling never imports Leave's models.
+        $this->app->bind(BlockingLeave::class, BlockingLeaveFromRequests::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
@@ -147,6 +155,7 @@ class AppServiceProvider extends ServiceProvider
             'work_schedule_day'      => WorkScheduleDay::class,
             'employee_work_schedule' => EmployeeWorkSchedule::class,
             'shift_change'           => ShiftChange::class,
+            'shift_swap'             => ShiftSwap::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

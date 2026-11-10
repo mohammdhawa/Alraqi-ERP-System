@@ -7,8 +7,10 @@ namespace Tests\Feature\Scheduling;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Scheduling\Enums\ShiftChangeOrigin;
+use App\Modules\Scheduling\Enums\ShiftSwapStatus;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
+use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Services\ScheduleAssigner;
 use App\Modules\Scheduling\Services\ScheduleResolver;
@@ -69,7 +71,7 @@ class ShiftChangeResolverTest extends TestCase
             'date'          => $date,
             'shift_id'      => $shiftId,
             'origin'        => $origin,
-            'shift_swap_id' => $origin === ShiftChangeOrigin::Swap ? 1 : null,
+            'shift_swap_id' => $origin === ShiftChangeOrigin::Swap ? $this->anExchange($employee)->id : null,
             'reason'        => $origin === ShiftChangeOrigin::Hr ? 'تكليف' : null,
         ]);
     }
@@ -183,5 +185,11 @@ class ShiftChangeResolverTest extends TestCase
 
         $this->assertSame($this->shiftId('DAY'), $shifts['2026-11-14']->shiftId);
         $this->assertSame($this->night()->id, $shifts['2026-11-15']->shiftId);
+    }
+
+    /** An exchange row for a Swap-origin change to point at (the FK, Task 5). */
+    private function anExchange(Employee $requester): ShiftSwap
+    {
+        return ShiftSwap::create(['requester_id' => $requester->id, 'partner_id' => Employee::factory()->create()->id, 'requester_duty_date' => '2026-11-20', 'partner_duty_date' => '2026-11-17', 'status' => ShiftSwapStatus::Approved]);
     }
 }
