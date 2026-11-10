@@ -41,15 +41,14 @@ class ShiftSwapCheck
 
         $requester = Employee::withTrashed()->findOrFail($swap->requester_id);
         $partner = Employee::withTrashed()->findOrFail($swap->partner_id);
-        $partnerDate = $swap->partner_duty_date->toDateString();
-
-        // A partner who has left by his duty (plan Review Focus 1).
-        if ($partner->trashed() || ($partner->termination_date !== null && $partner->termination_date->toDateString() <= $partnerDate)) {
-            return 'الزميل المحدد ليس على رأس عمله.';
-        }
-
         [$mine, $theirs] = $this->plan->duties($swap);
         $dates = $this->dates($swap, $mine, $theirs);
+
+        // A partner who will have left before the last day he works under the
+        // exchange — his own duty or the one he takes (final review I5).
+        if ($partner->trashed() || ($partner->termination_date !== null && $partner->termination_date->toDateString() < $dates[array_key_last($dates)])) {
+            return 'الزميل المحدد ليس على رأس عمله.';
+        }
 
         // 2. Both guards, on every date of both duties.
         if (! $this->onCycle($requester, $dates) || ! $this->onCycle($partner, $dates)) {
@@ -92,10 +91,13 @@ class ShiftSwapCheck
             }
         }
 
-        // 6. No pending or approved leave on either duty.
+        // 6. No pending or approved leave on either duty — the duties' own
+        // dates, not the days between them (final review I3).
         foreach ([$requester, $partner] as $person) {
-            if ($this->leave->blocksAny((int) $person->getKey(), $dates[0], $dates[array_key_last($dates)])) {
-                return 'توجد إجازة تتداخل مع إحدى المناوبتين.';
+            foreach ([$mine, $theirs] as $duty) {
+                if ($this->leave->blocksAny((int) $person->getKey(), $duty->shiftDate(), $duty->shifts[array_key_last($duty->shifts)]->date)) {
+                    return 'توجد إجازة تتداخل مع إحدى المناوبتين.';
+                }
             }
         }
 

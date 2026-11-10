@@ -39,6 +39,7 @@ class ShiftSwapService
         private readonly ManagementChain $chain,
         private readonly AttendanceCalendar $calendar,
         private readonly SwapNotices $notices,
+        private readonly ScheduleResolver $resolver,
     ) {}
 
     /**
@@ -154,7 +155,19 @@ class ShiftSwapService
                 }
             }
 
-            $swap->changes()->get()->each->delete();
+            $changes = $swap->changes()->get();
+            $changes->each->delete();
+
+            // Both back on their schedules may make a run too long (final review I1).
+            $from = $changes->min(fn ($c) => $c->date->toDateString());
+            $to = $changes->max(fn ($c) => $c->date->toDateString());
+            foreach ([$swap->requester_id, $swap->partner_id] as $id) {
+                $violation = $from === null ? null : $this->resolver->runViolationAround(Employee::withTrashed()->findOrFail($id), $from, $to);
+                if ($violation !== null) {
+                    throw new SchedulingException($violation);
+                }
+            }
+
             $swap->update([
                 'status'        => ShiftSwapStatus::Cancelled,
                 'cancelled_by'  => $by->getKey(),

@@ -85,6 +85,11 @@ class ShiftChanger
         DB::transaction(function () use ($employee, $change, $date): void {
             Employee::query()->whereKey($employee->getKey())->lockForUpdate()->first();
             $change->delete();
+            // Back on the schedule may join two runs into one too long (final review I1).
+            $violation = $this->resolver->runViolationAround($employee, $date, $date);
+            if ($violation !== null) {
+                throw new SchedulingException($violation);
+            }
             $this->rematch->run($employee, $date, $date);
         });
 

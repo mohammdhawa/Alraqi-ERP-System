@@ -8,6 +8,7 @@ use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Requests\CancelShiftSwapRequest;
 use App\Modules\Scheduling\Requests\ShiftSwapsIndexRequest;
 use App\Modules\Scheduling\Resources\ShiftSwapResource;
+use App\Modules\Scheduling\Services\ShiftSwapPlan;
 use App\Modules\Scheduling\Services\ShiftSwapService;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,6 +35,8 @@ class ShiftSwapController extends Controller
             ->with(self::RELATIONS)
             ->orderByDesc('created_at')->orderByDesc('id')
             ->paginate($this->perPage($request));
+
+        app(ShiftSwapPlan::class)->preload($page->getCollection());
 
         return $this->paginated(ShiftSwapResource::collection($page));
     }

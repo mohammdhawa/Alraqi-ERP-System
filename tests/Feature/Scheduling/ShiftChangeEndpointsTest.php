@@ -240,4 +240,19 @@ class ShiftChangeEndpointsTest extends TestCase
     {
         return ShiftSwap::create(['requester_id' => $requester->id, 'partner_id' => Employee::factory()->create()->id, 'requester_duty_date' => '2026-11-20', 'partner_duty_date' => '2026-11-17', 'status' => ShiftSwapStatus::Approved]);
     }
+
+    public function test_removing_a_change_cannot_make_a_run_over_six(): void
+    {
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+        $this->assign('GUARD', '2026-11-14', '2026-11-14');
+        $this->record(['from' => '2026-11-20', 'to' => '2026-11-20', 'shift_id' => null])->assertCreated();
+        $this->record(['from' => '2026-11-17', 'to' => '2026-11-19', 'shift_id' => $this->shiftId('GUARD')])->assertCreated();
+
+        $dayOff = ShiftChange::whereDate('date', '2026-11-20')->sole();
+        $this->deleteJson($this->url('/'.$dayOff->id))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'يتجاوز هذا التعديل ست ورديات متتالية للموظف.');
+
+        $this->assertSame(4, ShiftChange::count());
+    }
 }

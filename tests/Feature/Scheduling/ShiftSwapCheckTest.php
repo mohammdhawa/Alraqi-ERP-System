@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Tests\Feature\Scheduling;
 
 use App\Modules\Approvals\Enums\StepResolver;
+use App\Modules\Auth\Models\User;
 use App\Modules\Leave\Enums\LeaveStatus;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Scheduling\Enums\ShiftChangeOrigin;
+use App\Modules\Scheduling\Enums\WorkScheduleKind;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
 use App\Modules\Scheduling\Models\ShiftSwap;
+use App\Modules\Scheduling\Models\WorkSchedule;
+use App\Modules\Scheduling\Services\ScheduleAssigner;
 use App\Modules\Scheduling\Services\ShiftSwapApprovalRoute;
 use App\Modules\Scheduling\Services\ShiftSwapCheck;
 use App\Modules\Scheduling\Services\ShiftSwapPlan;
@@ -162,5 +166,32 @@ class ShiftSwapCheckTest extends TestCase
         $this->assertCount(1, $route->stages);
         $this->assertCount(1, $route->stages[0]);
         $this->assertSame(StepResolver::DirectManager, $route->stages[0][0]->resolver);
+    }
+
+    public function test_a_partner_who_leaves_before_the_duty_he_takes_is_refused(): void
+    {
+        $this->guardB->update(['termination_date' => '2026-11-19']);
+
+        $this->assertSame('الزميل المحدد ليس على رأس عمله.', $this->check($this->exchange($this->guardA, '2026-11-20', $this->guardB, '2026-11-17')));
+    }
+
+    public function test_leave_on_an_own_duty_between_the_two_does_not_refuse(): void
+    {
+        $guard = $this->guardShiftId();
+        $nine = WorkSchedule::createWithDays(
+            ['code' => 'G9', 'name' => 'حراسة 9', 'kind' => WorkScheduleKind::Cycle, 'cycle_days' => 9],
+            [0 => $guard, 1 => $guard, 2 => $guard, 3 => null, 4 => null, 5 => null, 6 => null, 7 => null, 8 => null],
+        );
+        $a = $this->person($this->units['a1']);
+        $c = $this->person($this->units['a1']);
+        app(ScheduleAssigner::class)->assign($a, $nine, '2026-11-13', '2026-11-14', User::factory()->create());
+        app(ScheduleAssigner::class)->assign($c, $nine, '2026-11-13', '2026-11-20', User::factory()->create());
+        $swap = $this->exchange($a, '2026-11-14', $c, '2026-11-29');
+        $this->assertNull($this->check($swap));
+
+        // a's own duty 11-23..25 lies between the two exchanged duties.
+        LeaveRequest::factory()->create(['employee_id' => $a->id, 'start_date' => '2026-11-23', 'end_date' => '2026-11-25', 'status' => LeaveStatus::Approved]);
+
+        $this->assertNull($this->check($swap));
     }
 }

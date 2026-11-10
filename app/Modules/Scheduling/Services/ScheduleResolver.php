@@ -102,6 +102,25 @@ class ScheduleResolver implements ExpectedShifts
     }
 
     /**
+     * Why the person's stored shifts around [$from, $to] hold a run longer
+     * than six, or null — for a removal (an HR change deleted, an exchange
+     * cancelled), checked after the delete inside its transaction (final
+     * review I1).
+     */
+    public function runViolationAround(Employee $employee, string $from, string $to): ?string
+    {
+        $timezone = $this->calendar->timezone();
+        $longest = RunLimit::longest(array_values($this->shiftsWith(
+            $employee,
+            CarbonImmutable::parse($from, $timezone)->subDays(RunLimit::MAX)->toDateString(),
+            CarbonImmutable::parse($to, $timezone)->addDays(RunLimit::MAX)->toDateString(),
+            [],
+        )));
+
+        return $longest > RunLimit::MAX ? RunLimit::MESSAGE : null;
+    }
+
+    /**
      * The calendar view (GET /api/scheduling/calendar): every date, with its
      * shift or null for a day off, and where it came from. Scheduling's own —
      * not on the contract, which leaves days off out.

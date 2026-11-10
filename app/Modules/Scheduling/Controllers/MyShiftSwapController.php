@@ -10,6 +10,7 @@ use App\Modules\Scheduling\Exceptions\SchedulingException;
 use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Requests\FileShiftSwapRequest;
 use App\Modules\Scheduling\Resources\ShiftSwapResource;
+use App\Modules\Scheduling\Services\ShiftSwapPlan;
 use App\Modules\Scheduling\Services\ShiftSwapService;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Http\JsonResponse;
@@ -39,6 +40,8 @@ class MyShiftSwapController extends Controller
             ->with(['requester', 'partner', 'approval'])
             ->orderByDesc('created_at')->orderByDesc('id')
             ->paginate(min($this->perPage($request), 50));
+
+        app(ShiftSwapPlan::class)->preload($page->getCollection());
 
         return $this->paginated(ShiftSwapResource::collection($page));
     }

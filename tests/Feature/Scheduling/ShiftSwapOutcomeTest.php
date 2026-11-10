@@ -5,17 +5,20 @@ declare(strict_types=1);
 namespace Tests\Feature\Scheduling;
 
 use App\Modules\Attendance\Contracts\ExpectedShifts;
+use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Models\Notification;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Leave\Enums\LeaveStatus;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Scheduling\Enums\ShiftChangeOrigin;
 use App\Modules\Scheduling\Enums\ShiftSwapStatus;
+use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
 use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Shared\Support\NotificationEventCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\Concerns\SwapFixtures;
 use Tests\TestCase;
@@ -212,5 +215,55 @@ class ShiftSwapOutcomeTest extends TestCase
 
         $this->postJson("/api/hr/employees/{$this->guardB->id}/shift-changes", ['from' => '2026-11-21', 'to' => '2026-11-21', 'shift_id' => null, 'reason' => 'x'])
             ->assertStatus(422);
+    }
+
+    public function test_cancelling_cannot_make_a_run_over_six(): void
+    {
+        $this->decide('approve')->assertOk();
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+        $this->postJson("/api/hr/employees/{$this->guardA->id}/shift-changes", ['from' => '2026-11-23', 'to' => '2026-11-25', 'shift_id' => (int) Shift::where('code', 'GUARD')->value('id'), 'reason' => 'تكليف'])
+            ->assertCreated();
+
+        $this->postJson("/api/scheduling/swaps/{$this->swapId}/cancel", ['reason' => 'x'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'يتجاوز هذا التعديل ست ورديات متتالية للموظف.');
+
+        $this->assertSame(ShiftSwapStatus::Approved, $this->swapRow()->status);
+        $this->assertSame(12, ShiftChange::where('shift_swap_id', $this->swapId)->count());
+    }
+
+    public function test_an_hr_change_after_two_back_to_back_duties_is_not_refused(): void
+    {
+        $this->decide('approve')->assertOk();
+        $record = fn (string $type, string $at, string $shiftDate) => AttendanceRecord::factory()->{$type}()
+            ->create(['employee_id' => $this->guardA->id, 'recorded_at' => $at, 'shift_date' => $shiftDate]);
+        $record('checkIn', '2026-11-14 08:00:00', '2026-11-14');
+        $record('checkOut', '2026-11-17 07:50:00', '2026-11-14');
+        $record('checkIn', '2026-11-17 07:55:00', '2026-11-17');
+        $record('checkOut', '2026-11-20 08:00:00', '2026-11-17');
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+
+        $this->postJson("/api/hr/employees/{$this->guardA->id}/shift-changes", ['from' => '2026-11-23', 'to' => '2026-11-23', 'shift_id' => (int) Shift::where('code', 'DAY')->value('id'), 'reason' => 'تكليف'])
+            ->assertCreated();
+    }
+
+    public function test_the_hr_list_reads_duties_in_a_fixed_number_of_queries(): void
+    {
+        foreach (range(1, 8) as $n) {
+            $a = $this->person($this->units['a1']);
+            $b = $this->person($this->units['a1']);
+            $this->assignGuard($a, '2026-11-14');
+            $this->assignGuard($b, '2026-11-17');
+            ShiftSwap::create(['requester_id' => $a->id, 'partner_id' => $b->id, 'requester_duty_date' => '2026-11-20', 'partner_duty_date' => '2026-11-17', 'status' => ShiftSwapStatus::Pending]);
+        }
+        $this->actingAsUserWithPermissions(['scheduling.view']);
+
+        DB::enableQueryLog();
+        $this->getJson('/api/scheduling/swaps?per_page=100')->assertOk()->assertJsonCount(9, 'data')
+            ->assertJsonPath('data.0.requester_duty.starts_at', '2026-11-20T08:00:00+03:00');
+        $queries = count(DB::getQueryLog());
+
+        $this->assertLessThanOrEqual(30, $queries, "the list ran {$queries} queries for 9 rows");
     }
 }

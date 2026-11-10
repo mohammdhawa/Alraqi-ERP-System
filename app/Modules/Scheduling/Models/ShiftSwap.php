@@ -99,6 +99,16 @@ class ShiftSwap extends Model implements Approvable
     /** The check again, but for the manager rule: the approver is fixed at filing (spec §6.2). */
     public function canBeApproved(): ?string
     {
+        // Both guards' rows first, in ascending id order, as every writer of
+        // their days does (HR's changes, leave, assignments): the re-check and
+        // the rows the approval writes then see no change slipping in between
+        // (final review I4). Inside the engine's transaction, after the
+        // approval's own locks; nothing locks an employee and then an
+        // approval, so the order cannot deadlock.
+        $ids = [(int) $this->requester_id, (int) $this->partner_id];
+        sort($ids);
+        Employee::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
+
         return app(ShiftSwapCheck::class)->violation($this, false);
     }
 

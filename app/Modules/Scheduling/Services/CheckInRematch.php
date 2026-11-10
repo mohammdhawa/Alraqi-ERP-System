@@ -50,7 +50,13 @@ class CheckInRematch
             return;
         }
 
-        $claimed = [];
+        // Check-ins just before the window keep their duties: a moment at the
+        // window's start that two back-to-back duties hold must not take the
+        // earlier one, which an older check-in already has (final review I2).
+        $windowStart = CarbonImmutable::parse($from, $timezone)->subDays(self::LOOKBACK_DAYS);
+        $claimed = array_fill_keys(AttendanceRecord::query()->forEmployee($id)->checkIns()->accepted()
+            ->inDateRange($windowStart->subDays(Duty::MAX_SHIFTS)->toDateString(), $windowStart->subDay()->toDateString())
+            ->get()->map(fn (AttendanceRecord $r): string => $r->shift_date->toDateString())->all(), true);
         $matches = [];
         foreach ($checkIns as $checkIn) {
             $at = CarbonImmutable::instance($checkIn->recorded_at)->setTimezone($timezone);
@@ -69,11 +75,14 @@ class CheckInRematch
                 throw new SchedulingException("يتعارض هذا التعديل مع تسجيل حضور في {$at->toDateString()}.");
             }
 
+            // dutiesHolding reads only a day past the moment, so its duty may be
+            // cut short; the close is the whole duty's (final review I2).
+            $duty = $duty === null ? null : ($this->shifts->dutyOn($employee, $date) ?? $duty);
             $claimed[$date] = true;
             $matches[] = [$checkIn, $duty, $date];
         }
 
-        $this->assertNoOtherCheckInOn($id, array_keys($claimed), $checkIns->modelKeys());
+        $this->assertNoOtherCheckInOn($id, array_column($matches, 2), $checkIns->modelKeys());
 
         $checkOuts = [];
         foreach ($matches as [$checkIn, $duty, $date]) {
