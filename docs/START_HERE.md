@@ -71,7 +71,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | `work-shifts-changes`, from `work-shifts-core` at `b8ea30f`: work shifts piece 2 of 4, one-off changes and duty exchanges — not merged, not pushed. `work-shifts-core` (piece 1, from `phase_1` at `c43e616`) is pushed, not merged. `main` is `5becbc7` plus the merge of pull request 6 |
-| **Test suite** | **1473 passing**, 6312 assertions, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **Test suite** | **1479 passing**, 6336 assertions, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 122 routes under `/api`, 48 permissions |
 | **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |

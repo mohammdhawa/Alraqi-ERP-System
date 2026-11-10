@@ -1754,3 +1754,24 @@ builds S13 (HR's one-off changes and guards' swaps, both now).
   implements, so Scheduling does not import Leave's models.
 
 **11 routes (122 in all), no new permission (48).** Deploy: `migrate`.
+
+**The final whole-branch review** (a fresh reviewer, the same day) found no
+critical issue and six important ones; all are fixed, five with a test that
+failed first:
+
+- **Removing an HR change or cancelling an exchange could leave a run longer
+  than six shifts** — the limit every reader depends on. Both are now refused
+  when they would.
+- **Re-matching refused an unrelated HR change** after two back-to-back duties
+  (the 144-hour case): the check-ins just before its window were not counted,
+  and the duty it judged a check-out against was cut short. Fixed.
+- **The leave rule read the days between the two duties**, so leave on a
+  guard's own duty in between refused the exchange. It reads the duties' dates.
+- **A partner who leaves before the duty he takes passed.** Refused.
+- **Approval did not lock the two guards** before its re-check, as leave's
+  does. It does now (a race SQLite cannot show, so no failing test).
+- **The exchange lists ran about sixteen queries a row.** Batched.
+
+Five minor findings are deferred, listed in the branch's final report.
+
+**1479 tests passing (6336 assertions), Pint clean, 122 API routes, 48 permissions.**
