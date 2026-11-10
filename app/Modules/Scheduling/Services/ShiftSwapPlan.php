@@ -8,6 +8,7 @@ use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Support\Duty;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Scheduling\Enums\ShiftChangeOrigin;
+use App\Modules\Scheduling\Enums\ShiftSwapStatus;
 use App\Modules\Scheduling\Models\ShiftChange;
 use App\Modules\Scheduling\Models\ShiftSwap;
 
@@ -28,6 +29,24 @@ class ShiftSwapPlan
         return [
             $this->dutyOf((int) $swap->requester_id, $swap->requester_duty_date->toDateString()),
             $this->dutyOf((int) $swap->partner_id, $swap->partner_duty_date->toDateString()),
+        ];
+    }
+
+    /**
+     * The two duties as they are worked now, for display: by their owners
+     * until approved, by the other guard once the exchange has written them.
+     *
+     * @return array{0: ?Duty, 1: ?Duty} the requester's named duty and the partner's
+     */
+    public function shown(ShiftSwap $swap): array
+    {
+        if ($swap->status !== ShiftSwapStatus::Approved) {
+            return $this->duties($swap);
+        }
+
+        return [
+            $this->dutyOf((int) $swap->partner_id, $swap->requester_duty_date->toDateString()),
+            $this->dutyOf((int) $swap->requester_id, $swap->partner_duty_date->toDateString()),
         ];
     }
 

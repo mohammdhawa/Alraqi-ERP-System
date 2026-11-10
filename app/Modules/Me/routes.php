@@ -11,6 +11,7 @@ use App\Modules\Me\Controllers\MyAttendanceDaysController;
 use App\Modules\Me\Controllers\MyPhotoController;
 use App\Modules\Me\Controllers\MyProfileController;
 use App\Modules\Me\Controllers\MySummaryController;
+use App\Modules\Scheduling\Controllers\MyShiftSwapController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -119,4 +120,20 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::post('/leave-requests/{leaveRequest}/cancel', [MyLeaveController::class, 'cancel'])
         ->whereNumber('leaveRequest')
         ->name('me.leave-requests.cancel');
+
+    // Duty exchanges (work shifts piece 2, spec §6.1): a guard trades one of
+    // his duties for a colleague's; the direct manager decides. Only the two
+    // guards see one.
+    Route::get('/shift-swaps/options', [MyShiftSwapController::class, 'options'])
+        ->name('me.shift-swaps.options');
+    Route::get('/shift-swaps', [MyShiftSwapController::class, 'index'])
+        ->name('me.shift-swaps.index');
+    Route::post('/shift-swaps', [MyShiftSwapController::class, 'store'])
+        ->name('me.shift-swaps.store');
+    Route::get('/shift-swaps/{swap}', [MyShiftSwapController::class, 'show'])
+        ->whereNumber('swap')
+        ->name('me.shift-swaps.show');
+    Route::post('/shift-swaps/{swap}/cancel', [MyShiftSwapController::class, 'cancel'])
+        ->whereNumber('swap')
+        ->name('me.shift-swaps.cancel');
 });
