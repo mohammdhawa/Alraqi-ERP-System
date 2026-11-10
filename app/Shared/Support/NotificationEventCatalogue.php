@@ -64,6 +64,11 @@ final class NotificationEventCatalogue
 
     public const ATTENDANCE_RECORD_UNREJECTED = 'attendance.record_unrejected';
 
+    // Work shifts — to the employee whose shift HR changed (piece 2, spec §5.4).
+    public const SHIFT_CHANGE_RECORDED = 'shift.change_recorded';
+
+    public const SHIFT_CHANGE_REMOVED = 'shift.change_removed';
+
     /**
      * Arabic display labels — the `type_label` a client shows verbatim (C20).
      *
@@ -83,6 +88,8 @@ final class NotificationEventCatalogue
         self::ATTENDANCE_MISSING_CHECKOUT  => 'لم يُسجَّل الانصراف',
         self::ATTENDANCE_RECORD_REJECTED   => 'تم رفض سجل الحضور',
         self::ATTENDANCE_RECORD_UNREJECTED => 'تم إلغاء رفض سجل الحضور',
+        self::SHIFT_CHANGE_RECORDED        => 'تعديل الوردية',
+        self::SHIFT_CHANGE_REMOVED         => 'إلغاء تعديل الوردية',
     ];
 
     /**
