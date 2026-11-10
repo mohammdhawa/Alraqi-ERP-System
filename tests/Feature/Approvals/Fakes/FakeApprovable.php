@@ -12,6 +12,7 @@ use App\Modules\Approvals\Support\ApproverMessage;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 use RuntimeException;
 
 /**
@@ -76,5 +77,10 @@ class FakeApprovable extends Model implements Approvable
     public static function approvalSummaryRelations(): array
     {
         return ['employee'];
+    }
+
+    public static function approverRowDetails(Collection $subjects, bool $decided): array
+    {
+        return [];
     }
 }

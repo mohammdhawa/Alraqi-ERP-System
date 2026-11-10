@@ -6,6 +6,7 @@ use App\Modules\Approvals\Models\Approval;
 use App\Modules\Approvals\Models\ApprovalReassignment;
 use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Attendance\Contracts\ApprovedLeave;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
@@ -22,6 +23,16 @@ use App\Modules\Leave\Models\LeaveBalance;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Modules\Leave\Models\LeaveType;
 use App\Modules\Leave\Services\ApprovedLeaveFromRequests;
+use App\Modules\Leave\Services\BlockingLeaveFromRequests;
+use App\Modules\Scheduling\Contracts\BlockingLeave;
+use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
+use App\Modules\Scheduling\Models\Shift;
+use App\Modules\Scheduling\Models\ShiftChange;
+use App\Modules\Scheduling\Models\ShiftSwap;
+use App\Modules\Scheduling\Models\WorkSchedule;
+use App\Modules\Scheduling\Models\WorkScheduleDay;
+use App\Modules\Scheduling\Services\ScheduleResolver;
+use App\Modules\Scheduling\Services\ShiftSwapPlan;
 use App\Shared\Models\Attachment;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
@@ -64,6 +75,20 @@ class AppServiceProvider extends ServiceProvider
         // requests and excuses (§4.7) — so the dependency runs Leave →
         // Attendance only. NoApprovedLeave stays for a test that wants none.
         $this->app->bind(ApprovedLeave::class, ApprovedLeaveFromRequests::class);
+
+        // Who is expected when (work shifts spec §4.1): a contract Attendance
+        // owns, answered by the Scheduling module from people's schedules — the
+        // dependency runs Scheduling → Attendance, as Leave's does.
+        $this->app->bind(ExpectedShifts::class, ScheduleResolver::class);
+
+        // What Scheduling must know of leave to check a duty exchange (work
+        // shifts piece 2, §6.2): a contract Scheduling owns, answered by Leave,
+        // so Scheduling never imports Leave's models.
+        $this->app->bind(BlockingLeave::class, BlockingLeaveFromRequests::class);
+
+        // Scoped, so a list controller preloads a page of exchanges' duties and
+        // the resource rendering it reads them (piece 2, final review I6).
+        $this->app->scoped(ShiftSwapPlan::class);
 
         // One context per request OR per queued job, shared by everything that
         // needs to know who is calling and under which correlation id (GAP-5).
@@ -130,6 +155,12 @@ class AppServiceProvider extends ServiceProvider
             'leave_request'         => LeaveRequest::class,
             'leave_balance'         => LeaveBalance::class,
             'attachment'            => Attachment::class,
+            'shift'                  => Shift::class,
+            'work_schedule'          => WorkSchedule::class,
+            'work_schedule_day'      => WorkScheduleDay::class,
+            'employee_work_schedule' => EmployeeWorkSchedule::class,
+            'shift_change'           => ShiftChange::class,
+            'shift_swap'             => ShiftSwap::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check

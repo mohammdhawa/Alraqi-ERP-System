@@ -9,6 +9,7 @@ use App\Modules\Approvals\Models\Approval;
 use App\Modules\Approvals\Support\ApprovalSummary;
 use App\Modules\Approvals\Support\ApproverMessage;
 use App\Modules\HR\Models\Employee;
+use Illuminate\Support\Collection;
 
 /**
  * What a subject implements to be approved by the engine (design §5).
@@ -64,4 +65,16 @@ interface Approvable
      * @return array<int, string>
      */
     public static function approvalSummaryRelations(): array;
+
+    /**
+     * What an inbox row adds for a page of these subjects, keyed by subject
+     * id: a subject with nothing to add answers null, or leaves its id out.
+     * Called once per page, so it may query, once. With $decided the rows are
+     * what the caller already decided, whatever the request's own state: a
+     * figure meant to inform that decision has nothing left to inform.
+     *
+     * @param  Collection<int, static>  $subjects
+     * @return array<int, array<string, mixed>|null>
+     */
+    public static function approverRowDetails(Collection $subjects, bool $decided): array;
 }

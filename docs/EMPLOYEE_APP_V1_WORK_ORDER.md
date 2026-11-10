@@ -1,8 +1,13 @@
 # Employee App v1 on the ERP — the work order
 
-> **Status: planned 2026-10-05. Nothing below is built.** Target: a **pilot
-> release by Sunday 2026-11-01**, legacy still running and still the record of
-> pay; company-wide cutover around **2026-12-01** after a reconciled month.
+> ⚙️ **Status 2026-11-09: §4.1–§4.8 are built; the real import (§4.9), the app
+> (§4.10, slices 0–7 of 0–8 merged) and the pilot (§4.11) are not finished.** §8
+> is the running record.
+>
+> Planned 2026-10-05 with a **pilot release by Sunday 2026-11-01**, legacy still
+> running and still the record of pay, and a company-wide cutover around
+> **2026-12-01** after a reconciled month. Those dates stopped being binding on
+> 2026-10-16 (§5).
 >
 > **Read this first, then** [`LEGACY_TO_ERP_MAPPING.md`](LEGACY_TO_ERP_MAPPING.md)
 > (what every legacy table, route and permission becomes),
@@ -25,7 +30,8 @@ moves onto the ERP, and the order of the merge changes to get it there:
 
 - The Flutter app `../doc_approval` is **kept and re-pointed** at the ERP — not
   rewritten. It is ~24,600 lines and already does attendance, leave, documents,
-  notifications and login.
+  notifications and login. ⚙️ Done as a copy in a new repository,
+  `../alraqi-erp-app` (§8, 2026-10-26).
 - `../Raqi-App` (the legacy backend) is retired module by module, as the merge
   plan always said.
 - **The approvals engine is built generic, with leave as its first consumer**
@@ -98,7 +104,9 @@ collapse / skip with a reason · **D3** no flag, every active employee with an
 account · **D4** no "late" · **D5** no holiday calendar, and no weekly day off ·
 **D6** current unit · **D7** selfie files three months, records forever, legacy's
 cleanup left alone · **D9** yes · **D12** as planned · **D13** 15 days, per-person
-allocations by HR. **Still open:** D8, D11 — before §4.10.
+allocations by HR. ⚙️ **D8 and D11 were taken by the app's design** (§8,
+2026-10-26): the legacy Firebase project reused, the application id
+`tech.alraqi_company.erp`.
 
 ✅ **D10 answered 2026-10-19** by the project owner: **shown** — the employee
 sees their own full pay block from day one (decision 17), against the
@@ -240,7 +248,10 @@ HR review rounds (correct the source, re-run, the staging table prevents
 duplicates), then the import: 242 active + 223 terminated, accounts for the
 active, credential list to HR. Stage 1's exit criterion, unchanged.
 
-### 4.10 The Flutter app — `../doc_approval`
+### 4.10 The Flutter app — `../alraqi-erp-app`
+
+⚙️ Built as slices 0–8 in its own repository (§8, 2026-10-26), not in
+`../doc_approval`. The order below is the original plan.
 
 Mapping §11, in its order: the single-flight refresh interceptor first, because
 without it the app logs everyone out every 15 minutes; then tokens, login and the
@@ -1415,3 +1426,352 @@ upload API refuses `sarh` with «ملف صرح لم يعد مستخدماً — 
 file when it ran on the development database).
 
 **1249 tests passing, Pint clean.**
+
+### 2026-10-26 — my days, and the app gets its own repository
+
+Committed that day: the import, Kobo and account work of 2026-10-22 to 2026-10-24
+as `f1e72ae`, and `779b497`, which restored §17.4 and §18 of
+`API_DOCUMENTATION.md` after a merge lost them.
+
+**`GET /api/me/attendance/days`** (`8b689f1`, API_DOCUMENTATION §17.4) is the month
+calendar of the app's slice 3. It serves §14.3's day grid for the caller's own
+employee through the same `days()` as HR's grid and `/api/me/summary`, so the
+day-state precedence is decided in one place. A `from`/`to` window or a `month`,
+at most 92 days; an `employee_id` sent is ignored; no employee is a 403.
+
+**The app's design and first plan** (`742b43c`, `2387ae8`:
+`docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` and its plan for
+slices 0–1). What §1 planned as re-pointing `../doc_approval` became a copy of its
+`v11_employee_app` branch in a new repository with history kept,
+`../alraqi-erp-app`, named «موظف الراقي». Built foundation first, then one slice
+per area, 0 to 8.
+
+⚙️ **D8 and D11 are taken there:** the legacy Firebase project is reused (the
+design's A5), and the application id is `tech.alraqi_company.erp` (A3).
+
+**94 API routes (one added).**
+
+### 2026-10-31 — attendance work sites and location review, built
+
+`c9018bf`, `1927a0d` and `73117a1` on 2026-10-31, `34367b4` on 2026-11-01. Only the
+last has a message body, and no design document, decision round or earlier entry
+here covers this work, so **who asked for it and why is not recorded.** What
+follows is read from the commits.
+
+- **Work sites** (`c9018bf`): `work_sites`, `work_site_versions` (effective-dated
+  geometry) and `employee_work_site_assignments`. Seven routes under
+  `/api/attendance`, and `attendance.work_sites.{view,manage}`, company-only.
+- **Classification** (`1927a0d`): `attendance_location_reviews`, an immutable
+  snapshot of site and measurement per event, resolved at `recorded_at`. Off by
+  default (`ATTENDANCE_LOCATION_REVIEW_ENABLED`). The app could send
+  `location_accuracy_m`, `location_fix_at` and `location_is_mocked`. Only `inside`
+  started `in_process`; every other reason started `for_review`. GPS quality never
+  refused an event, and a review status never changed a report's counts.
+- **The manager's decision** (`73117a1`): `attendance.records.approveLocation`,
+  row-scoped; approve one record, or in bulk (up to 100 ids, or up to 200 by
+  filter); two routes, and queue filters on the records list.
+- **A defect fixed** (`34367b4`): bulk approval by filter ignored the status filter
+  it was sent, so a manager viewing `for_review` rows could approve rows that were
+  not on their screen. Any status but `in_process` became a 422.
+
+Clients: dashboard `3bdb4f9`, `85d178e`, `fa9dd8b`; app `a610dfa`, `8217cac`.
+
+**103 API routes (nine added), 49 permissions (three added), four tables.**
+
+### 2026-11-02 — work sites and location review removed
+
+`cdaaa51` at 11:59, in the same minute as dashboard `f20ea95` and app `4b5c9ad`;
+then `dc03eae` at 12:05.
+
+**Gone:** the nine routes, the three permissions, the four tables, the GPS-quality
+request fields, `location_review` on every response, the `location_review` config,
+the API document's sections and the Postman entries, and the three test files.
+Checked 2026-11-04: in `app`, `config`, `database`, `routes`, `tests` and `postman`
+the feature's name now appears only in the removal migration and its test.
+
+**What `2026_11_02_100000_remove_attendance_work_sites` does:**
+
+- drops the four tables, deletes the three permission rows and flushes the
+  permission cache;
+- deletes `audit_logs` rows of the four feature models, and the `api_request` rows
+  for the feature's paths. `dc03eae` added that second deletion and
+  `WorkSiteRemovalMigrationTest`, which checks other attendance rows stay;
+- restores nothing on rollback. Its `down()` holds one comment: «The owner
+  requested permanent deletion of these feature records.»
+
+`dc03eae` edited the migration in place, so a database migrated between the two
+commits would have missed the `api_request` cleanup. The development database has
+no such rows left.
+
+**What survives:** the code, in git. `34367b4` is the last commit that carries it,
+and the branch `codex/work-site-attendance` still points at `73117a1`. The app's
+local database stays at version 2 with three
+unused nullable GPS columns, because going back to 1 would crash installs that
+already upgraded (`4fc2666`).
+
+⚠️ **Why it was removed is not recorded. Questions for the project owner:**
+
+1. **Why were work sites and location review removed, and is that final?** The
+   messages of `cdaaa51` and `dc03eae` are empty, and the migration's comment says
+   the owner asked for permanent deletion, not why. Today the only location
+   evidence is the coordinates and selfie on the record, and the only decision is
+   HR's refusal.
+2. **Does the audit deletion stand as an exception?** `START_HERE.md` §5.7 calls
+   `audit_logs` append-only and says the production database user should hold
+   INSERT and SELECT only. This migration deletes rows from it, and would fail
+   under such a user.
+
+**94 API routes, 46 permissions.**
+
+### 2026-11-02 — a refused day counts its refused check-ins
+
+`837fc1e`. A day refused several times is one row on the daily board and one day
+in the grid, keyed on its first refused check-in, so the later attempts showed only
+in the records list. The rejection object now carries `refused_check_ins`: how many
+check-ins that day were refused, that one included. The daily board, an employee's
+days and `/api/me/attendance/days` share the object, so all three have it. No route
+added.
+
+Dashboard `c34b006` adds «عدد التسجيلات المرفوضة في هذا اليوم: N» when a day was
+refused more than once; app `9676f59` re-copies its fixture.
+
+### 2026-11-03 — the leave and approval examples are valid JSON
+
+`9a3b736`, documentation only: the `…` placeholders in the API document's leave
+request and approval examples are written out, because the app's contract tests
+parse those examples as fixtures.
+
+### 2026-11-04 — where this leaves the work order
+
+§4.1–§4.8 are built. §4.9, the real import, has not run. §4.10: slices 0–4 are
+merged to the app's `main` (`8eafbef`), the last of them leave; slice 5, approvals,
+is next. §4.11, the pilot, is not released. `START_HERE.md` §10 lists what each
+waits on.
+
+**1267 tests passing (5575 assertions), Pint clean, 94 API routes, 46 permissions.**
+
+### 2026-11-07 — leave details for the approver (app slice 5)
+
+`885609c`. Two additions so an approver can decide a leave without asking HR, both
+admitted by being on the chain, with no permission asked:
+
+- **`details` on the inbox row** (`GET /api/me/approvals`, API §15.2): the leave's
+  `start_date`, `end_date`, `requested_days` and the requester's `balance`
+  (`year`, `remaining_days`, `after_request`). `null` for any subject but leave.
+  `after_request` is not clamped: pending requests reserve nothing, so two can
+  each fit and pass together, and a negative figure says so. The balance is
+  `null` when the leave does not deduct and on `?status=decided`. The engine's
+  side is `Approvable::approverRowDetails()` and `ApprovalRowDetails`.
+- **`approver_view` on the leave read** (`GET /api/leave/requests/{id}`, API
+  §16.4): the employee's current job title and department, and the same balance.
+  Absent for anyone not holding a step on the chain, the requester and an HR
+  reader off it included. Built in `LeaveApproverDetails`.
+
+The same commit corrected `API_DOCUMENTATION.md` §1 on tokens (one access token
+per session, not per user), the documentation item the app's design §9 listed as
+owed by the ERP side. No route added.
+
+### 2026-11-08 — one of my attendance records by id (app slice 6)
+
+`d8cb85e`. **`GET /api/me/attendance/{record}`** (API §12.5): a notification about
+a record carries only its id, and the app opens the day it is about from it.
+Refused records included. Self-scoped: a colleague's record, an unknown id and an
+account with no employee are the same 404. **95 API routes (one added).**
+
+### 2026-11-09 — where this leaves the work order
+
+§4.1–§4.8 are built. §4.9, the real import, has not run. §4.10: slices 5
+approvals and 6 notifications were merged to the app's `main` on 2026-11-08
+(`c5d9ea7`, `4c81c54`), and slice 7, حسابي and راتبي, on 2026-11-09 (`0598ccf`).
+Slice 8, pilot hardening, is next: on-device checks and the release build. The
+app holds the Android Firebase config for `tech.alraqi_company.erp`; the iOS one
+is not there yet. §4.11, the pilot, is not released. `START_HERE.md` §10 lists
+what each waits on.
+
+**1289 tests passing (5667 assertions), Pint clean, 95 API routes, 46 permissions.**
+
+### 2026-11-09 — work shifts: a plan, and a decision round opened
+
+A plan for work shifts arrived: fixed, flexible, rotating, cyclic and dated
+schedules, overnight shifts, and the guards' 3 × 24 h on, 3 days off. Not built.
+It reopens three answers of 2026-10-16 — Q8 (no day off, no holidays), Q9 (no
+"late") and Q10 (one close at 23:59) — and needs the attendance day to become the
+shift rather than the calendar date: today a check-out must fall on its
+check-in's date, so no overnight or 24-hour shift can be recorded.
+
+[`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md) asks thirteen
+questions (S1–S13), the first whether shifts come before the pilot or after it.
+The D12 pilot group has no guards. The round carries legacy's evidence: the 20
+guards' check-ins cluster just after midnight and their check-outs just before
+it, and 41% of their check-ins end as missing check-outs against 20% company-wide.
+
+**S1 answered the same day: A.** The app's release is delayed and shifts are
+built first; §4.10's slice 8 comes after them, because shifts change the app's
+check-in, home card, "my days" and offline queue. S2–S13 are open.
+
+### 2026-11-09 — work shifts: the decision round, answered
+
+All thirteen answered the day the round opened; the round is closed. Q8.1, Q9 and
+Q10's reminder and close of 2026-10-16 are superseded; Q8.2 (no holiday calendar),
+the 60-minute minimum between check-in and check-out, and no check-in during
+approved leave stand.
+
+| | Answer | What it changes |
+|---|---|---|
+| **S1** | Shifts before the app's release | Slice 8 waits for shifts |
+| **S2** | Fixed day, fixed night, the guards' cycle | Rotating, flexible and dated hours are **not built** |
+| **S3** | Default: **09:00–16:00, Saturday to Thursday** | Everyone without another schedule has **Friday off**, and a start time. Not today's rules, so switching it on changes the day for everyone: it is its own step, after the re-key |
+| **S4** | Late and early recorded, no penalty; **15 minutes' grace** | Minutes beside the day's state, not new states; nothing deducted until payroll |
+| **S5** | Per shift: reminder at the end, **close 4 hours after it** | 17:00 and 23:59 go: the default reminds at 16:00 and closes at 20:00 |
+| **S6** | No holiday calendar yet | `isChargeableDay()` stays the hook |
+| **S7** | **72 hours on, 3 days off**, every duty at **08:00** | A 6-day cycle with a start date per guard; nobody else works a cycle |
+| **S8** | **One check-in and one check-out per 72-hour duty** | Split into three 24-hour shifts. A missing check-out leaves all three missing, with no hours |
+| **S9** | Leave charges scheduled working days only; a 72-hour duty charges **3 days** | Leave reads each person's schedule; Fridays off and rest days are never charged |
+| **S10** | A night shift belongs to its **start date**; check-in opens **60 minutes** early; a check-out counts up to **4 hours** late; a check-in outside every window is **accepted and flagged** | The matching rule |
+| **S11** | Hours within the shift and outside it | Both derived from the two records; no overtime approval |
+| **S12** | HR only, company-wide | New permissions are company-only, classified in `PermissionReach` |
+| **S13** | One-off changes by HR, and swaps now: a guard requests one naming the other, **no acceptance by the other guard**, one step by the **direct manager** | Swaps are a new subject on the approvals engine, with a one-step chain; the other guard is told, not asked |
+
+**Three things to settle while building, not by the owner:**
+
+- **The guards' duty and S10's window.** Check-in opens at 07:00 and the duty's
+  close falls at 12:00 on its fourth day (08:00 plus 4 hours). A guard's next duty
+  is three days later, so windows never overlap.
+- **A guard's 72 hours and today's day-based rules.** One check-in covering three
+  shifts means the per-day rules — one check-in per day, the check-out on the same
+  date — are replaced by per-shift ones, not loosened.
+- **Friday check-ins** under the default are accepted and flagged (S10), so the
+  daily board shows them as outside the schedule, not as a working day.
+
+Order of the build: `START_HERE.md` §10, item 0.
+
+### 2026-11-09 — work shifts, piece 1: the backend core, built
+
+On branch `work-shifts-core` (from `phase_1` at `c43e616`), not merged. Spec
+`docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md`, plan
+`docs/superpowers/plans/2026-11-09-work-shifts-backend-core.md`; built in six
+steps, the first changing no behaviour.
+
+- **Records belong to shifts.** `attendance_records.shift_date` (backfilled
+  with `DATE(recorded_at)`), `outside_schedule`, `checkout_reminded_at`.
+- **The Scheduling module:** shifts, weekly and cycle schedules, dated spans
+  per person; `OFFICE` and `GUARD` seeded; 16 routes and two company-only
+  permissions (API §19).
+- **One resolver** (`ExpectedShifts`, implemented by Scheduling) and **one
+  definition of a duty** — up to three back-to-back shifts.
+- **The rules:** check-in opens 60 minutes before a duty and is for the first
+  duty without one; outside every window it is accepted and flagged; a
+  check-out closes the latest check-in whose duty has not closed (end + 4 h),
+  judged on its tapped moment, so S-2 holds; HR's correction stays within the
+  close (S-3 generalised).
+- **One shift clock** every five minutes replaces the 17:00 reminder and the
+  23:59 close.
+- **One day engine** (`AttendanceDays`) for the daily board, the grid, the
+  monthly report, absent-today and `/api/me`: a duty spread over its shifts,
+  late and early beyond 15 minutes' grace, within and outside minutes.
+- **Leave** charges each person's scheduled days.
+- **`OFFICE` is the default** (09:00–16:00, Saturday to Thursday); the company
+  calendar's working days, window, reminder and close are gone.
+
+⚠️ **Contract change** for the dashboard and the app (API §14): `working_day`
+and the grid's `working_days` are per person now; day rows carry `shift`,
+`late_minutes`, `early_departure_minutes`, `minutes_within_shift`,
+`minutes_outside_shift`, `outside_schedule`. Pieces 3 and 4 adopt them.
+
+**Rulings** made while building are in the plan's ledger and the branch's final
+report; the ones that change behaviour beyond the spec: deleting a future span
+reopens the one it closed; an outside-schedule check-in is one per date; a
+guard's missing check-out counts three missing shifts.
+
+**After the final review's fixes (below): see the closing line.**
+
+**The final whole-branch review** (a fresh reviewer, the same day) found two
+critical and four important issues; all are fixed, each with a test that failed
+first:
+
+- **The default schedule was unprotected:** deleting or deactivating `OFFICE`
+  made every attendance call fail, and re-drawing it re-read every unassigned
+  person's past days. It is now fixed in place.
+- **A schedule change cut a guard's duty short.** Assigning a new schedule from
+  a date inside a duty that already has its check-in is now refused, naming
+  the first allowed date — the day after the duty. (The build had changed the
+  plan's expected behaviour without a ruling; the plan's intent is restored.)
+- **An outside-schedule check-in after the shift showed the shift present.** It
+  now counts as the shift's presence only where it overlaps the shift.
+- **An ended span could be stretched back over past days.** Refused.
+- **The shift clock and the leave register read schedules once per record**
+  (about 1,500 queries every five minutes at 185 people). Batched.
+- **A deploy without the seeder broke attendance.** A data migration seeds the
+  schedules.
+- **A check-out on the fifth date of a late-starting 72-hour duty was refused**
+  (the look-back was a day short). Fixed.
+
+Nine minor findings are deferred, listed in the branch's final report.
+
+**1402 tests passing (6063 assertions), Pint clean, 111 API routes, 48 permissions.**
+
+
+### 2026-11-10 — work shifts, piece 2: one-off changes and duty exchanges, built
+
+On branch `work-shifts-changes` (from `work-shifts-core` at `b8ea30f`), not
+merged. Spec `docs/superpowers/specs/2026-11-10-work-shifts-changes-and-swaps-design.md`,
+plan `docs/superpowers/plans/2026-11-10-work-shifts-changes-and-swaps.md`. It
+builds S13 (HR's one-off changes and guards' swaps, both now).
+
+**Decided while designing (2026-11-10), by the owner:**
+
+| | Decided |
+|---|---|
+| A swap | **Two duties exchanged**: A works B's, B works A's. A cover (nothing in return) is not built |
+| Who | **Guards with the same direct manager**: both on a cycle schedule on the dates involved |
+| A past day with a check-in | HR may change it; the check-ins it touches are **matched again** by the check-in rule. Refused if something recorded would have been refused |
+| Undoing an approved swap | **HR cancels it** before the earlier of its duties opens; both are told |
+| 144 hours in a row | **Allowed, as two duties**, each with its own check-in and check-out (S8) |
+| Telling the employee of HR's change | For today or later; a past correction is silent |
+| Storage | One table of per-date changes, written by HR and by approved swaps; the resolver reads it before any schedule |
+| A run's length | At most **six** back-to-back shifts: the six-day look-back every reader uses places the cuts correctly up to six |
+
+**What was built:**
+
+- **`shift_changes`** — a person's shift on a date (or a day off), origin HR or
+  swap; read first by the resolver, so the check-in rules, the shift clock, the
+  reports, `/api/me` and leave counting follow it with no change of their own.
+  The calendar's `source` gains `change` and `swap`.
+- **HR's changes** — three routes under `/api/hr/employees/{employee}/shift-changes`:
+  a range of up to 31 days, all or nothing; past days re-match the touched
+  check-ins (outside-schedule flags, shift dates, the missing-check-out flag and
+  the reminder follow the new shift); the employee is told for today or later.
+- **`shift_swaps`** — a new subject on the approvals engine (alias `shift_swap`,
+  one step: the direct manager). One check runs at filing and again before
+  approval: someone else, still employed, both guards, the same manager (filing
+  only), two duty starts, different, neither opened, no other live swap or
+  change on its dates, no leave, no run over six. Approval writes both guards'
+  rows; HR's cancellation deletes them.
+- **Five routes for the guard** under `/api/me/shift-swaps` (options, list,
+  file, show, withdraw) and **three for HR** under `/api/scheduling/swaps`
+  (list, show, cancel). Eight notification types.
+- **Leave** is read through a new contract, `BlockingLeave`, which Leave
+  implements, so Scheduling does not import Leave's models.
+
+**11 routes (122 in all), no new permission (48).** Deploy: `migrate`.
+
+**The final whole-branch review** (a fresh reviewer, the same day) found no
+critical issue and six important ones; all are fixed, five with a test that
+failed first:
+
+- **Removing an HR change or cancelling an exchange could leave a run longer
+  than six shifts** — the limit every reader depends on. Both are now refused
+  when they would.
+- **Re-matching refused an unrelated HR change** after two back-to-back duties
+  (the 144-hour case): the check-ins just before its window were not counted,
+  and the duty it judged a check-out against was cut short. Fixed.
+- **The leave rule read the days between the two duties**, so leave on a
+  guard's own duty in between refused the exchange. It reads the duties' dates.
+- **A partner who leaves before the duty he takes passed.** Refused.
+- **Approval did not lock the two guards** before its re-check, as leave's
+  does. It does now (a race SQLite cannot show, so no failing test).
+- **The exchange lists ran about sixteen queries a row.** Batched.
+
+Five minor findings are deferred, listed in the branch's final report.
+
+**1479 tests passing (6336 assertions), Pint clean, 122 API routes, 48 permissions.**

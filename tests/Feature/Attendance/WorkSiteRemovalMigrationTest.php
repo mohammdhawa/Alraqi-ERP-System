@@ -14,6 +14,8 @@ class WorkSiteRemovalMigrationTest extends TestCase
 
     public function test_cleanup_removes_feature_request_audits_and_keeps_other_attendance_audits(): void
     {
+        DB::table('audit_logs')->delete();   // the seeded schedules' own rows
+
         foreach ([
             ['api_request', null, 'GET api/attendance/work-sites → 200'],
             ['api_request', null, 'POST api/attendance/work-site-assignments → 201'],

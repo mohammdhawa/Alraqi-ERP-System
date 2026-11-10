@@ -64,6 +64,24 @@ final class NotificationEventCatalogue
 
     public const ATTENDANCE_RECORD_UNREJECTED = 'attendance.record_unrejected';
 
+    // Work shifts — to the employee whose shift HR changed (piece 2, spec §5.4).
+    public const SHIFT_CHANGE_RECORDED = 'shift.change_recorded';
+
+    public const SHIFT_CHANGE_REMOVED = 'shift.change_removed';
+
+    // Duty exchanges — to the requester and the partner (piece 2, spec §6.5).
+    public const SHIFT_SWAP_SUBMITTED = 'shift_swap.submitted';
+
+    public const SHIFT_SWAP_REQUESTED = 'shift_swap.requested';
+
+    public const SHIFT_SWAP_WITHDRAWN = 'shift_swap.withdrawn';
+
+    public const SHIFT_SWAP_APPROVED = 'shift_swap.approved';
+
+    public const SHIFT_SWAP_REJECTED = 'shift_swap.rejected';
+
+    public const SHIFT_SWAP_CANCELLED = 'shift_swap.cancelled';
+
     /**
      * Arabic display labels — the `type_label` a client shows verbatim (C20).
      *
@@ -83,6 +101,14 @@ final class NotificationEventCatalogue
         self::ATTENDANCE_MISSING_CHECKOUT  => 'لم يُسجَّل الانصراف',
         self::ATTENDANCE_RECORD_REJECTED   => 'تم رفض سجل الحضور',
         self::ATTENDANCE_RECORD_UNREJECTED => 'تم إلغاء رفض سجل الحضور',
+        self::SHIFT_CHANGE_RECORDED        => 'تعديل الوردية',
+        self::SHIFT_CHANGE_REMOVED         => 'إلغاء تعديل الوردية',
+        self::SHIFT_SWAP_SUBMITTED         => 'تم تقديم طلب تبديل المناوبة',
+        self::SHIFT_SWAP_REQUESTED         => 'طلب تبديل مناوبة معك',
+        self::SHIFT_SWAP_WITHDRAWN         => 'سحب طلب تبديل المناوبة',
+        self::SHIFT_SWAP_APPROVED          => 'تمت الموافقة على تبديل المناوبة',
+        self::SHIFT_SWAP_REJECTED          => 'تم رفض تبديل المناوبة',
+        self::SHIFT_SWAP_CANCELLED         => 'تم إلغاء تبديل المناوبة',
     ];
 
     /**

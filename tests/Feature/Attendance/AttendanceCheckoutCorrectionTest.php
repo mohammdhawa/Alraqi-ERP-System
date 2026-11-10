@@ -67,7 +67,7 @@ class AttendanceCheckoutCorrectionTest extends TestCase
 
         $this->correct($checkIn, '2026-06-22 16:30:00')
             ->assertUnprocessable()
-            ->assertJsonPath('message', 'وقت الانصراف يجب أن يكون في يوم الحضور نفسه.');
+            ->assertJsonPath('message', 'وقت الانصراف يجب أن يكون قبل انتهاء مهلة الوردية.');
         $this->correct($checkIn, '2026-06-21 16:30:00')
             ->assertUnprocessable()
             ->assertJsonPath('message', 'وقت الانصراف لا يمكن أن يكون في المستقبل.');

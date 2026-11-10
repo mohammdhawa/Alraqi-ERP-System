@@ -13,6 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\Feature\Leave\Concerns\LeaveFixtures;
 use Tests\TestCase;
 
@@ -25,6 +26,7 @@ use Tests\TestCase;
 class LeaveRequestSubmissionTest extends TestCase
 {
     use LeaveFixtures;
+    use PinsADayOff;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -174,7 +176,7 @@ class LeaveRequestSubmissionTest extends TestCase
     public function test_a_span_with_no_working_day_is_refused(): void
     {
         // 2026-06-26 is a Friday, 06-27 a Saturday.
-        config(['attendance.working_days' => [0, 1, 2, 3, 4]]);
+        $this->pinDayOff(5, 6);   // Friday and Saturday off, through the default schedule
 
         $this->fileLeave(body: ['start_date' => '2026-06-26', 'end_date' => '2026-06-27'])
             ->assertStatus(422)
@@ -183,7 +185,7 @@ class LeaveRequestSubmissionTest extends TestCase
 
     public function test_requested_days_are_working_days(): void
     {
-        config(['attendance.working_days' => [0, 1, 2, 3, 4]]);
+        $this->pinDayOff(5, 6);   // Friday and Saturday off, through the default schedule
 
         // Thursday 25 → Sunday 28: Thursday and Sunday.
         $this->fileLeave(body: ['start_date' => '2026-06-25', 'end_date' => '2026-06-28'])

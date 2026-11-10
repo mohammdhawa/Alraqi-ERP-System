@@ -69,6 +69,17 @@ class MyApprovalsEndpointTest extends TestCase
             ->assertJsonPath('data.0.note', null);
     }
 
+    public function test_a_subject_with_no_row_details_answers_null(): void
+    {
+        $this->submit($this->people['staff']);
+
+        $this->actingAsPerson($this->people['headA']);
+        $this->getJson('/api/me/approvals')
+            ->assertOk()
+            ->assertJsonStructure(['data' => [['details']]])
+            ->assertJsonPath('data.0.details', null);
+    }
+
     public function test_a_later_step_reaches_the_inbox_only_when_its_turn_comes(): void
     {
         $approval = $this->submit($this->people['staff']);

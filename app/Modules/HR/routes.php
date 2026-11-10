@@ -8,6 +8,8 @@ use App\Modules\HR\Controllers\EmployeeImportController;
 use App\Modules\HR\Controllers\EmployeeWarningController;
 use App\Modules\HR\Controllers\JobTitleController;
 use App\Modules\HR\Models\EmployeeImportRun;
+use App\Modules\Scheduling\Controllers\EmployeeShiftChangeController;
+use App\Modules\Scheduling\Controllers\EmployeeWorkScheduleController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -116,6 +118,26 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
             ->middleware(['permission:hr.assignments.view', 'can:viewAssignments,employee'])->name('assignments.index');
         Route::post('employees/{employee}/assignments', [EmployeeAssignmentController::class, 'store'])
             ->middleware(['permission:hr.assignments.create', 'can:recordAssignment,employee'])->name('assignments.store');
+
+        // جدول الدوام — a person's schedule spans (work shifts spec §9.2): HR
+        // only, company-wide, so no row policy; another person's span is a 404.
+        Route::get('employees/{employee}/work-schedules', [EmployeeWorkScheduleController::class, 'index'])
+            ->middleware('permission:scheduling.view')->name('work-schedules.index');
+        Route::post('employees/{employee}/work-schedules', [EmployeeWorkScheduleController::class, 'store'])
+            ->middleware('permission:scheduling.manage')->name('work-schedules.store');
+        Route::patch('employees/{employee}/work-schedules/{assignment}', [EmployeeWorkScheduleController::class, 'update'])
+            ->middleware('permission:scheduling.manage')->whereNumber('assignment')->name('work-schedules.update');
+        Route::delete('employees/{employee}/work-schedules/{assignment}', [EmployeeWorkScheduleController::class, 'destroy'])
+            ->middleware('permission:scheduling.manage')->whereNumber('assignment')->name('work-schedules.destroy');
+
+        // تعديل الوردية — a person's shift on given dates (work shifts piece 2,
+        // spec §5.1): HR only, company-wide; another person's change is a 404.
+        Route::get('employees/{employee}/shift-changes', [EmployeeShiftChangeController::class, 'index'])
+            ->middleware('permission:scheduling.view')->name('shift-changes.index');
+        Route::post('employees/{employee}/shift-changes', [EmployeeShiftChangeController::class, 'store'])
+            ->middleware('permission:scheduling.manage')->name('shift-changes.store');
+        Route::delete('employees/{employee}/shift-changes/{change}', [EmployeeShiftChangeController::class, 'destroy'])
+            ->middleware('permission:scheduling.manage')->whereNumber('change')->name('shift-changes.destroy');
 
         Route::get('employees/{employee}/warnings', [EmployeeWarningController::class, 'index'])
             ->middleware(['permission:hr.warnings.view', 'can:viewWarnings,employee'])->name('warnings.index');

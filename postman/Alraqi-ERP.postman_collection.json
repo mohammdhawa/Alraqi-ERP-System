@@ -77,6 +77,16 @@
 			"key": "notificationId",
 			"value": "1",
 			"type": "string"
+		},
+		{
+			"key": "shiftChangeId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "shiftSwapId",
+			"value": "1",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -620,6 +630,907 @@
 							"path": [ "api", "hr", "employees", "{{employeeId}}" ]
 						},
 						"description": "Delete an employee by id."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Scheduling - Work shifts",
+			"description": "Work shifts (API_DOCUMENTATION.md §19). HR only: `scheduling.view` reads, `scheduling.manage` writes; both company-only.",
+			"item": [
+				{
+					"name": "List shifts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/shifts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"shifts"
+							]
+						},
+						"description": "§19.1 — every shift, by code. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Show shift",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/shifts/{{shiftId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"shifts",
+								"{{shiftId}}"
+							]
+						},
+						"description": "§19.1. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Create shift",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/shifts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"shifts"
+							]
+						},
+						"description": "§19.1 — `scheduling.manage`. A used shift's time cannot change.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"code\": \"NIGHT\",\n    \"name\": \"وردية ليلية\",\n    \"starts_at\": \"22:00\",\n    \"duration_minutes\": 480\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update shift",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/shifts/{{shiftId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"shifts",
+								"{{shiftId}}"
+							]
+						},
+						"description": "§19.1 — name and is_active always; starts_at / duration_minutes only while unused.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"وردية ليلية\",\n    \"is_active\": true\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete shift",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/shifts/{{shiftId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"shifts",
+								"{{shiftId}}"
+							]
+						},
+						"description": "§19.1 — refused while a schedule uses it."
+					},
+					"response": []
+				},
+				{
+					"name": "List schedules",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/schedules",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"schedules"
+							]
+						},
+						"description": "§19.2. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Show schedule",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/schedules/{{scheduleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"schedules",
+								"{{scheduleId}}"
+							]
+						},
+						"description": "§19.2. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Create schedule",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/schedules",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"schedules"
+							]
+						},
+						"description": "§19.2 — days in one body; no run of more than three back-to-back shifts.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"code\": \"NIGHTS\",\n    \"name\": \"ليلي\",\n    \"kind\": 1,\n    \"cycle_days\": 7,\n    \"days\": [\n        {\n            \"position\": 0,\n            \"shift_id\": 3\n        },\n        {\n            \"position\": 1,\n            \"shift_id\": 3\n        },\n        {\n            \"position\": 2,\n            \"shift_id\": 3\n        },\n        {\n            \"position\": 3,\n            \"shift_id\": 3\n        },\n        {\n            \"position\": 4,\n            \"shift_id\": 3\n        },\n        {\n            \"position\": 5,\n            \"shift_id\": null\n        },\n        {\n            \"position\": 6,\n            \"shift_id\": 3\n        }\n    ]\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update schedule",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/schedules/{{scheduleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"schedules",
+								"{{scheduleId}}"
+							]
+						},
+						"description": "§19.2 — days only while nobody has been assigned it.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"ليلي\"\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete schedule",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/schedules/{{scheduleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"schedules",
+								"{{scheduleId}}"
+							]
+						},
+						"description": "§19.2 — refused once assigned."
+					},
+					"response": []
+				},
+				{
+					"name": "Employee schedule history",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/work-schedules",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"work-schedules"
+							]
+						},
+						"description": "§19.3 — newest first. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Assign schedule",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/work-schedules",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"work-schedules"
+							]
+						},
+						"description": "§19.3 — from today or later; the open span closes the day before.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"work_schedule_id\": 2,\n    \"from_date\": \"2026-11-14\",\n    \"cycle_start_date\": \"2026-11-14\"\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "End a schedule span",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/work-schedules/{{assignmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"work-schedules",
+								"{{assignmentId}}"
+							]
+						},
+						"description": "§19.3 — only to_date, today or later.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"to_date\": \"2026-11-30\"\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete a future span",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/work-schedules/{{assignmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"work-schedules",
+								"{{assignmentId}}"
+							]
+						},
+						"description": "§19.3 — only one not started yet; reopens the span it closed."
+					},
+					"response": []
+				},
+				{
+					"name": "Bulk assign",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/assignments/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"assignments",
+								"bulk"
+							]
+						},
+						"description": "§19.4 — per-person result, never all-or-nothing.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"work_schedule_id\": 2,\n    \"from_date\": \"2026-11-14\",\n    \"cycle_start_date\": \"2026-11-14\",\n    \"department_id\": 9,\n    \"include_subtree\": true\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Calendar",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/calendar?from=2026-11-14&to=2026-11-20",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"calendar"
+							],
+							"query": [
+								{
+									"key": "from",
+									"value": "2026-11-14"
+								},
+								{
+									"key": "to",
+									"value": "2026-11-20"
+								}
+							]
+						},
+						"description": "§19.5 — everyone's expected shift per date, paginated by employee; at most 92 days."
+					},
+					"response": []
+				},
+				{
+					"name": "List a person's shift changes",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/shift-changes?from=2026-11-14&to=2026-11-20",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"shift-changes"
+							],
+							"query": [
+								{
+									"key": "from",
+									"value": "2026-11-14"
+								},
+								{
+									"key": "to",
+									"value": "2026-11-20"
+								}
+							]
+						},
+						"description": "§19.6 — a person's one-off changes of both origins, at most 92 days. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Record a shift change",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/shift-changes",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"shift-changes"
+							]
+						},
+						"description": "§19.6 — one row per date, at most 31 days; `shift_id` null is a day off; the check-ins it touches are matched again. `scheduling.manage`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"from\": \"2026-11-15\",\n    \"to\": \"2026-11-15\",\n    \"shift_id\": 3,\n    \"reason\": \"تكليف بمناوبة ليلية\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Remove a shift change",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/shift-changes/{{shiftChangeId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"shift-changes",
+								"{{shiftChangeId}}"
+							]
+						},
+						"description": "§19.6 — HR changes only; an exchange's rows go with its cancellation. `scheduling.manage`."
+					},
+					"response": []
+				},
+				{
+					"name": "My exchange options",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/shift-swaps/options",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"shift-swaps",
+								"options"
+							]
+						},
+						"description": "§19.7 — my duties in the next 31 days that have not opened, and the colleagues I can exchange with. Self-scoped."
+					},
+					"response": []
+				},
+				{
+					"name": "My exchanges",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/shift-swaps",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"shift-swaps"
+							]
+						},
+						"description": "§19.7 — exchanges where I am the requester or the partner. Self-scoped."
+					},
+					"response": []
+				},
+				{
+					"name": "File an exchange",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/shift-swaps",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"shift-swaps"
+							]
+						},
+						"description": "§19.7 — my duty for a colleague's; one step for my direct manager. Self-scoped.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"my_duty_date\": \"2026-11-20\",\n    \"partner_id\": 32,\n    \"partner_duty_date\": \"2026-11-17\",\n    \"reason\": \"ظرف عائلي\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show my exchange",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/shift-swaps/{{shiftSwapId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"shift-swaps",
+								"{{shiftSwapId}}"
+							]
+						},
+						"description": "§19.7 — the requester or the partner; anyone else 404. Self-scoped."
+					},
+					"response": []
+				},
+				{
+					"name": "Withdraw my exchange",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/shift-swaps/{{shiftSwapId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"shift-swaps",
+								"{{shiftSwapId}}",
+								"cancel"
+							]
+						},
+						"description": "§19.7 — the requester, while pending. Self-scoped."
+					},
+					"response": []
+				},
+				{
+					"name": "List exchanges",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/swaps?status=2",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"swaps"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "2"
+								}
+							]
+						},
+						"description": "§19.8 — every exchange; filters status, employee_id, from/to. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Show an exchange",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/swaps/{{shiftSwapId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"swaps",
+								"{{shiftSwapId}}"
+							]
+						},
+						"description": "§19.8. `scheduling.view`."
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel an exchange",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduling/swaps/{{shiftSwapId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduling",
+								"swaps",
+								"{{shiftSwapId}}",
+								"cancel"
+							]
+						},
+						"description": "§19.8 — an approved one, before either duty opens. `scheduling.manage`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason\": \"مرض أحد الحارسين\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
 					},
 					"response": []
 				}

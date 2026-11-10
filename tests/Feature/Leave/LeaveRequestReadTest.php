@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\Leave;
 
 use App\Modules\Auth\Enums\ScopeType;
+use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Models\JobTitle;
 use App\Modules\Leave\Enums\LeaveOrigin;
 use App\Modules\Leave\Models\LeaveRequest;
 use App\Shared\Models\Attachment;
@@ -72,6 +74,98 @@ class LeaveRequestReadTest extends TestCase
 
         $this->actingAsPerson($this->people['hrHead']);
         $this->read()->assertOk()->assertJsonPath('data.approval.can_act', false);
+    }
+
+    /**
+     * @return array<string, mixed> a pending annual leave of $employee's
+     */
+    private function annualLeaveOf(Employee $employee): array
+    {
+        $this->actingAsPerson($employee);
+
+        return $this->postJson('/api/me/leave-requests', [
+            'leave_type_id' => $this->type('annual')->id,
+            'start_date'    => '2026-07-05',
+            'end_date'      => '2026-07-07',
+            'reason'        => 'سبب',
+        ])->assertCreated()->json('data.leave_request');
+    }
+
+    public function test_the_current_approver_gets_approver_view(): void
+    {
+        $title = JobTitle::create(['name' => 'مهندس مساحة']);
+        $this->people['staff']->update(['job_title_id' => $title->id]);
+        $leave = $this->annualLeaveOf($this->people['staff']);
+
+        $this->actingAsPerson($this->people['headA']);
+
+        $this->read($leave['id'])
+            ->assertOk()
+            ->assertJsonPath('data.approver_view.job_title.id', $title->id)
+            ->assertJsonPath('data.approver_view.job_title.name', $title->name)
+            ->assertJsonPath('data.approver_view.department.name', 'قسم أ-1')
+            ->assertJsonPath('data.approver_view.balance.year', 2026)
+            ->assertJsonPath('data.approver_view.balance.after_request', 15 - $leave['requested_days']);
+    }
+
+    public function test_a_non_deducting_leave_has_no_balance_in_approver_view(): void
+    {
+        $this->actingAsPerson($this->people['headA']);
+
+        $this->read()
+            ->assertJsonPath('data.approver_view.department.name', 'قسم أ-1')
+            ->assertJsonPath('data.approver_view.job_title', null)
+            ->assertJsonPath('data.approver_view.balance', null);
+    }
+
+    public function test_an_approver_who_decided_keeps_job_and_unit_with_a_null_balance(): void
+    {
+        $leave = $this->annualLeaveOf($this->people['staff']);
+        $this->actingAsPerson($this->people['headA']);
+        $step = collect($leave['approval']['steps'])->firstWhere('approver.id', $this->people['headA']->id);
+        $this->postJson("/api/approvals/{$leave['approval']['id']}/steps/{$step['id']}/reject", ['note' => 'لا'])->assertOk();
+
+        $this->read($leave['id'])
+            ->assertJsonPath('data.approver_view.department.name', 'قسم أ-1')
+            ->assertJsonPath('data.approver_view.balance', null);
+    }
+
+    public function test_the_approver_of_a_later_step_gets_approver_view(): void
+    {
+        $this->actingAsPerson($this->people['hrHead']);
+
+        $this->read()->assertOk()->assertJsonPath('data.approver_view.department.name', 'قسم أ-1');
+    }
+
+    public function test_the_requester_gets_no_approver_view(): void
+    {
+        $this->read()->assertOk()->assertJsonMissingPath('data.approver_view');
+    }
+
+    public function test_a_requester_holding_a_skipped_step_gets_no_approver_view(): void
+    {
+        $leave = $this->annualLeaveOf($this->people['hrHead']);
+        $this->assertContains(
+            $this->people['hrHead']->id,
+            array_column($leave['approval']['steps'], 'approver_id'),
+            'the HR manager holds the step skipped on their own leave',
+        );
+
+        $this->read($leave['id'])->assertOk()->assertJsonMissingPath('data.approver_view');
+    }
+
+    public function test_an_hr_reader_off_the_chain_gets_no_approver_view(): void
+    {
+        // An employee of their own, so the chain is what keeps the view away.
+        $reader = $this->person($this->units['b'], withAccount: false);
+        $this->actingAsScopedUser(['leave.requests.view'], ScopeType::Unit, $this->units['a']->id, $reader->id);
+
+        $this->read()->assertOk()->assertJsonMissingPath('data.approver_view');
+    }
+
+    public function test_the_employees_list_carries_no_approver_view(): void
+    {
+        $this->getJson('/api/me/leave-requests')->assertOk()->assertJsonMissingPath('data.0.approver_view');
     }
 
     public function test_someone_off_the_chain_is_refused(): void

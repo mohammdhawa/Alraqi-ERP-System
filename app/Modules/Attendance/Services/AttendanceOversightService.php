@@ -36,6 +36,7 @@ class AttendanceOversightService
     public function __construct(
         private readonly AttendanceCalendar $calendar,
         private readonly NotificationService $notifications,
+        private readonly OpenCheckIns $openCheckIns,
     ) {}
 
     /**
@@ -61,7 +62,7 @@ class AttendanceOversightService
             AttendanceException::unlessOnDuty($checkIn->employee);
 
             // The check-in must still stand, and its day have no check-out yet.
-            $date = $checkIn->recorded_at->toDateString();
+            $date = $checkIn->shift_date->toDateString();
             $day = AttendanceRecord::forEmployee((int) $checkIn->employee_id)->accepted()->onDate($date);
             if ($checkIn->refresh()->isRejected() || (clone $day)->checkOuts()->exists()) {
                 throw new AttendanceException('هذا السجل لا يحتاج إلى تصحيح انصراف.');
@@ -72,11 +73,17 @@ class AttendanceOversightService
                 throw new AttendanceException('وقت الانصراف يجب أن يكون بعد وقت الحضور.');
             }
 
-            // On the check-in's own day, and not yet to come: a typo would
-            // otherwise file it on another date, leaving the day it corrects
-            // open (parity audit S-3; legacy took any later moment).
-            if ($moment->toDateString() !== $date) {
-                throw new AttendanceException('وقت الانصراف يجب أن يكون في يوم الحضور نفسه.');
+            // Not after the check-in's close, and not yet to come: a typo would
+            // otherwise file it in another shift, leaving the one it corrects
+            // open (parity audit S-3; legacy took any later moment). For a
+            // check-in outside the schedule the close is the end of its own
+            // day — S-3's original wording.
+            if ($moment->gt($this->openCheckIns->closeOf($checkIn))) {
+                $duty = $this->openCheckIns->dutyOf($checkIn);
+
+                throw new AttendanceException($duty === null
+                    ? 'وقت الانصراف يجب أن يكون في يوم الحضور نفسه.'
+                    : 'وقت الانصراف يجب أن يكون قبل انتهاء مهلة الوردية.');
             }
             if ($moment->isFuture()) {
                 throw new AttendanceException('وقت الانصراف لا يمكن أن يكون في المستقبل.');
@@ -87,6 +94,7 @@ class AttendanceOversightService
                 'type'            => AttendanceEventType::CheckOut,
                 'source'          => AttendanceSource::HrCorrection,
                 'recorded_at'     => $moment,
+                'shift_date'      => $date,
                 'work_hours'      => round($checkIn->recorded_at->floatDiffInRealHours($moment), 2),
                 'latitude'        => $checkIn->latitude,
                 'longitude'       => $checkIn->longitude,
@@ -148,7 +156,7 @@ class AttendanceOversightService
                 $pairs = AttendanceRecord::forEmployee((int) $record->employee_id)
                     ->checkOuts()
                     ->accepted()
-                    ->onDate($record->recorded_at->toDateString())
+                    ->onDate($record->shift_date->toDateString())
                     ->get();
 
                 foreach ($pairs as $pair) {
@@ -198,7 +206,7 @@ class AttendanceOversightService
                     ->where('rejection_batch', $record->rejection_batch)->first() ?? $record;
             }
 
-            $date = $record->recorded_at->toDateString();
+            $date = $record->shift_date->toDateString();
             $isCheckIn = $record->type === AttendanceEventType::CheckIn;
             $day = AttendanceRecord::forEmployee($employeeId)->accepted()->onDate($date);
 

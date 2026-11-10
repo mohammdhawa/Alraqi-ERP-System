@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Controllers;
 
+use App\Modules\Attendance\Exceptions\NotAnAttendeeException;
+use App\Modules\Attendance\Models\AttendanceRecord;
 use App\Modules\Attendance\Requests\MyAttendanceRecordsRequest;
 use App\Modules\Attendance\Requests\RecordAttendanceRequest;
 use App\Modules\Attendance\Requests\SyncAttendanceRequest;
@@ -11,10 +13,12 @@ use App\Modules\Attendance\Resources\AttendanceRecordResource;
 use App\Modules\Attendance\Services\AttendanceRecordQuery;
 use App\Modules\Attendance\Services\AttendanceService;
 use App\Modules\Attendance\Services\AttendanceSyncService;
+use App\Modules\Attendance\Services\AttendeeResolver;
 use App\Modules\Attendance\Services\SelfieAccess;
 use App\Modules\Attendance\Services\SelfieStore;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -65,6 +69,26 @@ class MyAttendanceController extends Controller
             'succeeded' => AttendanceRecordResource::collection((new Collection($outcome->succeeded))->load(AttendanceRecordQuery::RENDER_RELATIONS)),
             'failed'    => $outcome->failed,
         ], 'تمت مزامنة السجلات.');
+    }
+
+    /**
+     * GET /api/me/attendance/{record} — one of the caller's own records,
+     * refused ones included. Anyone else's, an unknown id, or an account with
+     * no employee is the same 404: nothing tells them apart.
+     */
+    public function show(Request $request, int $record, AttendeeResolver $attendees): JsonResponse
+    {
+        try {
+            $employee = $attendees->employeeOf($request->user());
+        } catch (NotAnAttendeeException) {
+            throw (new ModelNotFoundException)->setModel(AttendanceRecord::class, [$record]);
+        }
+
+        $found = AttendanceRecord::forEmployee((int) $employee->getKey())
+            ->with(AttendanceRecordQuery::RENDER_RELATIONS)
+            ->findOrFail($record);
+
+        return $this->success(new AttendanceRecordResource($found));
     }
 
     /**

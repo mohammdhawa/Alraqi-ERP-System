@@ -154,6 +154,13 @@ class AuditLogDetailResource extends AuditLogResource
         // A file's name and its subject. Leave is its only consumer today;
         // documents (November) will make this the subject's own read.
         'attachment'            => ['leave.requests.view'],
+        // Work shifts: who works when (work shifts spec §9.1), HR only.
+        'shift'                  => ['scheduling.view'],
+        'work_schedule'          => ['scheduling.view'],
+        'work_schedule_day'      => ['scheduling.view'],
+        'employee_work_schedule' => ['scheduling.view'],
+        'shift_change'           => ['scheduling.view'],
+        'shift_swap'             => ['scheduling.view'],
     ];
 
     /**

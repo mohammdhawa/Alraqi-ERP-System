@@ -355,6 +355,8 @@ class PermissionReachTest extends TestCase
             'hr.job_titles.create', 'hr.job_titles.delete', 'hr.job_titles.update',
             // A catalogue's writes (LEAVE_BUILD.md §7).
             'leave.types.create', 'leave.types.delete', 'leave.types.update',
+            // HR only (work shifts decision round S12).
+            'scheduling.manage', 'scheduling.view',
         ], $companyOnly);
     }
 

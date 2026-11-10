@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Me\Services;
 
 use App\Modules\Approvals\Services\ApprovalInbox;
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Services\AttendanceReportService;
 use App\Modules\Attendance\Support\AttendanceCalendar;
@@ -43,6 +44,7 @@ final class MySummary
         private readonly LeaveBalances $balances,
         private readonly NotificationService $notifications,
         private readonly ApprovalInbox $inbox,
+        private readonly ExpectedShifts $shifts,
     ) {}
 
     /**
@@ -113,6 +115,10 @@ final class MySummary
             'work_hours'           => $row['work_hours'],
             'work_hours_formatted' => $row['work_hours_formatted'],
             'leave_type'           => $row['leave_type'],
+            // Today's shift (null: a day off) and the next one to start, from
+            // the person's own schedule (work shifts spec §6.3).
+            'shift'                => $row['shift'],
+            'next_shift'           => $this->nextShift($employee),
         ];
 
         $month = [
@@ -128,5 +134,26 @@ final class MySummary
         ];
 
         return [$day, $month];
+    }
+
+    /**
+     * The first of the person's shifts that has not started yet, within two
+     * weeks; null when none is scheduled.
+     *
+     * @return array{code: string, name: string, starts_at: string, ends_at: string}|null
+     */
+    private function nextShift(Employee $employee): ?array
+    {
+        $now = Carbon::now($this->calendar->timezone());
+        $id = (int) $employee->getKey();
+        $upcoming = $this->shifts->shiftsFor([$id], $now->toDateString(), $now->copy()->addDays(14)->toDateString())[$id] ?? [];
+
+        foreach ($upcoming as $shift) {
+            if ($shift->startsAt->gt($now)) {
+                return $shift->toArray();
+            }
+        }
+
+        return null;
     }
 }

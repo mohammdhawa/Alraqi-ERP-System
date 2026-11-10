@@ -11,6 +11,7 @@ use App\Modules\Me\Controllers\MyAttendanceDaysController;
 use App\Modules\Me\Controllers\MyPhotoController;
 use App\Modules\Me\Controllers\MyProfileController;
 use App\Modules\Me\Controllers\MySummaryController;
+use App\Modules\Scheduling\Controllers\MyShiftSwapController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -82,6 +83,13 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::get('/attendance/days', [MyAttendanceDaysController::class, 'index'])
         ->name('me.attendance.days');
 
+    // The caller's own record by id: a notification carries only the id
+    // (API §6), and the app opens the day it is about (app slice 6, N1). A
+    // colleague's record is a 404, as the selfie below.
+    Route::get('/attendance/{record}', [MyAttendanceController::class, 'show'])
+        ->whereNumber('record')
+        ->name('me.attendance.show');
+
     // The caller's own selfie — streamed, never a URL (Q11). The id is looked
     // up among the caller's own records only: a colleague's is a 404.
     Route::get('/attendance/{record}/selfie', [MyAttendanceController::class, 'selfie'])
@@ -112,4 +120,20 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
     Route::post('/leave-requests/{leaveRequest}/cancel', [MyLeaveController::class, 'cancel'])
         ->whereNumber('leaveRequest')
         ->name('me.leave-requests.cancel');
+
+    // Duty exchanges (work shifts piece 2, spec §6.1): a guard trades one of
+    // his duties for a colleague's; the direct manager decides. Only the two
+    // guards see one.
+    Route::get('/shift-swaps/options', [MyShiftSwapController::class, 'options'])
+        ->name('me.shift-swaps.options');
+    Route::get('/shift-swaps', [MyShiftSwapController::class, 'index'])
+        ->name('me.shift-swaps.index');
+    Route::post('/shift-swaps', [MyShiftSwapController::class, 'store'])
+        ->name('me.shift-swaps.store');
+    Route::get('/shift-swaps/{swap}', [MyShiftSwapController::class, 'show'])
+        ->whereNumber('swap')
+        ->name('me.shift-swaps.show');
+    Route::post('/shift-swaps/{swap}/cancel', [MyShiftSwapController::class, 'cancel'])
+        ->whereNumber('swap')
+        ->name('me.shift-swaps.cancel');
 });

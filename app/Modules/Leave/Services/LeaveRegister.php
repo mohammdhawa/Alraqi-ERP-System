@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Leave\Services;
 
+use App\Modules\Attendance\Contracts\ExpectedShifts;
 use App\Modules\Attendance\Services\AttendancePopulation;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
@@ -34,6 +35,7 @@ class LeaveRegister
 {
     public function __construct(
         private readonly AttendanceCalendar $calendar,
+        private readonly ExpectedShifts $shifts,
         private readonly LeaveRequestQuery $requests,
     ) {}
 
@@ -98,6 +100,9 @@ class LeaveRegister
     {
         $rows = $query->get(['id', 'employee_id', 'leave_type_id', 'deducts_balance', 'origin', 'status', 'start_date', 'end_date']);
         $types = LeaveType::withTrashed()->whereKey($rows->pluck('leave_type_id')->unique()->all())->get()->keyBy('id');
+        // Every person's scheduled dates in the window, in one read; the page's
+        // rows are among these, so they read it too (final review I5).
+        $this->preload($rows->pluck('employee_id')->map(fn ($id): int => (int) $id)->unique()->values()->all(), $from, $to);
 
         $totals = ['days' => 0, 'calendar_days' => 0, 'deducted_days' => 0, 'excuses' => 0];
         $employees = $byType = $byStatus = [];
@@ -143,8 +148,25 @@ class LeaveRegister
         ];
     }
 
+    /** @var array<string, array<int, list<string>>> window → employee id → their scheduled dates in it */
+    private array $scheduledDates = [];
+
+    /** @param  list<int>  $ids */
+    private function preload(array $ids, string $from, string $to): void
+    {
+        $window = $from.'|'.$to;
+        $missing = array_values(array_filter($ids, fn (int $id): bool => ! isset($this->scheduledDates[$window][$id])));
+        if ($missing === []) {
+            return;
+        }
+
+        foreach ($this->shifts->shiftsFor($missing, $from, $to) as $id => $byDate) {
+            $this->scheduledDates[$window][(int) $id] = array_keys($byDate);
+        }
+    }
+
     /**
-     * The leave clipped to the window: [working days, calendar days].
+     * The leave clipped to the window: [scheduled days, calendar days].
      *
      * @return array{0: int, 1: int}
      */
@@ -157,8 +179,11 @@ class LeaveRegister
             return [0, 0];
         }
 
+        $this->preload([(int) $leave->employee_id], $from, $to);
+        $dates = $this->scheduledDates[$from.'|'.$to][(int) $leave->employee_id];
+
         return [
-            $this->calendar->workingDaysBetween($start, $end),
+            count(array_filter($dates, static fn (string $d): bool => $d >= $start && $d <= $end)),
             (int) Carbon::parse($start)->diffInDays(Carbon::parse($end)) + 1,
         ];
     }

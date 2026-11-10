@@ -14,22 +14,16 @@ Artisan::command('inspire', function () {
 // (default 7 days) for forensic analysis before deleting them.
 Schedule::command('auth:prune-refresh-tokens')->daily();
 
-// The attendance day (work order §4.5 slice 3), as legacy's Kernel scheduled
-// it: the times and the working days come from config/attendance.php through
-// AttendanceCalendar — whose fallbacks are the shipped values, so the close
-// is 23:59 even without the setting (Q10) — judged in the attendance timezone.
-// Legacy's monthly attendance:cleanup is NOT scheduled: records are kept (D7).
+// The shift clock (work shifts spec §8): the check-out reminder at each
+// duty's end and the close four hours after it, judged in the attendance
+// timezone — replacing legacy's one reminder at 17:00 and one close at 23:59
+// (decision round S5). Legacy's monthly attendance:cleanup is NOT scheduled:
+// records are kept (D7).
 $attendance = app(AttendanceCalendar::class);
 
-Schedule::command('attendance:checkout-reminder')
-    ->days($attendance->workingDays())
-    ->timezone($attendance->timezone())
-    ->dailyAt($attendance->reminderAt());
-
-Schedule::command('attendance:auto-close')
-    ->days($attendance->workingDays())
-    ->timezone($attendance->timezone())
-    ->dailyAt($attendance->autoCloseAt());
+Schedule::command('attendance:shift-clock')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
 
 // Selfie files past their retention (three months, Q11); the records stay.
 Schedule::command('attendance:purge-selfies')

@@ -132,7 +132,7 @@ class AttendanceSyncTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2, 'data.succeeded')
             ->assertJsonPath('data.failed.0.index', 1)
-            ->assertJsonPath('data.failed.0.error', 'لديك تسجيل حضور قائم بالفعل لهذا اليوم.');
+            ->assertJsonPath('data.failed.0.error', 'لديك تسجيل حضور قائم؛ يجب تسجيل الانصراف أولاً.');
 
         $this->assertCount(2, Storage::disk('local')->allFiles(), 'the refused entry left no selfie');
     }

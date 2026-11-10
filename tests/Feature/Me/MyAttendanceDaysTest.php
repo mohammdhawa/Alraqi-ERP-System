@@ -18,6 +18,7 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Attendance\Concerns\AttendanceTree;
 use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
+use Tests\Feature\Attendance\Concerns\PinsADayOff;
 use Tests\TestCase;
 
 /**
@@ -32,12 +33,16 @@ class MyAttendanceDaysTest extends TestCase
 {
     use AttendanceTree;
     use FakesApprovedLeave;
+    use PinsADayOff;
     use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        // The rules under test were written for every day a working day
+        // (Q8); the schedule's own effects are pinned in the Shift* tests.
+        $this->pinEveryDayWorking();
         // Wednesday 24 June 2026, midday — every day is a working day (Q8).
         Carbon::setTestNow('2026-06-24 12:00:00');
         $this->buildTree();
@@ -188,7 +193,7 @@ class MyAttendanceDaysTest extends TestCase
 
     public function test_a_configured_day_off_is_off(): void
     {
-        config(['attendance.working_days' => [1, 2, 3, 4, 5, 6]]);   // Sunday off
+        $this->pinDayOff(0);   // Sunday off, through the default schedule
 
         $response = $this->days()->assertOk()->assertJsonPath('data.working_days', 6);
 
@@ -262,8 +267,9 @@ class MyAttendanceDaysTest extends TestCase
         $this->assertSame(['id', 'full_name', 'employee_number'], array_keys($data['employee']));
         $this->assertSame(['id' => $this->units['a']->id, 'name' => 'إدارة أ'], $data['department']);
         $this->assertSame([
-            'date', 'weekday', 'working_day', 'status', 'status_label', 'check_in_id', 'check_in_time', 'check_out_time',
-            'work_hours', 'work_hours_formatted', 'leave_type', 'rejection', 'correction', 'excuse',
+            'date', 'weekday', 'working_day', 'shift', 'status', 'status_label', 'check_in_id', 'check_in_time', 'check_out_time',
+            'work_hours', 'work_hours_formatted', 'late_minutes', 'early_departure_minutes', 'minutes_within_shift',
+            'minutes_outside_shift', 'outside_schedule', 'leave_type', 'rejection', 'correction', 'excuse',
         ], array_keys($data['days'][0]));
         $this->assertSame(0, $data['days'][0]['weekday'], '21 June 2026 is a Sunday');
         $this->assertSame([

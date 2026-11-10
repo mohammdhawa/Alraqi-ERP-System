@@ -63,6 +63,14 @@ class ApprovalStep extends Model
         ];
     }
 
+    /**
+     * The inbox row's `details`, filled for a page by ApprovalRowDetails. Not
+     * a column.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $rowDetails = null;
+
     public function approval(): BelongsTo
     {
         return $this->belongsTo(Approval::class);
