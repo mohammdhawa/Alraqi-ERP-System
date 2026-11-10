@@ -127,6 +127,49 @@ class ShiftSwapService
     }
 
     /**
+     * HR undoes an approved exchange before the earlier of its duties opens
+     * (spec §6.4): its days go, both guards are back on their schedules.
+     *
+     * @throws SchedulingException
+     */
+    public function cancel(ShiftSwap $swap, User $by, string $reason): ShiftSwap
+    {
+        DB::transaction(function () use ($swap, $by, $reason): void {
+            $ids = [(int) $swap->requester_id, (int) $swap->partner_id];
+            sort($ids);
+            Employee::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
+            $swap = ShiftSwap::query()->lockForUpdate()->findOrFail($swap->getKey());
+
+            if ($swap->status !== ShiftSwapStatus::Approved) {
+                throw new SchedulingException('لا يمكن إلغاء إلا تبديل معتمد.');
+            }
+
+            $first = $swap->changes()->whereNotNull('shift_id')->with('shift')->orderBy('date')->first();
+            $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
+            if ($first !== null) {
+                [$hour, $minute] = array_map('intval', explode(':', (string) $first->shift->starts_at));
+                $opensAt = CarbonImmutable::parse($first->date->toDateString(), $this->calendar->timezone())->setTime($hour, $minute)->subMinutes($opens);
+                if ($opensAt->lte(CarbonImmutable::now($this->calendar->timezone()))) {
+                    throw new SchedulingException('لا يمكن إلغاء تبديل بدأت إحدى مناوبتيه.');
+                }
+            }
+
+            $swap->changes()->get()->each->delete();
+            $swap->update([
+                'status'        => ShiftSwapStatus::Cancelled,
+                'cancelled_by'  => $by->getKey(),
+                'cancelled_at'  => CarbonImmutable::now(),
+                'cancel_reason' => trim($reason),
+            ]);
+        });
+
+        $swap = $swap->fresh(['requester', 'partner', 'approval']);
+        $this->notices->cancelled($swap);
+
+        return $swap;
+    }
+
+    /**
      * @param  list<int>  $ids
      * @return array<int, list<array<string, mixed>>>
      */

@@ -14,6 +14,7 @@ use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Scheduling\Enums\ShiftSwapStatus;
 use App\Modules\Scheduling\Services\ShiftSwapCheck;
+use App\Modules\Scheduling\Services\ShiftSwapPlan;
 use App\Modules\Scheduling\Support\SwapNotices;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Builder;
@@ -113,9 +114,14 @@ class ShiftSwap extends Model implements Approvable
             'decided_at' => $approval->decided_at,
         ]);
 
-        if ($approval->status === ApprovalStatus::Cancelled) {
-            app(SwapNotices::class)->withdrawn($this);
-        }
+        match ($approval->status) {
+            // The exchange's days, read from the duties as they stand now, in
+            // the engine's transaction: they commit with the decision or not at all.
+            ApprovalStatus::Approved  => [app(ShiftSwapPlan::class)->write($this), app(SwapNotices::class)->decided($this, true)],
+            ApprovalStatus::Rejected  => app(SwapNotices::class)->decided($this, false),
+            ApprovalStatus::Cancelled => app(SwapNotices::class)->withdrawn($this),
+            ApprovalStatus::Pending   => null,
+        };
     }
 
     public function describeForApprover(ApproverNotice $notice): ApproverMessage

@@ -35,6 +35,32 @@ final class SwapNotices
         $this->tell($swap->partner, 'سحب طلب تبديل المناوبة', "سحب {$swap->requester->full_name} طلب تبديل المناوبة معك.", NotificationEventCatalogue::SHIFT_SWAP_WITHDRAWN, $swap);
     }
 
+    /** The manager's decision, to both. */
+    public function decided(ShiftSwap $swap, bool $approved): void
+    {
+        $requester = $swap->requester;
+        $partner = $swap->partner;
+
+        if ($approved) {
+            $this->tell($requester, 'تمت الموافقة على تبديل المناوبة', "تمت الموافقة على تبديل مناوبتك {$swap->requester_duty_date->toDateString()} مع {$partner->full_name}.", NotificationEventCatalogue::SHIFT_SWAP_APPROVED, $swap);
+            $this->tell($partner, 'تمت الموافقة على تبديل المناوبة', "تمت الموافقة على تبديل مناوبتك {$swap->partner_duty_date->toDateString()} مع {$requester->full_name}.", NotificationEventCatalogue::SHIFT_SWAP_APPROVED, $swap);
+
+            return;
+        }
+
+        $body = "تم رفض طلب تبديل المناوبة بين {$requester->full_name} و{$partner->full_name}.";
+        $this->tell($requester, 'تم رفض تبديل المناوبة', $body, NotificationEventCatalogue::SHIFT_SWAP_REJECTED, $swap);
+        $this->tell($partner, 'تم رفض تبديل المناوبة', $body, NotificationEventCatalogue::SHIFT_SWAP_REJECTED, $swap);
+    }
+
+    /** HR's cancellation, to both. */
+    public function cancelled(ShiftSwap $swap): void
+    {
+        $body = "ألغت الموارد البشرية تبديل المناوبة بين {$swap->requester->full_name} و{$swap->partner->full_name}.";
+        $this->tell($swap->requester, 'تم إلغاء تبديل المناوبة', $body, NotificationEventCatalogue::SHIFT_SWAP_CANCELLED, $swap);
+        $this->tell($swap->partner, 'تم إلغاء تبديل المناوبة', $body, NotificationEventCatalogue::SHIFT_SWAP_CANCELLED, $swap);
+    }
+
     private function tell(Employee $employee, string $title, string $body, string $type, ShiftSwap $swap): void
     {
         $account = User::query()->where('employee_id', $employee->getKey())->value('id');

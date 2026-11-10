@@ -76,6 +76,12 @@ final class NotificationEventCatalogue
 
     public const SHIFT_SWAP_WITHDRAWN = 'shift_swap.withdrawn';
 
+    public const SHIFT_SWAP_APPROVED = 'shift_swap.approved';
+
+    public const SHIFT_SWAP_REJECTED = 'shift_swap.rejected';
+
+    public const SHIFT_SWAP_CANCELLED = 'shift_swap.cancelled';
+
     /**
      * Arabic display labels — the `type_label` a client shows verbatim (C20).
      *
@@ -100,6 +106,9 @@ final class NotificationEventCatalogue
         self::SHIFT_SWAP_SUBMITTED         => 'تم تقديم طلب تبديل المناوبة',
         self::SHIFT_SWAP_REQUESTED         => 'طلب تبديل مناوبة معك',
         self::SHIFT_SWAP_WITHDRAWN         => 'سحب طلب تبديل المناوبة',
+        self::SHIFT_SWAP_APPROVED          => 'تمت الموافقة على تبديل المناوبة',
+        self::SHIFT_SWAP_REJECTED          => 'تم رفض تبديل المناوبة',
+        self::SHIFT_SWAP_CANCELLED         => 'تم إلغاء تبديل المناوبة',
     ];
 
     /**
