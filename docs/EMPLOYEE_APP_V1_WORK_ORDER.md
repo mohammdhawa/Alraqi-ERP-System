@@ -1710,3 +1710,47 @@ Nine minor findings are deferred, listed in the branch's final report.
 
 **1402 tests passing (6063 assertions), Pint clean, 111 API routes, 48 permissions.**
 
+
+### 2026-11-10 — work shifts, piece 2: one-off changes and duty exchanges, built
+
+On branch `work-shifts-changes` (from `work-shifts-core` at `b8ea30f`), not
+merged. Spec `docs/superpowers/specs/2026-11-10-work-shifts-changes-and-swaps-design.md`,
+plan `docs/superpowers/plans/2026-11-10-work-shifts-changes-and-swaps.md`. It
+builds S13 (HR's one-off changes and guards' swaps, both now).
+
+**Decided while designing (2026-11-10), by the owner:**
+
+| | Decided |
+|---|---|
+| A swap | **Two duties exchanged**: A works B's, B works A's. A cover (nothing in return) is not built |
+| Who | **Guards with the same direct manager**: both on a cycle schedule on the dates involved |
+| A past day with a check-in | HR may change it; the check-ins it touches are **matched again** by the check-in rule. Refused if something recorded would have been refused |
+| Undoing an approved swap | **HR cancels it** before the earlier of its duties opens; both are told |
+| 144 hours in a row | **Allowed, as two duties**, each with its own check-in and check-out (S8) |
+| Telling the employee of HR's change | For today or later; a past correction is silent |
+| Storage | One table of per-date changes, written by HR and by approved swaps; the resolver reads it before any schedule |
+| A run's length | At most **six** back-to-back shifts: the six-day look-back every reader uses places the cuts correctly up to six |
+
+**What was built:**
+
+- **`shift_changes`** — a person's shift on a date (or a day off), origin HR or
+  swap; read first by the resolver, so the check-in rules, the shift clock, the
+  reports, `/api/me` and leave counting follow it with no change of their own.
+  The calendar's `source` gains `change` and `swap`.
+- **HR's changes** — three routes under `/api/hr/employees/{employee}/shift-changes`:
+  a range of up to 31 days, all or nothing; past days re-match the touched
+  check-ins (outside-schedule flags, shift dates, the missing-check-out flag and
+  the reminder follow the new shift); the employee is told for today or later.
+- **`shift_swaps`** — a new subject on the approvals engine (alias `shift_swap`,
+  one step: the direct manager). One check runs at filing and again before
+  approval: someone else, still employed, both guards, the same manager (filing
+  only), two duty starts, different, neither opened, no other live swap or
+  change on its dates, no leave, no run over six. Approval writes both guards'
+  rows; HR's cancellation deletes them.
+- **Five routes for the guard** under `/api/me/shift-swaps` (options, list,
+  file, show, withdraw) and **three for HR** under `/api/scheduling/swaps`
+  (list, show, cancel). Eight notification types.
+- **Leave** is read through a new contract, `BlockingLeave`, which Leave
+  implements, so Scheduling does not import Leave's models.
+
+**11 routes (122 in all), no new permission (48).** Deploy: `migrate`.

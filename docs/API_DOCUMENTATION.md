@@ -1030,7 +1030,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
-- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`; ⚙️ since 2026-11-10 (work shifts piece 2, §19.6–§19.8) `shift.change_recorded`, `shift.change_removed`, `shift_swap.submitted`, `shift_swap.requested`, `shift_swap.approved`, `shift_swap.rejected`, `shift_swap.withdrawn`, `shift_swap.cancelled`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
 - **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings.
 
 **What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
@@ -1043,6 +1043,8 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `leave.excuse_filed`, `leave.excuse_cancelled`, `leave.returned_to_work` | the employee | the excuse / the leave | the full text | the employee's leave history |
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
+| `shift.change_recorded`, `shift.change_removed` (2026-11-10) | the employee whose shift HR changed, for today or later | the change (`shift_change`) / the employee | the full text | "my days" on that date |
+| `shift_swap.*` (2026-11-10) | the requester and the partner (§19.7, who is told what) | the exchange (`shift_swap`) | the exchange, read-only | the exchange (`GET /api/me/shift-swaps/{swap}`) |
 
 ⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (⚙️ since
 2026-11-09 at each check-in's shift end, once — the shift clock, §12; it was
@@ -2046,6 +2048,15 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zz| PATCH/DELETE | `/api/hr/employees/{employee}/work-schedules/{assignment}` | bearer | `scheduling.manage` (§19.3) |
 | 18zza| POST     | `/api/scheduling/assignments/bulk`           | bearer   | `scheduling.manage` (§19.4) |
 | 18zzb| GET      | `/api/scheduling/calendar`                   | bearer   | `scheduling.view` (§19.5) |
+| 18zzc| GET/POST | `/api/hr/employees/{employee}/shift-changes` | bearer   | `scheduling.view` / `.manage` (§19.6) |
+| 18zzd| DELETE   | `/api/hr/employees/{employee}/shift-changes/{change}` | bearer | `scheduling.manage` (§19.6) |
+| 18zze| GET      | `/api/me/shift-swaps/options`                | bearer   | — (self-scoped, §19.7) |
+| 18zzf| GET/POST | `/api/me/shift-swaps`                        | bearer   | — (self-scoped, §19.7) |
+| 18zzg| GET      | `/api/me/shift-swaps/{swap}`                 | bearer   | — (self-scoped, §19.7) |
+| 18zzh| POST     | `/api/me/shift-swaps/{swap}/cancel`          | bearer   | — (self-scoped, §19.7) |
+| 18zzi| GET      | `/api/scheduling/swaps`                      | bearer   | `scheduling.view` (§19.8) |
+| 18zzj| GET      | `/api/scheduling/swaps/{swap}`               | bearer   | `scheduling.view` (§19.8) |
+| 18zzk| POST     | `/api/scheduling/swaps/{swap}/cancel`        | bearer   | `scheduling.manage` (§19.8) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2079,7 +2090,9 @@ sixteen leave routes (18u–18zh), the four `/api/me` routes of §17, and —
 them. ⚙️ **111** today (`route:list`, 2026-11-09): those 88, the five import routes
 of §18 (18zm–18zq), `GET /api/me/attendance/days` (18zl, §17.4),
 `GET /api/me/attendance/{record}` (18zt, §12.5, 2026-11-08), and the sixteen work
-shifts routes of §19 (18zu–18zzb, 2026-11-09).
+shifts routes of §19 (18zu–18zzb, 2026-11-09). ⚙️ **122** since 2026-11-10: those
+111 and the eleven of work shifts piece 2 (18zzc–18zzk, §19.6–§19.8; the table's
+rows with two methods are two routes each).
 
 **40 endpoints.** Batch 2 added eleven — the job-title catalogue (5), posting
 history (2, read and append only), and warnings (4). سجل التدقيق added the two
@@ -2814,7 +2827,7 @@ halves of the inbox:
 |---|---|
 | `search` | a part of the requester's name, or their staff number |
 | `department_id`, `department_ids` | the requester's current unit — each with everything under it (`department_ids=3,7` or an array) |
-| `subject_type` | the request's kind: `leave_request` |
+| `subject_type` | the request's kind: `leave_request`, or ⚙️ `shift_swap` (2026-11-10, §19.7) |
 | `submitted_from`, `submitted_to` | the day it was filed, `YYYY-MM-DD` |
 | `leave_type_id`, `leave_type_ids` | a leave's type — narrows to leave requests |
 | `date_from`, `date_to` | days the leave overlaps, `YYYY-MM-DD` — narrows to leave requests |
@@ -3857,7 +3870,9 @@ running · **404** not your run.
 
 ⚙️ **New 2026-11-09** (work shifts, piece 1:
 `docs/superpowers/specs/2026-11-09-work-shifts-backend-core-design.md`; the
-decision round `DECISION_ROUND_WORK_SHIFTS.md`, 2026-11-09). Sixteen routes,
+decision round `DECISION_ROUND_WORK_SHIFTS.md`, 2026-11-09). Sixteen routes
+(⚙️ and since 2026-11-10 eleven more, §19.6–§19.8: one-off changes and duty
+exchanges, under the same two permissions, five of them the guard's own),
 **HR only**: `scheduling.view` reads, `scheduling.manage` writes. Both are
 **company-only** — a grant narrower than the company never confers them —
 and no seeded role carries them: an admin adds them to HR's role.
@@ -4069,7 +4084,9 @@ GET /api/scheduling/calendar?from=2026-11-14&to=2026-11-20&department_id=9    sc
 
 Everyone's expected shift per date, paginated by employee; `from`/`to`
 required, at most 92 days; `department_id`, `employee_id` optional. `source`
-is where the day came from: `assignment` or `default`. Every date of the
+is where the day came from: `assignment` or `default`, and ⚙️ since 2026-11-10
+`change` (HR's one-off change, §19.6) or `swap` (an approved exchange, §19.7) —
+a change comes before any schedule. Every date of the
 window is listed; the example shows two of the seven.
 
 ```json
@@ -4090,3 +4107,182 @@ window is listed; the example shows two of the seven.
   "to": "2026-11-20"
 }
 ```
+
+### 19.6 One-off changes — تعديل الوردية
+
+⚙️ **New 2026-11-10** (work shifts, piece 2:
+`docs/superpowers/specs/2026-11-10-work-shifts-changes-and-swaps-design.md`).
+A person's shift **on a date**, overriding their schedule: a shift, or `null`
+for a day off. HR records it; an approved exchange (§19.7) writes one too.
+**A change comes first**: every reader — the check-in rules, the shift clock,
+the reports, `/api/me`, leave counting and the calendar — sees it in place of
+the schedule.
+
+```
+GET    /api/hr/employees/{employee}/shift-changes?from=2026-11-14&to=2026-11-20   scheduling.view
+POST   /api/hr/employees/{employee}/shift-changes                                scheduling.manage
+DELETE /api/hr/employees/{employee}/shift-changes/{change}                       scheduling.manage
+```
+
+- **GET** — the person's changes of both origins in the range (at most 92 days).
+- **POST** — `from`, `to` (inclusive, at most 31 days), `shift_id` (`null` for a
+  day off; an active shift) and `reason` (required). One row per date; a date
+  that already has an HR change has it replaced. **All or nothing**: one refused
+  date refuses the request, and nothing is written.
+- **DELETE** — removes an HR change; the person is back on their schedule that
+  day. Another person's change is a 404.
+- **Past dates are allowed** — that is how a wrong past day is corrected. The
+  check-ins the change touches are **matched again** as if they had happened
+  under the new shift: a check-in flagged outside the schedule becomes the new
+  shift's, and its check-out follows. Leave already charged is not recharged.
+- **The employee is told** when the change reaches today or later
+  (`shift.change_recorded` / `shift.change_removed`); a correction of a past
+  day is silent.
+
+```json
+{
+  "success": true,
+  "message": "تم تعديل الوردية.",
+  "data": {
+    "shift_changes": [
+      {
+        "id": 7,
+        "date": "2026-11-15",
+        "shift": { "id": 3, "code": "NIGHT", "name": "الوردية الليلية", "starts_at": "22:00", "duration_minutes": 480, "ends_next_day": true, "is_active": true },
+        "origin": 1,
+        "origin_label": "تعديل من الموارد البشرية",
+        "shift_swap_id": null,
+        "reason": "تكليف بمناوبة ليلية",
+        "created_by": { "id": 4, "name": "…" },
+        "created_at": "2026-11-13T10:00:00+03:00"
+      }
+    ]
+  }
+}
+```
+
+`origin`: `1` HR, `2` an exchange (then `shift_swap_id` is set). **Refusals**
+(422):
+
+- «{date}: هذا اليوم ضمن تبديل مناوبة معتمد؛ يجب إلغاء التبديل أولاً.» — the date
+  holds an exchange; HR cancels it first (§19.8).
+- «يتجاوز هذا التعديل ست ورديات متتالية للموظف.» — nobody works more than six
+  back-to-back shifts (two 72-hour duties).
+- «يتعارض هذا التعديل مع تسجيل حضور في {date}.» — two recorded check-ins would
+  land on one duty or one date.
+- «يقع تسجيل انصراف {date} بعد إغلاق الوردية الجديدة.» — a recorded check-out
+  would fall after the new shift's close.
+- «هذا التعديل ناتج عن تبديل مناوبة؛ يُلغى بإلغاء التبديل.» — DELETE of an
+  exchange's row.
+
+### 19.7 Duty exchanges — تبديل المناوبات (the guard)
+
+⚙️ **New 2026-11-10.** A guard exchanges **one of his duties for one of a
+colleague's** (decision round S13): once approved, each works the other's and
+has his own as days off. The colleague is **told, not asked**; the requester's
+**direct manager** decides, in one step, in the same approvals inbox as leave
+(§15, `subject_type` `shift_swap`). Only guards — both on a cycle schedule —
+with **the same direct manager** can exchange. Self-scoped: no permission.
+
+```
+GET  /api/me/shift-swaps/options
+GET  /api/me/shift-swaps
+POST /api/me/shift-swaps
+GET  /api/me/shift-swaps/{swap}
+POST /api/me/shift-swaps/{swap}/cancel
+```
+
+- **options** — `my_duties`: my duties starting in the next 31 days that have
+  not opened; `partners`: each colleague I can exchange with, and theirs. A
+  duty is `{date, starts_at, ends_at, shifts}`; `date` is what POST takes.
+- **POST** — `my_duty_date`, `partner_id`, `partner_duty_date`, `reason`
+  (optional). 201 with `data.shift_swap`.
+- **GET {swap}** — the requester or the partner; anyone else 404. `my_role` is
+  `requester` or `partner`.
+- **cancel** — the requester withdraws it while pending.
+
+```json
+{
+  "success": true,
+  "message": "تم تقديم طلب تبديل المناوبة.",
+  "data": {
+    "shift_swap": {
+      "id": 5,
+      "status": 1,
+      "status_label": "قيد الاعتماد",
+      "reason": "ظرف عائلي",
+      "requester": { "id": 31, "name": "…" },
+      "partner": { "id": 32, "name": "…" },
+      "requester_duty": {
+        "date": "2026-11-20",
+        "starts_at": "2026-11-20T08:00:00+03:00",
+        "ends_at": "2026-11-23T08:00:00+03:00",
+        "shifts": [
+          { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-20T08:00:00+03:00", "ends_at": "2026-11-21T08:00:00+03:00" }
+        ]
+      },
+      "partner_duty": { "date": "2026-11-17", "starts_at": "2026-11-17T08:00:00+03:00", "ends_at": "2026-11-20T08:00:00+03:00", "shifts": [] },
+      "approval_id": 12,
+      "decided_at": null,
+      "cancelled_at": null,
+      "cancel_reason": null,
+      "created_at": "2026-11-13T10:00:00+03:00",
+      "my_role": "requester"
+    }
+  }
+}
+```
+
+The example shortens the shift lists; each duty lists all its shifts. Each
+duty is shown **as it is worked now** — by its owner until approved, by the
+other guard after. `status`: `1` pending, `2` approved, `3` rejected,
+`4` withdrawn, `5` cancelled by HR.
+
+**The check** — run at filing and again before approval (then without the
+manager rule: the approver was fixed at filing). Each refusal is a 422:
+
+| Message | |
+|---|---|
+| «لا يمكنك تبديل مناوبة مع نفسك.» | the partner is the requester |
+| «الزميل المحدد ليس على رأس عمله.» | the partner has left by his duty |
+| «تبديل المناوبات متاح لموظفي الحراسة فقط.» | either is not on a cycle schedule on a date of the exchange |
+| «يجب أن يكون للزميل المدير المباشر نفسه.» | different direct managers (filing only) |
+| «التاريخ المحدد ليس بداية مناوبة.» | a date is not the start of that person's duty |
+| «لا يمكن تبديل المناوبة بنفسها.» | the two duties are the same hours |
+| «لا يمكن تبديل مناوبة بدأت.» | a duty's check-in window has opened |
+| «إحدى المناوبتين ضمن طلب تبديل آخر.» | a duty is in another pending or approved exchange |
+| «يوجد تعديل على أحد أيام التبديل.» | a one-off change on a date the exchange would write |
+| «توجد إجازة تتداخل مع إحدى المناوبتين.» | pending or approved leave on either duty |
+| «يتجاوز هذا التعديل ست ورديات متتالية للموظف.» | either would work more than six back-to-back shifts |
+
+**On approval** the exchange writes `shift_changes` rows of origin `2` for both
+guards. An exchange between opposite teams gives each **six days in a row, as
+two 72-hour duties** — each with its own check-in and check-out (§12).
+
+**Who is told:**
+
+| Moment | Requester | Partner |
+|---|---|---|
+| Filed | `shift_swap.submitted` | `shift_swap.requested` |
+| Approved / rejected | `shift_swap.approved` / `shift_swap.rejected` | the same |
+| Withdrawn | — | `shift_swap.withdrawn` |
+| Cancelled by HR | `shift_swap.cancelled` | the same |
+
+The manager gets the engine's own notices (`approval.step_pending`): «طلب
+تبديل مناوبة جديد».
+
+### 19.8 Duty exchanges — HR
+
+```
+GET  /api/scheduling/swaps?status=2&employee_id=32&from=2026-11-01&to=2026-11-30   scheduling.view
+GET  /api/scheduling/swaps/{swap}                                                  scheduling.view
+POST /api/scheduling/swaps/{swap}/cancel                                           scheduling.manage
+```
+
+- **The list** — every exchange, newest first, paginated; filters `status`,
+  `employee_id` (requester or partner), and `from`/`to` (at most 92 days) on
+  either duty's date. `my_role` is `null` here.
+- **cancel** — `reason` required. An **approved** exchange only («لا يمكن إلغاء
+  إلا تبديل معتمد.»), before the earlier of its duties opens («لا يمكن إلغاء
+  تبديل بدأت إحدى مناوبتيه.»). Its rows go, both guards are back on their
+  schedules, and both are told. After that, HR uses one-off changes (§19.6).

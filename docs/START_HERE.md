@@ -4,10 +4,11 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-11-09, on branch `work-shifts-core`
-> (from `phase_1`): attendance, approvals, leave, `/api/me`, the employee import
-> by upload, Kobo employee numbers and the **work shifts backend core** are
-> built, and the Flutter app has slices 0–7 of 0–8 merged. The real import and
+> **Last verified against the code:** 2026-11-10, on branch `work-shifts-changes`
+> (from `work-shifts-core`, from `phase_1`): attendance, approvals, leave,
+> `/api/me`, the employee import by upload, Kobo employee numbers, the **work
+> shifts backend core** and **one-off changes and duty exchanges** are built,
+> and the Flutter app has slices 0–7 of 0–8 merged. The real import and
 > the pilot have not happened.
 > When you change the system, update the sections marked ⚙️ — they state facts
 > about the code and go stale if ignored.
@@ -69,9 +70,9 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | `work-shifts-core`, from `phase_1` at `c43e616`: the work shifts backend core, piece 1 of 4 — not merged, not pushed. `main` is `5becbc7` plus the merge of pull request 6 |
-| **Test suite** | **1402 passing**, 6063 assertions, Pint clean (`php artisan test`, 2026-11-09) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
-| **API** | 111 routes under `/api`, 48 permissions |
+| **Branch** | `work-shifts-changes`, from `work-shifts-core` at `b8ea30f`: work shifts piece 2 of 4, one-off changes and duty exchanges — not merged, not pushed. `work-shifts-core` (piece 1, from `phase_1` at `c43e616`) is pushed, not merged. `main` is `5becbc7` plus the merge of pull request 6 |
+| **Test suite** | **1473 passing**, 6312 assertions, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **API** | 122 routes under `/api`, 48 permissions |
 | **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
 | **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
@@ -81,10 +82,10 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 the employees rebuild, the import tooling), and the backend of the Employee App
 v1 — sessions, devices and push, attendance, the approvals engine, leave, the
 `/api/me` surface, the import by upload, and Kobo employee numbers. ⚙️ And the
-work shifts backend core (2026-11-09, §10 item 0).
+work shifts backend core (2026-11-09) and one-off changes and duty exchanges
+(2026-11-10) — §10 item 0.
 
-**Not done:** work shifts pieces 2–4 (one-off changes and swaps, the dashboard,
-the app); Batch 4, the real import; the app's slice 8; the pilot; documents
+**Not done:** work shifts pieces 3–4 (the dashboard, the app); Batch 4, the real import; the app's slice 8; the pilot; documents
 on the approvals engine; the Stage 3 parallel month; payroll.
 
 **Next:** §10. The pilot's 2026-11-01 date has passed and stopped being binding on
@@ -675,6 +676,19 @@ cycle. A shift used by a schedule, and a schedule anyone has been assigned, are
 fixed. Nothing about a day is stored: the resolver (`ExpectedShifts`) derives
 each person's shifts.
 
+### `shift_changes`, `shift_swaps` ⚙️ (new 2026-11-10)
+
+Work shifts piece 2 (spec `2026-11-10-work-shifts-changes-and-swaps-design.md`).
+`shift_changes` is a person's shift **on one date**, unique per person and date:
+`shift_id` (null is a day off), `origin` (1 HR, 2 an exchange, with
+`shift_swap_id`), `reason` (required from HR). The resolver reads it before any
+span, so every reader follows it. No soft delete; the audit log keeps removals.
+`shift_swaps` is a guard's exchange of one duty for a colleague's —
+`requester_id`, `partner_id`, each duty's start date, `status` (1 pending,
+2 approved, 3 rejected, 4 withdrawn, 5 cancelled by HR) — an `Approvable` on the
+engine (alias `shift_swap`); approval writes its `shift_changes` rows, HR's
+cancellation deletes them. No run may exceed six back-to-back shifts.
+
 ### `approvals`, `approval_steps`, `approval_reassignments` ⚙️ (new 2026-10-16)
 
 `approvals` is morph-keyed on `approvable_type` + `approvable_id` (unique, so one
@@ -804,6 +818,9 @@ refresh carry tighter named limiters on top. Every response — success and erro
 | 106–109 | GET/POST/PATCH/DELETE | `/api/hr/employees/{employee}/work-schedules` (+ `/{assignment}`) | bearer | `scheduling.view` / `scheduling.manage` |
 | 110 | POST | `/api/scheduling/assignments/bulk` | bearer | `scheduling.manage` |
 | 111 | GET | `/api/scheduling/calendar` | bearer | `scheduling.view` |
+| 112–114 | GET/POST/DELETE | `/api/hr/employees/{employee}/shift-changes` (+ `/{change}`) | bearer | `scheduling.view` / `scheduling.manage` |
+| 115–119 | GET/GET/POST/GET/POST | `/api/me/shift-swaps/options`, `/api/me/shift-swaps`, `/{swap}`, `/{swap}/cancel` | bearer | self-scoped — only the two guards see one |
+| 120–122 | GET/GET/POST | `/api/scheduling/swaps` (+ `/{swap}`, `/{swap}/cancel`) | bearer | `scheduling.view` / `scheduling.manage` |
 
 Full request and response bodies are in `API_DOCUMENTATION.md`. A Postman
 collection lives in `postman/`.
@@ -1325,8 +1342,16 @@ default; then the final whole-branch review's fixes (the default schedule
 protected, no change inside a recorded duty, outside check-ins judged against
 the shift, the clock batched, a data migration seeding the schedules). Not
 merged. **Deploy:** `migrate` seeds the schedules; `db:seed
---class=PermissionSeeder` adds the two permissions. **Next:** piece 2, one-off changes and swaps on the
-approvals engine; then piece 3, the dashboard; then piece 4, the app.
+--class=PermissionSeeder` adds the two permissions.
+
+⚙️ **Piece 2, one-off changes and duty exchanges, is built** on branch
+`work-shifts-changes`, from `work-shifts-core` (2026-11-10; spec and plan in
+`docs/superpowers/`; work order §8): HR records a person's shift on given dates
+— past days too, with the touched check-ins matched again — and a guard
+exchanges one of his duties for a colleague's, approved in one step by the
+direct manager on the approvals engine; HR can cancel an approved exchange
+before it starts. 11 routes (122 in all), no new permission. Not merged.
+**Deploy:** `migrate`. **Next:** piece 3, the dashboard; then piece 4, the app.
 
 **1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,
 `docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there, its §5).
