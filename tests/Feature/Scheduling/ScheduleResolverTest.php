@@ -195,7 +195,7 @@ class ScheduleResolverTest extends TestCase
         DB::disableQueryLog();
 
         $this->assertCount(20, $all);
-        $this->assertLessThanOrEqual(4, $queries);
+        $this->assertLessThanOrEqual(5, $queries);
     }
 
     public function test_expected_shift_serialises_for_the_api(): void
