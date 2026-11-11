@@ -14,7 +14,7 @@ class EmployeeWorkScheduleResource extends JsonResource
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
-        $this->loadMissing(['schedule', 'createdBy']);
+        $this->loadMissing(['schedule', 'createdBy.employee']);
 
         return [
             'id'               => $this->id,
@@ -28,7 +28,7 @@ class EmployeeWorkScheduleResource extends JsonResource
             'from_date'        => $this->from_date->toDateString(),
             'to_date'          => $this->to_date?->toDateString(),
             'cycle_start_date' => $this->cycle_start_date?->toDateString(),
-            'created_by'       => $this->createdBy === null ? null : ['id' => $this->createdBy->id, 'name' => $this->createdBy->name],
+            'created_by'       => $this->createdBy === null ? null : ['id' => $this->createdBy->id, 'name' => $this->createdBy->employee?->full_name],
         ];
     }
 }

@@ -23,6 +23,7 @@ use App\Modules\HR\Exceptions\EmployeeNumberException;
 use App\Modules\HR\Policies\EmployeePolicy;
 use App\Modules\HR\Support\EmployeeClassificationGuard;
 use App\Modules\HR\Support\HireDateGuard;
+use App\Shared\Support\SearchTerm;
 use App\Shared\Traits\HasAuditLog;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
@@ -711,6 +712,41 @@ class Employee extends Model
             static fn (EmployeeStatus $status): int => $status->value,
             array_filter(EmployeeStatus::cases(), static fn (EmployeeStatus $status): bool => $status->isEmployed()),
         ));
+    }
+
+    /**
+     * The person filters every list and report shares: employees by id, units
+     * by id — each WITH its subtree — and a name part or staff number. They
+     * only ever narrow the query.
+     *
+     * @param  Builder<Employee>  $query
+     * @param  array<string, mixed>  $filters
+     */
+    public function scopeMatchingPeople(Builder $query, array $filters): void
+    {
+        $ids = static fn (string $one, string $many): array => array_values(array_unique(array_map('intval', [
+            ...($filters[$many] ?? []),
+            ...(isset($filters[$one]) ? [$filters[$one]] : []),
+        ])));
+
+        $people = $ids('employee_id', 'employee_ids');
+        if ($people !== []) {
+            $query->whereIn($query->qualifyColumn('id'), $people);
+        }
+
+        $units = $ids('department_id', 'department_ids');
+        if ($units !== []) {
+            $query->whereIn($query->qualifyColumn('department_id'), Department::subtreeIds($units));
+        }
+
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $query->where(function (Builder $inner) use ($search): void {
+                foreach (['first_name', 'middle_name', 'last_name', 'employee_number'] as $column) {
+                    SearchTerm::orWhere($inner, $column, $search);
+                }
+            });
+        }
     }
 
     /**

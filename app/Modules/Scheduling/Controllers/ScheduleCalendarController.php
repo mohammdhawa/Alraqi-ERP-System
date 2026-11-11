@@ -23,9 +23,8 @@ class ScheduleCalendarController extends Controller
 
     public function __invoke(ScheduleCalendarRequest $request, ScheduleResolver $resolver): JsonResponse
     {
-        $page = Employee::query()
-            ->when($request->has('department_id'), fn ($q) => $q->where('department_id', (int) $request->validated('department_id')))
-            ->when($request->has('employee_id'), fn ($q) => $q->whereKey((int) $request->validated('employee_id')))
+        $page = Employee::query()->employed()
+            ->matchingPeople($request->validated())
             ->orderBy('first_name')->orderBy('id')
             ->paginate($this->perPage($request));
 

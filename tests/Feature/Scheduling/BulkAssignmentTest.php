@@ -7,6 +7,7 @@ namespace Tests\Feature\Scheduling;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
+use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\WorkSchedule;
@@ -73,6 +74,22 @@ class BulkAssignmentTest extends TestCase
 
         $this->postJson('/api/scheduling/assignments/bulk', $body + ['include_subtree' => true])->assertOk()->assertJsonCount(2, 'data');
         $this->assertEqualsCanonicalizing([$inRoot->id, $inChild->id], EmployeeWorkSchedule::pluck('employee_id')->all());
+    }
+
+    public function test_a_units_population_is_its_employed_people(): void
+    {
+        $this->actingAsUserWithPermissions(['scheduling.manage']);
+        $unit = Department::create(['name' => 'إدارة الأمن والحماية', 'code' => 'SEC', 'level' => DepartmentLevel::cases()[0]->value, 'parent_id' => null]);
+        $active = Employee::factory()->create(['department_id' => $unit->id]);
+        Employee::factory()->create(['department_id' => $unit->id, 'status' => EmployeeStatus::Terminated]);
+
+        $response = $this->postJson('/api/scheduling/assignments/bulk', [
+            'work_schedule_id' => $this->guard()->id, 'from_date' => '2026-11-14', 'cycle_start_date' => '2026-11-14',
+            'department_id'    => $unit->id, 'include_subtree' => true,
+        ])->assertOk()->assertJsonCount(1, 'data');
+
+        $this->assertSame([$active->id], EmployeeWorkSchedule::pluck('employee_id')->all());
+        $this->assertStringContainsString('1', (string) $response->json('message'));
     }
 
     public function test_at_most_500_people(): void

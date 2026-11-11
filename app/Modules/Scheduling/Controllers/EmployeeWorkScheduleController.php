@@ -25,7 +25,7 @@ class EmployeeWorkScheduleController extends Controller
 
     public function index(Request $request, Employee $employee): JsonResponse
     {
-        $spans = EmployeeWorkSchedule::query()->where('employee_id', $employee->getKey())->orderByDesc('from_date')->get();
+        $spans = EmployeeWorkSchedule::query()->with(['schedule', 'createdBy.employee'])->where('employee_id', $employee->getKey())->orderByDesc('from_date')->get();
 
         return $this->success(EmployeeWorkScheduleResource::collection($spans)->resolve($request));
     }

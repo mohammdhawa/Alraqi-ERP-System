@@ -4,8 +4,8 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-11-10, on branch `work-shifts-changes`
-> (from `work-shifts-core`, from `phase_1`): attendance, approvals, leave,
+> **Last verified against the code:** 2026-11-10, on branch `work-shifts-dashboard`
+> (from `main`): attendance, approvals, leave,
 > `/api/me`, the employee import by upload, Kobo employee numbers, the **work
 > shifts backend core** and **one-off changes and duty exchanges** are built,
 > and the Flutter app has slices 0–7 of 0–8 merged. The real import and
@@ -70,10 +70,10 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | `work-shifts-changes`, from `work-shifts-core` at `b8ea30f`: work shifts piece 2 of 4, one-off changes and duty exchanges — not merged, not pushed. `work-shifts-core` (piece 1, from `phase_1` at `c43e616`) is pushed, not merged. `main` is `5becbc7` plus the merge of pull request 6 |
-| **Test suite** | **1479 passing**, 6336 assertions, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **Branch** | `work-shifts-dashboard`, from `main`: work shifts piece 3 of 4, the dashboard — built in both repositories (this one and `../erp-dashboard`, same branch name), **uncommitted**; checked end to end in a browser on 2026-11-10. ⚙️ (2026-11-10) Pieces 1 and 2 of work shifts are merged: `main` is `6493015`, the merge of pull request 8 |
+| **Test suite** | **1487 passing**, Pint clean (`php artisan test`, 2026-11-10) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 122 routes under `/api`, 48 permissions |
-| **Working tree** | Everything in this file is committed on `phase_1`; check `git status` for anything since |
+| **Working tree** | Pieces 1–2 of work shifts are on `main`; piece 3 is uncommitted on `work-shifts-dashboard`; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
 | **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
 | **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan are merged to its `main` (`0598ccf`, 2026-11-09); slice 8, pilot hardening, waits for work shifts (§10 item 0) |
@@ -1341,7 +1341,7 @@ and its 16 routes, the resolver, the rules, the shift clock, the reports and
 default; then the final whole-branch review's fixes (the default schedule
 protected, no change inside a recorded duty, outside check-ins judged against
 the shift, the clock batched, a data migration seeding the schedules). Not
-merged. **Deploy:** `migrate` seeds the schedules; `db:seed
+merged (in `6493015`, with piece 2). **Deploy:** `migrate` seeds the schedules; `db:seed
 --class=PermissionSeeder` adds the two permissions.
 
 ⚙️ **Piece 2, one-off changes and duty exchanges, is built** on branch
@@ -1350,8 +1350,22 @@ merged. **Deploy:** `migrate` seeds the schedules; `db:seed
 — past days too, with the touched check-ins matched again — and a guard
 exchanges one of his duties for a colleague's, approved in one step by the
 direct manager on the approvals engine; HR can cancel an approved exchange
-before it starts. 11 routes (122 in all), no new permission. Not merged.
+before it starts. 11 routes (122 in all), no new permission. Merged (in `6493015`).
 **Deploy:** `migrate`. **Next:** piece 3, the dashboard; then piece 4, the app.
+
+⚙️ **Piece 3, the dashboard, is built** on branch `work-shifts-dashboard`, in
+both repositories, uncommitted (2026-11-10; spec and plan in `docs/superpowers/`;
+work order §8). In the backend, the calendar's people filters (employed people
+only; employees, units with their sub-units, search); no migration, no new
+route. In `../erp-dashboard`: the calendar (click a day to change it, bulk
+assignment), shifts, schedules, the employee profile's «الجدول» tab, HR's
+exchanges, the general approval screen (`approvals/:id`) for a manager deciding
+an exchange, and the shift, late and early columns on the attendance screens.
+**Checked end to end in a browser** on 2026-11-10 against the local API, as HR
+and as the guards' manager (work order §8); the spec's six manual cases are in
+the dashboard's `docs/MANUAL_DASHBOARD_TEST_SCENARIOS.md`. **Deploy:** after
+it, an admin adds `scheduling.view` and `scheduling.manage` to HR's role on the
+roles screen. **Next:** piece 4, the app.
 
 **1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,
 `docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there, its §5).
@@ -1810,7 +1824,7 @@ Stated honestly, so none of these is mistaken for a bug.
   change to the real tree fails the build. Keep it that way.
 
 **Git**
-- Work happens on `phase_1`; `main` is the default branch.
+- `main` is the default branch and carries work shifts pieces 1–2 (`6493015`); piece 3 is uncommitted on `work-shifts-dashboard`.
 - Commit messages here are descriptive sentences, not conventional-commit
   prefixes — e.g. *"Seed the actual company tree; split invented fixtures out of
   it"*.

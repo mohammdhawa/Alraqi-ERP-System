@@ -1775,3 +1775,147 @@ failed first:
 Five minor findings are deferred, listed in the branch's final report.
 
 **1479 tests passing (6336 assertions), Pint clean, 122 API routes, 48 permissions.**
+
+
+### 2026-11-10 — work shifts, piece 3: the dashboard's screens, built
+
+On branch `work-shifts-dashboard` in **both** repositories (backend off `main`
+at `6493015`, the merge of pull request 8, which carries pieces 1 and 2; dashboard
+off `phase_1`), **uncommitted**. Spec
+`docs/superpowers/specs/2026-11-10-work-shifts-dashboard-design.md`, plan
+`docs/superpowers/plans/2026-11-10-work-shifts-dashboard.md`. It builds the
+dashboard side of S13: HR runs work shifts without a developer, and a guards'
+manager decides an exchange in the dashboard.
+
+**Decided while designing (2026-11-10), spec §1.1:**
+
+| | Decided |
+|---|---|
+| D1 | Managers decide exchanges **in the dashboard too**: a general approval screen, `approvals/:id` |
+| D2 | HR's day-to-day edits are made **from the calendar** (click a day; tick rows to assign a schedule); the employee profile also gets a «الجدول» tab |
+| D3 | The attendance screens change only by the **shift, late and early-departure** columns and totals; not the outside-schedule flag, not minutes within/outside the shift, not new wording for statuses 7 and 9 |
+| D4 | **Dashboard-only, no new backend detail for approvers**: the manager decides from the approval's `subject.summary`; no calendar library (a resource timeline is a paid plugin; the free ones handle RTL and per-employee paging poorly) |
+| D5 | The calendar API listed leavers, filtered a unit without its subtree and had no search: **fixed in the backend first** |
+
+**What was built:**
+
+- **Backend** — `GET /api/scheduling/calendar` lists employed people only
+  (نشط or موقوف), takes the reports' person filters (`employee_id(s)`,
+  `department_id(s)` with the subtree, `search`), and an unknown unit or person
+  now narrows to nobody (an empty page) instead of answering 422. One
+  implementation: the filter moved from Attendance to a scope on `Employee`
+  (`FiltersPeople` concern) which both modules read; the attendance reports
+  behave exactly as before. **No migration, no new route, no new permission.**
+- **Dashboard**, `src/sections/scheduling/`, a sidebar group «الورديات
+  والجداول»: the **calendar** (people × dates, coloured by source, URL filters,
+  click or shift-click to change a day or a range, bulk schedule assignment with
+  a per-person result table); **shifts** and **schedules** (create, edit,
+  delete; the editor lists a weekly schedule from Saturday while sending each
+  row's own `position`); the profile's **«الجدول» tab** (schedule periods,
+  one-off changes, «عرض في التقويم»); **HR's exchanges** (`scheduling/swaps`,
+  filters, detail, «إلغاء التبديل»); the **general approval screen**
+  (`approvals/:id`) reached from the inbox, with the inbox's `subject_type`
+  filter and the notification routing for `shift_swap`; the **attendance
+  columns** (shift, late, early departure, in the daily board, the monthly grid
+  and the profile's days). The roles screen can now grant `scheduling.view` and
+  `scheduling.manage`.
+
+**Rulings taken during the build that change behaviour:**
+
+- **Editing a schedule sends `days` only when they changed.** The API refuses
+  any `days` on an assigned or default schedule, so always sending them made
+  those schedules impossible to rename or deactivate. A failed load of the
+  shifts list shows the error and blocks the save (otherwise every row would
+  read «راحة»).
+- **«إنهاء» shows on a schedule period that has started and not ended**
+  (`from_date` today or earlier, `to_date` empty or today or later), as API
+  §19.3 allows; a period not yet started offers only «حذف».
+- **The approval screen's approve button reads «موافقة»**, like the leave
+  screen's: one manager decides leave and exchanges, one word for one action.
+- **No withdraw button** on the approval screen: withdrawing is the exchange's
+  own route (`/api/me/shift-swaps/{swap}/cancel`, the guard's, in the app), not
+  the engine's.
+- The default calendar window, "today" and "past" are **Damascus** dates, not
+  the browser's.
+
+**Fixed after the final whole-branch review:** the shift-change modal no longer
+opens on «يوم راحة» (a placeholder «اختر الوردية…» comes first, «يوم راحة» is
+chosen on purpose, save stays disabled until a choice), and the profile tab's
+«تعديل الوردية» takes a from/to range of up to 31 days; a bulk assignment to a
+unit now covers its employed people only (a person who left is not assigned),
+and the result table names every person.
+
+**Deploy:** backend, no migration. After deploy an admin adds `scheduling.view`
+and `scheduling.manage` to HR's role on the roles screen (no seeded role has
+them; both are company-only).
+
+**Verification (2026-11-10, the working tree as it stands):** backend
+`php artisan test`: **1487 passed**, exit 0; `vendor/bin/pint --test` passes. Dashboard
+`npm test`: 393 passed, 0 failed; `VITE_API_URL=https://example.test npm run
+build` exits 0 (the config refuses a production build without the URL, by
+design). `npm run lint` was **not** run repo-wide: it already fails on 82
+untouched files (985 errors, mostly `react/prop-types`; the repository's
+components use no PropTypes), so each task was gated on `npx eslint` over its
+own files with that rule off. The six manual cases are `E2E-013`–`E2E-018` in
+the dashboard's `docs/MANUAL_DASHBOARD_TEST_SCENARIOS.md`.
+
+**The end-to-end walk in a browser (2026-11-10)**, against the local API at
+phone width, as HR and as the guards' manager: shifts (create, the in-use
+refusal), schedules (Saturday-first editor; `OFFICE` renamed — days no longer
+sent), the calendar (search, colours, bulk assignment naming each person), the
+profile tab (assign, the editable range, the past-date note, the 31-day cap), a
+one-off change (save blocked until a shift is chosen), an exchange filed,
+approved on `approvals/:id`, shown in blue for both guards, and cancelled by HR
+with both schedules restored, the attendance columns, and dark theme — all
+passed. It found six small defects, fixed and re-reviewed the same day: Arabic
+day counts («6 أيام», not «6 يوماً»); the calendar's name and staff number
+running together; the sticky name column too wide on a phone; the exchange
+list's 72-hour duties shown as «08:00 – 08:00»; a manual-test line expecting
+who cancelled an exchange; and, in piece 1's backend,
+`EmployeeWorkScheduleResource` sending `created_by.name` from the account (always
+null) instead of its employee's name — now `createdBy->employee?->full_name`,
+eager-loaded, with a test.
+
+**Deferred minors** (each task's review; none blocks):
+
+- *Needs the owner's approval of wording* — Arabic the implementers chose:
+  the calendar's legend «افتراضي / جدول / تعديل / تبديل», its window error,
+  empty-grid line, «قسم #N» fallback and «تنتهي في اليوم التالي»; and the
+  schedule delete confirmation text (the spec gave no sentence).
+- *Duplication to extract* — the submit/422/dirty handling repeated in the shift
+  and schedule modals (a shared hook before a third modal copies it);
+  `fieldError`/`errorLine` copied across the scheduling modals; `STATUS_BADGE`
+  duplicated in `ApprovalRequest.jsx` and `ApprovalsList.jsx`; the calendar
+  screen is 425 lines (move its filter bar to `CalendarFilterBar.jsx`);
+  `shiftEnd` in `Shifts.jsx` splits `shiftSpan`'s text on " – " (a
+  `shiftEndText` helper would be sturdier).
+- *Loading and error cues* — `useSchedulingOptions` does not pass through
+  `loaded`/`incomplete`, fetches schedules the schedule modal never uses, and a
+  failed schedules fetch blocks the schedule modal under a shifts message; the
+  schedule modal's submit is silently disabled for an invalid cycle length;
+  changing month on the profile tab keeps the old rows on screen; a 403/404 on
+  `?swap=` shows an alert above the table rather than a `StatePanel`; the
+  approval screen shows `status_label` twice; blank minutes cells sit beside "0"
+  count cells in the monthly totals (as specified).
+- *Robustness* — `ShiftChangeModal`'s reset effect depends on `loadChanges`, so
+  a range change while open wipes the draft; its remove does not clear an
+  earlier error; no stale-response guard on concurrent loads; the exchange link
+  is a plain `<a href>` (a full reload; use the router `Link`); the `?swap`
+  fetch effect would refetch in a loop on a body without a matching id; the
+  `page` in the exchanges URL is not sanitised; a half-typed or inverted window
+  warns but the list loads unfiltered; the next-day marker is shrunk twice in
+  `<sup>`; `--default-border` has no dark override checked; ending a span also
+  reloads the changes list needlessly; `asList`'s two-key fallback is
+  speculative.
+- *Missing tests* — a suspended employee stays on the calendar; the active
+  filter in `useSchedulingOptions`; `toShiftChangeBody` with a null shift id;
+  `swapWindowProblem`. Also: `Employee::scopeMatchingPeople`'s docblock should
+  say the `*_ids` must already be arrays.
+- *API gaps recorded, not worked around* (spec §10) — no `in_use` on a shift,
+  no `is_default` on a schedule, no exchange detail for an approver, and a
+  notification about an approval names the subject, not the approval.
+
+**Docs corrected the same day:** `API_DOCUMENTATION.md` §14.2 said the monthly
+report sorts by "every count below"; the server's sort keys are the thirteen in
+`AttendanceReportService::MONTHLY_SORTS`, and the late and early-departure
+counts are not among them.

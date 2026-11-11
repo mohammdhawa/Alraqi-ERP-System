@@ -2611,7 +2611,11 @@ GET /api/attendance/report/monthly?month=6&year=2026
 `from` and `to` are required (or `month`, with `year` defaulting to this year);
 at most **92 days**. `has_absences`, `has_missing_checkouts` narrow the rows —
 and the totals are recomputed over what is left. `sort`: `employee_name`,
-`department`, and every count below.
+`department`, `expected_days`, `present_days`, `on_leave_days`, `absent_days`,
+`excused_days`, `excused_deducted_days`, `excused_not_deducted_days`,
+`rejected_days`, `missing_checkouts`, `total_work_hours`, `attendance_rate`.
+⚙️ Corrected 2026-11-10: the late and early-departure counts and minutes
+(added 2026-11-09) are **not** sort keys.
 
 ```json
 {
@@ -4062,7 +4066,9 @@ POST /api/scheduling/assignments/bulk        scheduling.manage
 
 One schedule from one date for `employee_ids` (1–500) **or** a unit:
 `department_id` with `include_subtree`. Each person is assigned or refused on
-their own — never all-or-nothing:
+their own — never all-or-nothing. ⚙️ (2026-11-10) A unit's population is its
+employed people (نشط or موقوف); a person who left is not assigned. An explicit
+`employee_ids` list is taken as given:
 
 ```json
 {
@@ -4083,7 +4089,12 @@ GET /api/scheduling/calendar?from=2026-11-14&to=2026-11-20&department_id=9    sc
 ```
 
 Everyone's expected shift per date, paginated by employee; `from`/`to`
-required, at most 92 days; `department_id`, `employee_id` optional. `source`
+required, at most 92 days. ⚙️ Since 2026-11-10 it lists **employed people only**
+(a person who left is not on it) and takes **the person filters** of §14
+(«The person filters»): `employee_id` / `employee_ids`, `department_id` /
+`department_ids` (each unit with everything under it), `search` (a name part or
+the staff number); the lists take CSV or an array. An unknown id narrows to
+nobody — an empty page, no longer a 422. `source`
 is where the day came from: `assignment` or `default`, and ⚙️ since 2026-11-10
 `change` (HR's one-off change, §19.6) or `swap` (an approved exchange, §19.7) —
 a change comes before any schedule. Every date of the
