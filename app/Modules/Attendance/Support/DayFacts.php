@@ -54,6 +54,24 @@ final readonly class DayFacts
         return $this->presence?->earlyDepartureMinutes ?? 0;
     }
 
+    /** Overtime counts only on a completed day (per-shift rules spec §4.3). */
+    public function overtimeMinutes(): int
+    {
+        return $this->state === AttendanceDayState::CheckedOut ? ($this->presence?->overtimeMinutes ?? 0) : 0;
+    }
+
+    /**
+     * A completed day only: never a missing check-out, leave, an excuse or an
+     * absence (spec §4.4) — also when presence outranks a leave or excuse span
+     * on the day (attendance during leave, or work on an excused day).
+     */
+    public function shortMinutes(): int
+    {
+        return $this->state === AttendanceDayState::CheckedOut && $this->span === null
+            ? ($this->presence?->shortMinutes ?? 0)
+            : 0;
+    }
+
     public function minutesWithin(): int
     {
         return $this->presence?->minutesWithin ?? 0;

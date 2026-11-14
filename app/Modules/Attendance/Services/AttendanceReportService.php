@@ -226,6 +226,10 @@ class AttendanceReportService
                 'late_minutes'               => $c['late_minutes'],
                 'early_departure_count'      => $c['early_count'],
                 'early_departure_minutes'    => $c['early_minutes'],
+                'overtime_count'             => $c['overtime_count'],
+                'overtime_minutes'           => $c['overtime_minutes'],
+                'short_count'                => $c['short_count'],
+                'short_minutes'              => $c['short_minutes'],
                 'outside_schedule_count'     => $c['outside'],
                 'total_work_hours'           => $c['hours'],
                 'total_work_hours_formatted' => $this->formatHours($c['hours']),
@@ -273,7 +277,8 @@ class AttendanceReportService
     {
         $c = ['expected' => 0, 'present' => 0, 'on_leave' => 0, 'absent' => 0, 'off' => 0, 'missing' => 0, 'rejected' => 0,
             'excused_charged' => 0, 'excused_free' => 0, 'late_count' => 0, 'late_minutes' => 0, 'early_count' => 0,
-            'early_minutes' => 0, 'outside' => 0, 'hours' => 0.0];
+            'early_minutes' => 0, 'overtime_count' => 0, 'overtime_minutes' => 0, 'short_count' => 0, 'short_minutes' => 0,
+            'outside' => 0, 'hours' => 0.0];
 
         foreach ($days as $day) {
             if (! $day->counted) {
@@ -293,6 +298,10 @@ class AttendanceReportService
             $c['late_minutes'] += $day->lateMinutes();
             $c['early_count'] += $day->earlyDepartureMinutes() > 0 ? 1 : 0;
             $c['early_minutes'] += $day->earlyDepartureMinutes();
+            $c['overtime_count'] += $day->overtimeMinutes() > 0 ? 1 : 0;
+            $c['overtime_minutes'] += $day->overtimeMinutes();
+            $c['short_count'] += $day->shortMinutes() > 0 ? 1 : 0;
+            $c['short_minutes'] += $day->shortMinutes();
             $c['outside'] += $day->outsideSchedule() ? 1 : 0;
             $c['hours'] += $day->hours ?? 0.0;
         }
@@ -324,6 +333,10 @@ class AttendanceReportService
             'late_minutes'              => $sum('late_minutes'),
             'early_departure_count'     => $sum('early_departure_count'),
             'early_departure_minutes'   => $sum('early_departure_minutes'),
+            'overtime_count'            => $sum('overtime_count'),
+            'overtime_minutes'          => $sum('overtime_minutes'),
+            'short_count'               => $sum('short_count'),
+            'short_minutes'             => $sum('short_minutes'),
             'outside_schedule_count'    => $sum('outside_schedule_count'),
             'total_work_hours'          => round((float) array_sum(array_column($rows, 'total_work_hours')), 2),
         ];
@@ -405,6 +418,8 @@ class AttendanceReportService
                 'work_hours_formatted'    => $this->formatHours($day->hours),
                 'late_minutes'            => $day->lateMinutes(),
                 'early_departure_minutes' => $day->earlyDepartureMinutes(),
+                'overtime_minutes'        => $day->overtimeMinutes(),
+                'short_minutes'           => $day->shortMinutes(),
                 'minutes_within_shift'    => $day->minutesWithin(),
                 'minutes_outside_shift'   => $day->minutesOutside(),
                 'outside_schedule'        => $day->outsideSchedule(),
@@ -526,6 +541,8 @@ class AttendanceReportService
             'shift'                   => $day?->shift?->toArray(),
             'late_minutes'            => $day?->lateMinutes() ?? 0,
             'early_departure_minutes' => $day?->earlyDepartureMinutes() ?? 0,
+            'overtime_minutes'        => $day?->overtimeMinutes() ?? 0,
+            'short_minutes'           => $day?->shortMinutes() ?? 0,
             'outside_schedule'        => (bool) $in->outside_schedule,
             'check_in_location'    => ['latitude' => $in->latitude, 'longitude' => $in->longitude],
             'check_out_location'   => $out === null ? null : ['latitude' => $out->latitude, 'longitude' => $out->longitude],

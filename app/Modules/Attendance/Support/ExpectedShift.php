@@ -23,7 +23,17 @@ final readonly class ExpectedShift
         public string $name,
         public string $source,
         public ?int $shiftId = null,
+        public ?ShiftRules $rules = null,
     ) {}
+
+    /**
+     * The rules in force on this shift's date (per-shift rules spec §3.1); a
+     * shift built without them — in a unit test — has the company defaults.
+     */
+    public function rules(): ShiftRules
+    {
+        return $this->rules ?? ShiftRules::defaults(intdiv($this->endsAt->getTimestamp() - $this->startsAt->getTimestamp(), 60));
+    }
 
     /** @return array{code: string, name: string, starts_at: string, ends_at: string} */
     public function toArray(): array

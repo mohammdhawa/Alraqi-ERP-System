@@ -28,6 +28,7 @@ use App\Modules\Scheduling\Contracts\BlockingLeave;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\ShiftChange;
+use App\Modules\Scheduling\Models\ShiftRule;
 use App\Modules\Scheduling\Models\ShiftSwap;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Models\WorkScheduleDay;
@@ -160,6 +161,7 @@ class AppServiceProvider extends ServiceProvider
             'work_schedule_day'      => WorkScheduleDay::class,
             'employee_work_schedule' => EmployeeWorkSchedule::class,
             'shift_change'           => ShiftChange::class,
+            'shift_rule'             => ShiftRule::class,
             'shift_swap'             => ShiftSwap::class,
         ]);
 

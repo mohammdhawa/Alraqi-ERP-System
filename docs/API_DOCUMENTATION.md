@@ -2154,7 +2154,10 @@ belongs to a **shift**, not to the calendar date it was tapped on:
 - Everyone has a schedule — their own (§19.3) or the default `OFFICE`,
   09:00–16:00, Saturday to Thursday.
 - A check-in is for the first **duty** whose window — from **60 minutes before
-  its start to its end** — holds the moment and has no check-in yet. Its
+  its start to its end** — holds the moment and has no check-in yet. ⚙️
+  2026-11-11: the 60 minutes, the 4-hour close below and the graces of §14 are
+  **each shift's own rules** (§19.1, `rules`), those values being the
+  defaults; a duty opens by its first shift's rules and closes by its last's. Its
   `shift_date` is the duty's start date: a night shift's records carry the
   evening it began, a guard's 72-hour duty its first day.
 - A check-in that fits no window — a day off, before the window opens, after
@@ -2493,6 +2496,18 @@ only once something is recorded or covers it — a check-in, a refusal, leave �
 as `/api/me/summary` already read it. Both say where they stopped in
 `counted_to` (`null` when the window starts after today); `working_days` still
 names the whole window.
+
+⚠️ ⚙️ **Contract change, 2026-11-11 — per-shift rules (§19.1), additive.**
+Late and early departure are judged by the shift's own two graces
+(`late_grace_minutes`, `early_leave_grace_minutes`). A day row (§14.1 board,
+§14.3 grid, §17.4 my days) gains **`overtime_minutes`** — when the shift counts
+overtime, all the minutes after its end once they reach its minimum (a duty:
+after its last shift; none on a missing check-out; arriving early is never
+overtime) — and **`short_minutes`** — on a completed day only, the shift's
+`required_minutes` less the minutes worked within it. A monthly row and
+`totals` gain `overtime_count`, `overtime_minutes`, `short_count`,
+`short_minutes`; none is a sort key. Both are 0 when nothing applies; nothing
+is paid or deducted.
 
 ⚠️ ⚙️ **Contract change, 2026-11-09 — work shifts (§19).** Each person's day
 comes from **their own schedule**:
@@ -3932,7 +3947,12 @@ The list is every shift, by `code`. **The shift object:**
   "starts_at": "22:00",
   "duration_minutes": 480,
   "ends_next_day": true,
-  "is_active": true
+  "is_active": true,
+  "rules": {
+    "late_grace_minutes": 15, "early_leave_grace_minutes": 15,
+    "check_in_opens_minutes": 60, "check_out_closes_minutes": 240,
+    "overtime_enabled": false, "overtime_min_minutes": 0, "required_minutes": 480
+  }
 }
 ```
 
@@ -3943,11 +3963,53 @@ The list is every shift, by `code`. **The shift object:**
 | `starts_at` | required, `HH:MM` |
 | `duration_minutes` | required, 1–1440 |
 | `is_active` | optional, boolean (default `true`); an inactive shift cannot be put into a schedule |
+| ⚙️ the seven rule fields below | optional, the shift's **first rules**; each omitted takes the default (2026-11-11) |
 
-PATCH takes any of `name`, `starts_at`, `duration_minutes`, `is_active`.
+PATCH takes any of `name`, `starts_at`, `duration_minutes`, `is_active` — and
+**no rule field** (422 on any): rules change only as a dated version.
 **201** «تم إنشاء الوردية.» · **200** «تم تعديل الوردية.» · DELETE **200**
 «تم حذف الوردية.» (soft delete). **422** «لا يمكن تعديل وقت وردية مستخدمة في
 جدول؛ أنشئ وردية جديدة.» · «لا يمكن حذف وردية مستخدمة في جدول.»
+
+#### ⚙️ The shift's rules — new 2026-11-11
+
+(`docs/superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md`;
+reopens S4, S5, S10, S11 of `DECISION_ROUND_WORK_SHIFTS.md`, §F.) Each shift
+carries **dated versions** of its attendance rules; a day is judged by the
+version **in force on it** — the latest `effective_from` on or before it — so
+editing never changes a past day. Every shift has a first version from
+`2000-01-01` (existing shifts: the old company values, so nothing changed).
+
+| Field | Limits | Meaning (default) |
+|---|---|---|
+| `late_grace_minutes` | 0–120 | a check-in later than start + this is late, by the whole minutes since the start (15) |
+| `early_leave_grace_minutes` | 0–120 | a check-out earlier than end − this is early, by the whole minutes before the end (15) |
+| `check_in_opens_minutes` | 0–240 | check-in opens this long before the start (60) |
+| `check_out_closes_minutes` | 0–480 | a check-out is accepted until this long after the end; then an open check-in becomes a missing check-out (240) |
+| `overtime_enabled` | boolean | count overtime (false) |
+| `overtime_min_minutes` | 0–240 | the minutes after the end that make them overtime — then all of them count (0) |
+| `required_minutes` | 1 … the shift's length | below it, a completed day is short by the difference (the length) |
+
+The shift object carries `rules` (in force today). `GET
+/api/scheduling/shifts/{shift}` adds **`rule_versions`**, newest first: `{id,
+effective_from, …the seven fields, created_by: {id, name} | null}`.
+
+```
+POST   /api/scheduling/shifts/{shift}/rules           scheduling.manage
+DELETE /api/scheduling/shifts/{shift}/rules/{rule}    scheduling.manage
+```
+
+- **POST** — `effective_from` (`YYYY-MM-DD`, today or later) and **all seven
+  fields**. **201** «تم حفظ قواعد الوردية.» with the version.
+- **DELETE** — a version that has **not started** (after today). **200** «تم
+  حذف قواعد الوردية.». Another shift's version is a 404.
+- **422** (the message itself): «لا يمكن أن تبدأ القواعد قبل اليوم.» · «توجد
+  قواعد لهذه الوردية من التاريخ نفسه.» · «الساعات المطلوبة لا تتجاوز طول
+  الوردية.» (also on POST /shifts) · «لا يمكن حذف قواعد بدأ العمل بها.» (one
+  in force, or the first). A field out of its limits is a 422 on that field.
+- **A duty of several shifts** opens by its first shift's window and late
+  grace, and closes by its last shift's close, early grace and overtime;
+  required minutes are per shift.
 
 ### 19.2 Schedules
 

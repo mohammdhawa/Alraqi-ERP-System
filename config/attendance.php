@@ -54,6 +54,12 @@ return [
     |                         an open check-in becomes a missing check-out
     |                         (S5); a check-out recorded later finds no
     |                         check-in to close.
+    |
+    | ⚙️ Since 2026-11-11 (per-shift rules; S4/S5/S10 reopened) the three
+    | numbers above are ONLY THE DEFAULTS of a new shift's first rules (both
+    | graces take grace_minutes) and of the migration that gave existing shifts
+    | theirs. No reader judges a day by them: each shift's dated rules
+    | (shift_rules, ShiftRules) do.
     */
     'default_schedule'       => env('ATTENDANCE_DEFAULT_SCHEDULE', 'OFFICE'),
     'grace_minutes'          => (int) env('ATTENDANCE_GRACE_MINUTES', 15),

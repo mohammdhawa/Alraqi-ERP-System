@@ -7,8 +7,10 @@ namespace Tests\Feature\Attendance;
 use App\Modules\Attendance\Enums\AttendanceDayState;
 use App\Modules\Attendance\Enums\AttendanceRecordStatus;
 use App\Modules\Attendance\Models\AttendanceRecord;
+use App\Modules\Attendance\Support\ShiftRules;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
+use App\Modules\Scheduling\Models\Shift;
 use App\Modules\Scheduling\Models\WorkSchedule;
 use App\Modules\Scheduling\Services\ScheduleAssigner;
 use Database\Seeders\SchedulingSeeder;
@@ -16,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
+use Tests\Feature\Attendance\Concerns\FakesApprovedLeave;
 use Tests\TestCase;
 
 /**
@@ -25,6 +28,7 @@ use Tests\TestCase;
  */
 class ShiftReportsTest extends TestCase
 {
+    use FakesApprovedLeave;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -294,5 +298,86 @@ class ShiftReportsTest extends TestCase
 
         $this->assertSame(AttendanceDayState::CheckedOut->value, $day['status']);
         $this->assertSame([0, 420, 61, true], [$day['late_minutes'], $day['minutes_within_shift'], $day['minutes_outside_shift'], $day['outside_schedule']]);
+    }
+
+    // ── Per-shift rules plan Task 4: overtime and short days on every report (spec §4.5) ──
+
+    /** DAY counts overtime past 30 minutes and needs 400 of its 420 minutes; the office does 11-14 to 11-17. */
+    private function overtimeOffice(): Employee
+    {
+        Shift::where('code', 'DAY')->sole()->rules()->where('effective_from', ShiftRules::FIRST_DAY)->sole()
+            ->update(['overtime_enabled' => true, 'overtime_min_minutes' => 30, 'required_minutes' => 400]);
+        $office = $this->person('OFFICE');
+        $this->in($office, '2026-11-14 09:20:00', '2026-11-14');           // within 400 — not short
+        $this->out($office, '2026-11-14 16:40:00', '2026-11-14', 7.33);     // 40 after the end — overtime
+        $this->in($office, '2026-11-15 09:30:00', '2026-11-15');           // within 390 — short 10
+        $this->out($office, '2026-11-15 16:10:00', '2026-11-15', 6.67);     // 10 after — below the minimum
+        $this->in($office, '2026-11-16 09:00:00', '2026-11-16', ['status' => AttendanceRecordStatus::MissingCheckout]);
+        // 11-17: nothing — absent.
+        Carbon::setTestNow('2026-11-18 10:00:00');
+
+        return $office;
+    }
+
+    public function test_the_grid_shows_overtime_and_short_minutes(): void
+    {
+        $office = $this->overtimeOffice();
+        $this->actingAsAdmin();
+
+        $days = $this->days($this->grid($office, '2026-11-14', '2026-11-17'));
+
+        $this->assertSame([40, 0], [$days['2026-11-14']['overtime_minutes'], $days['2026-11-14']['short_minutes']]);
+        $this->assertSame([0, 10], [$days['2026-11-15']['overtime_minutes'], $days['2026-11-15']['short_minutes']]);
+        $this->assertSame([0, 0], [$days['2026-11-16']['overtime_minutes'], $days['2026-11-16']['short_minutes']], 'a missing check-out');
+        $this->assertSame([0, 0], [$days['2026-11-17']['overtime_minutes'], $days['2026-11-17']['short_minutes']], 'an absent day');
+    }
+
+    public function test_the_daily_board_shows_overtime_and_short_minutes(): void
+    {
+        $this->overtimeOffice();
+        $this->actingAsAdmin();
+
+        $this->getJson('/api/attendance/report?date=2026-11-14')->assertOk()
+            ->assertJsonPath('data.checked_out.0.overtime_minutes', 40)
+            ->assertJsonPath('data.checked_out.0.short_minutes', 0);
+    }
+
+    public function test_the_monthly_report_counts_overtime_and_short_days(): void
+    {
+        $this->overtimeOffice();
+        $this->actingAsAdmin();
+
+        $report = $this->getJson('/api/attendance/report/monthly?from=2026-11-14&to=2026-11-17')->assertOk()->json('data');
+
+        foreach ([$report['rows'][0], $report['totals']] as $counts) {
+            $this->assertSame([1, 40, 1, 10], [$counts['overtime_count'], $counts['overtime_minutes'], $counts['short_count'], $counts['short_minutes']]);
+        }
+    }
+
+    public function test_a_leave_day_with_presence_is_never_short(): void
+    {
+        config(['attendance.allow_attendance_during_leave' => true]);
+        $office = $this->person('OFFICE');
+        $this->grantLeave($office, '2026-11-14', '2026-11-14');
+        $this->in($office, '2026-11-14 09:00:00', '2026-11-14');
+        $this->out($office, '2026-11-14 11:00:00', '2026-11-14', 2.0);
+        Carbon::setTestNow('2026-11-15 10:00:00');
+        $this->actingAsAdmin();
+
+        $day = $this->days($this->grid($office, '2026-11-14', '2026-11-14'))['2026-11-14'];
+
+        $this->assertSame(AttendanceDayState::CheckedOut->value, $day['status'], 'presence outranks the leave span');
+        $this->assertSame(0, $day['short_minutes'], 'spec §4.4: leave is never short');
+    }
+
+    public function test_my_days_show_overtime_and_short_minutes(): void
+    {
+        $office = $this->overtimeOffice();
+        Sanctum::actingAs(User::where('employee_id', $office->id)->sole());
+
+        $days = collect($this->getJson('/api/me/attendance/days?from=2026-11-14&to=2026-11-15')->assertOk()->json('data.days'))->keyBy('date');
+
+        $this->assertSame([40, 0], [$days['2026-11-14']['overtime_minutes'], $days['2026-11-14']['short_minutes']]);
+        $this->assertSame([0, 10], [$days['2026-11-15']['overtime_minutes'], $days['2026-11-15']['short_minutes']]);
     }
 }

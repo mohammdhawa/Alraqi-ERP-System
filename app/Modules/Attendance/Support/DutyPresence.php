@@ -24,7 +24,7 @@ use Carbon\CarbonInterface;
 final class DutyPresence
 {
     /** @return array<string, ShiftPresence> keyed by shift date */
-    public static function split(Duty $duty, ?CarbonInterface $in, ?CarbonInterface $out, CarbonInterface $now, int $graceMinutes): array
+    public static function split(Duty $duty, ?CarbonInterface $in, ?CarbonInterface $out, CarbonInterface $now): array
     {
         if ($in === null) {
             return self::nothing($duty);
@@ -50,14 +50,16 @@ final class DutyPresence
             $outside = 0;
 
             if ($index === $first) {
-                $late = self::beyondGrace(self::minutes($shift->startsAt, max($in, $shift->startsAt)), $graceMinutes);
+                $late = self::beyondGrace(self::minutes($shift->startsAt, max($in, $shift->startsAt)), $shift->rules()->lateGraceMinutes);
                 $outside += $before;
             }
             if ($index === $last && $out !== null) {
-                $early = self::beyondGrace(self::minutes(min($end, $shift->endsAt), $shift->endsAt), $graceMinutes);
+                $early = self::beyondGrace(self::minutes(min($end, $shift->endsAt), $shift->endsAt), $shift->rules()->earlyLeaveGraceMinutes);
             }
+            $overtime = 0;
             if ($index === array_key_last($duty->shifts)) {
                 $outside += $after;
+                $overtime = $out === null ? 0 : self::overtime(self::minutes($duty->endsAt(), $out), $shift->rules());
             }
 
             $result[$shift->date] = new ShiftPresence(
@@ -67,6 +69,9 @@ final class DutyPresence
                 minutesWithin: $overlaps[$index],
                 minutesOutside: $outside,
                 workHours: round(($overlaps[$index] + $outside) / 60, 2),
+                overtimeMinutes: $overtime,
+                // Within the shift only: overtime and early arrival do not make up for it (spec §4.4).
+                shortMinutes: $out === null ? 0 : max(0, $shift->rules()->requiredMinutes - $overlaps[$index]),
             );
         }
 
@@ -88,6 +93,12 @@ final class DutyPresence
     private static function minutes(CarbonInterface $from, CarbonInterface $to): int
     {
         return $to->gt($from) ? intdiv($to->getTimestamp() - $from->getTimestamp(), 60) : 0;
+    }
+
+    /** All the minutes after the end, once they reach the minimum, when the shift counts overtime (spec §4.3). */
+    private static function overtime(int $afterEnd, ShiftRules $rules): int
+    {
+        return $rules->overtimeEnabled && $afterEnd > 0 && $afterEnd >= $rules->overtimeMinMinutes ? $afterEnd : 0;
     }
 
     private static function beyondGrace(int $minutes, int $grace): int

@@ -1919,3 +1919,78 @@ eager-loaded, with a test.
 report sorts by "every count below"; the server's sort keys are the thirteen in
 `AttendanceReportService::MONTHLY_SORTS`, and the late and early-departure
 counts are not among them.
+
+### 2026-11-11 — work shifts: per-shift rules, built
+
+On branch `work-shifts-rules` in **both** repositories, from piece 3 as the
+owner committed it (`06f2f0e` here, `179a41d` in `../erp-dashboard`),
+**uncommitted**. Spec `docs/superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md`,
+plan `docs/superpowers/plans/2026-11-11-work-shifts-per-shift-rules.md`. The
+owner found the shift form had no grace, windows, overtime or required hours,
+and asked for them per shift: this **reopens S4, S5, S10 and S11** of
+`DECISION_ROUND_WORK_SHIFTS.md`, answered as R1–R7 in its new §F.
+
+**Decided (2026-11-11):** per shift (R1); the "late check-out allowance" is the
+window for accepting a check-out (R2); overtime is the time after the end once
+it reaches a minimum, all of it then counting (R3), counted and shown only
+(R4); required hours flag a short day (R5); two graces (R6); rules change as
+dated versions so past days keep theirs (R7); a table of versions (R8).
+
+**What was built.** Backend: `shift_rules` (dated versions) and a data
+migration giving every existing shift the old company values from
+`2000-01-01`; a `ShiftRules` value carried on each expected shift; the six
+readers of the company-wide config (the reports, the shift clock, check-in
+matching, an exchange's checks) switched to it — a duty opens by its first
+shift's rules and closes by its last's; two routes, `POST/DELETE
+/api/scheduling/shifts/{shift}/rules` (124 in all, no new permission); the
+shift object's `rules` and `rule_versions`; `overtime_minutes` and
+`short_minutes` on every day row and `overtime_*` / `short_*` counts on the
+monthly report. Dashboard: the shift form takes a start and an **end** time
+(«ينتهي في اليوم التالي»), the rules on a new shift, the rule versions on an
+existing one («قواعد جديدة من تاريخ», «حذف» before a version starts), an
+«عمل إضافي» badge on the list, and «عمل إضافي» / «نقص ساعات» columns on the
+three attendance screens. `config/attendance.php` now gives defaults only.
+
+**Rulings while building** (the run's ledger): migrations dated
+`2026_11_12_…` (the plan's name collided with `create_shift_changes_table`);
+the `created` hook skips while the table does not exist yet (the 2026-11-10
+data migration creates `DAY`/`GUARD` first; the backfill covers them);
+`effective_from` is stored as a plain date so the unique index holds on SQLite
+too; two existing query-count tests allow one more query (the rules' eager
+load, still independent of the number of people); the four §5.1 refusals are
+domain 422s with their message, as every scheduling refusal (the validation
+handler would replace the message); `MyAttendanceDaysTest`'s exact key list
+gains the two new fields; the form computes the length from start and end, so
+`toShiftBody` is unchanged.
+
+**Deploy:** `php artisan migrate` (the table and its seed). No new permission.
+
+**The final whole-branch review** (a fresh reviewer, the same day) found no
+critical issue; four findings were fixed, each with a test that failed first:
+changing an **unused** shift's length now carries its versions' required
+minutes along (otherwise every day would have read short); a shift's rules are
+read once and kept, so the schedules and changes lists no longer query them
+per day; a leave or excuse day with presence is **never short** (spec §4.4);
+and a cleared rule field blocks the form instead of reaching the API as 0.
+Deferred (minor): two saves of one date at once give a 500 instead of the 422;
+closing the edit form drops an unsaved new version without asking; an end at
+exactly 00:00 reads «ينتهي في اليوم التالي» on the form but not on the list;
+a duty's early grace comes from its last shift *with presence*; no test yet of
+an exchange's "opened" check under a per-shift window.
+
+**Verification (2026-11-11):** backend `php artisan test` **1528 passed (6534
+assertions)**, Pint clean; dashboard `npm test` 402 passed, the build exits 0,
+eslint clean on the touched files.
+
+**The browser walk (2026-11-11)**, against the local API after `migrate` (the
+two `shift_rules` migrations seeded `DAY` and `GUARD` with the old values), as
+HR: a shift created from 22:00 to 06:00 read «المدة: 8 س · ينتهي في اليوم
+التالي» and listed at 480 minutes ending 06:00 the next day; a cleared rule
+field showed «أكمل قواعد الوردية.» and blocked saving; its rules list read
+«منذ إنشاء الوردية» with no «حذف»; a version from tomorrow saved first in the
+list with «بواسطة» and «حذف», and deleting it left the first version; with
+overtime from 30 minutes and 400 minutes required, the daily board showed a
+09:20–16:40 day as 20 late and «عمل إضافي 40 د», and a 09:30–16:10 day as 30
+late, no overtime (10 below the minimum) and «نقص ساعات 10 د». No defect was
+found. The test shift, the test check-ins and the temporary rules were removed
+afterwards.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Modules\Scheduling\Controllers\BulkAssignmentController;
 use App\Modules\Scheduling\Controllers\ScheduleCalendarController;
 use App\Modules\Scheduling\Controllers\ShiftController;
+use App\Modules\Scheduling\Controllers\ShiftRuleController;
 use App\Modules\Scheduling\Controllers\ShiftSwapController;
 use App\Modules\Scheduling\Controllers\WorkScheduleController;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +33,11 @@ Route::middleware(['auth:sanctum', 'audit'])->name('scheduling.')->group(functio
         Route::get('/{shift}', [ShiftController::class, 'show'])->middleware('permission:scheduling.view')->whereNumber('shift')->name('show');
         Route::patch('/{shift}', [ShiftController::class, 'update'])->middleware('permission:scheduling.manage')->whereNumber('shift')->name('update');
         Route::delete('/{shift}', [ShiftController::class, 'destroy'])->middleware('permission:scheduling.manage')->whereNumber('shift')->name('destroy');
+
+        // Per-shift rules (docs/superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md §5.1).
+        Route::post('/{shift}/rules', [ShiftRuleController::class, 'store'])->middleware('permission:scheduling.manage')->whereNumber('shift')->name('rules.store');
+        Route::delete('/{shift}/rules/{rule}', [ShiftRuleController::class, 'destroy'])->middleware('permission:scheduling.manage')
+            ->whereNumber(['shift', 'rule'])->scopeBindings()->name('rules.destroy');
     });
 
     Route::prefix('schedules')->name('schedules.')->group(function () {

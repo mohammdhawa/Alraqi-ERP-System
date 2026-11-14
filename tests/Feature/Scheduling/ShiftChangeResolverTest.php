@@ -172,7 +172,8 @@ class ShiftChangeResolverTest extends TestCase
         DB::enableQueryLog();
         $resolver->shiftsFor($people->modelKeys(), '2026-11-01', '2026-11-30');
 
-        $this->assertLessThanOrEqual(5, count(DB::getQueryLog()));
+        // 5 before per-shift rules, plus one eager load of the shifts' rules (spec §3.1).
+        $this->assertLessThanOrEqual(6, count(DB::getQueryLog()));
     }
 
     public function test_shift_id_is_set_on_every_expected_shift(): void

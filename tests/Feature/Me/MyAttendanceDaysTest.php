@@ -268,7 +268,7 @@ class MyAttendanceDaysTest extends TestCase
         $this->assertSame(['id' => $this->units['a']->id, 'name' => 'إدارة أ'], $data['department']);
         $this->assertSame([
             'date', 'weekday', 'working_day', 'shift', 'status', 'status_label', 'check_in_id', 'check_in_time', 'check_out_time',
-            'work_hours', 'work_hours_formatted', 'late_minutes', 'early_departure_minutes', 'minutes_within_shift',
+            'work_hours', 'work_hours_formatted', 'late_minutes', 'early_departure_minutes', 'overtime_minutes', 'short_minutes', 'minutes_within_shift',
             'minutes_outside_shift', 'outside_schedule', 'leave_type', 'rejection', 'correction', 'excuse',
         ], array_keys($data['days'][0]));
         $this->assertSame(0, $data['days'][0]['weekday'], '21 June 2026 is a Sunday');
