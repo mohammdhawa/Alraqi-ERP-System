@@ -2075,3 +2075,16 @@ can lag the close by up to a minute.
 **1567 passed**, `flutter analyze` 5 infos, all older than this piece.
 **Not done:** no run on a device — the manual scenarios are slice 8's to
 run — and no commit in either repository.
+
+### 2026-11-15 — work shifts, merged in all three repositories
+
+The entries above say "uncommitted" as they were written; each piece has
+since been committed and merged by the owner. Here: `main` is `b3988c2`, the
+merge of pull request 9 (`work-shifts-app-api`), carrying piece 3 (`06f2f0e`),
+per-shift rules (`0873ba6`) and piece 4's backend part (`dfeaee4`) on top of
+pieces 1 and 2 (`6493015`). `../erp-dashboard`: `main` is `a0d1185`, the merge
+of its pull request 4 (`work-shifts-rules`). `../alraqi-erp-app`: `main` is
+`708311d`, the merge of its pull request 6 (`work-shifts-app`, `c936044`).
+
+**Still not done:** no run of piece 4 on a device. **Next:** the app's
+slice 8, pilot hardening (`START_HERE.md` §10 item 1).

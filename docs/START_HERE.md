@@ -4,12 +4,13 @@
 > Everything else in `docs/` is a deep-dive on one topic. This file is the map:
 > what the system is, how it is built, what is finished, and what to do next.
 >
-> **Last verified against the code:** 2026-11-15, on branch `work-shifts-app-api`
-> (from `work-shifts-rules`): attendance, approvals, leave,
+> **Last verified against the code:** 2026-11-15, on `main` (`b3988c2`):
+> attendance, approvals, leave,
 > `/api/me`, the employee import by upload, Kobo employee numbers and **work
 > shifts** — the backend core, one-off changes and duty exchanges, the
-> dashboard, per-shift rules and the app's part (piece 4, uncommitted) — are
-> built, and the Flutter app has slices 0–7 of 0–8 merged. The real import and
+> dashboard, per-shift rules and the app's part (piece 4) — are
+> built and merged in all three repositories, and the Flutter app has slices
+> 0–7 of 0–8 merged. The real import and
 > the pilot have not happened.
 > When you change the system, update the sections marked ⚙️ — they state facts
 > about the code and go stale if ignored.
@@ -71,13 +72,13 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 
 | | |
 |---|---|
-| **Branch** | ⚙️ (2026-11-15) `work-shifts-app-api`, from `work-shifts-rules` (per-shift rules, committed: `0873ba6` here, `d91a4f4` in `../erp-dashboard`): **piece 4, the app** — built here and in `../alraqi-erp-app` (branch `work-shifts-app`), **uncommitted** in both. Piece 3 is committed (`06f2f0e` here, `179a41d` in `../erp-dashboard`). Pieces 1 and 2 of work shifts are merged: `main` is `6493015`, the merge of pull request 8 |
+| **Branch** | ⚙️ (2026-11-15) `main` at `b3988c2`, the merge of pull request 9 (`work-shifts-app-api`): **all four pieces of work shifts and per-shift rules are merged** — piece 3 `06f2f0e`, per-shift rules `0873ba6`, piece 4's backend part `dfeaee4`; pieces 1 and 2 came with pull request 8 (`6493015`). `../erp-dashboard`'s `main` is `a0d1185` (its pull request 4) and `../alraqi-erp-app`'s is `708311d` (its pull request 6) |
 | **Test suite** | **1546 passing**, Pint clean (`php artisan test`, 2026-11-15) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 124 routes under `/api`, 48 permissions |
-| **Working tree** | Pieces 1–2 of work shifts are on `main`; piece 3 is committed on `work-shifts-dashboard` and per-shift rules on `work-shifts-rules`; piece 4's backend part is uncommitted on `work-shifts-app-api`; check `git status` for anything since |
+| **Working tree** | Everything built so far is on `main` in all three repositories, with no feature branch ahead of it; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
 | **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
-| **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan are merged to its `main` (`0598ccf`, 2026-11-09); ⚙️ work shifts piece 4 is built on its branch `work-shifts-app`, uncommitted and not yet run on a device (2026-11-15); slice 8, pilot hardening, comes after it (§10 items 0 and 1) |
+| **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan and ⚙️ work shifts piece 4 are merged to its `main` (`708311d`, 2026-11-15); piece 4 has not yet run on a device; slice 8, pilot hardening, is next (§10 item 1) |
 
 **Done:** Phase 1 (the whole foundation), Batches 1–3 of Phase 1.5 (departments,
 the employees rebuild, the import tooling), and the backend of the Employee App
@@ -86,7 +87,7 @@ v1 — sessions, devices and push, attendance, the approvals engine, leave, the
 work shifts backend core (2026-11-09) and one-off changes and duty exchanges
 (2026-11-10) — §10 item 0.
 
-**Not done:** work shifts piece 4's device run and commit (the four pieces are built); Batch 4, the real import; the app's slice 8; the pilot; documents
+**Not done:** work shifts piece 4's device run (the four pieces are built and merged); Batch 4, the real import; the app's slice 8; the pilot; documents
 on the approvals engine; the Stage 3 parallel month; payroll.
 
 **Next:** §10. The pilot's 2026-11-01 date has passed and stopped being binding on
@@ -1355,7 +1356,7 @@ before it starts. 11 routes (122 in all), no new permission. Merged (in `6493015
 **Deploy:** `migrate`. **Next:** piece 3, the dashboard; then piece 4, the app.
 
 ⚙️ **Piece 3, the dashboard, is built** on branch `work-shifts-dashboard`, in
-both repositories, uncommitted (2026-11-10; spec and plan in `docs/superpowers/`;
+both repositories, since merged (2026-11-10; spec and plan in `docs/superpowers/`;
 work order §8). In the backend, the calendar's people filters (employed people
 only; employees, units with their sub-units, search); no migration, no new
 route. In `../erp-dashboard`: the calendar (click a day to change it, bulk
@@ -1381,7 +1382,8 @@ old company values. 2 routes (124 in all), no new permission. **Deploy:**
 
 ⚙️ **Piece 4, the app, is built** on branch `work-shifts-app` in
 `../alraqi-erp-app` (from its `main`, `0598ccf`) and `work-shifts-app-api` here
-(from `work-shifts-rules`), **uncommitted in both** (2026-11-14 and 15; spec,
+(from `work-shifts-rules`), **merged in both** — `708311d` there, `b3988c2`
+here; the dashboard's `main` is `a0d1185` — (2026-11-14 and 15; spec,
 plan and manual scenarios in the app's `docs/`; work order §8). Here, all
 additive: `/api/me/summary` gains a **`duty`** card (the check-in a check-out
 now would close, the last check-in whose check-out was missed, and the duties
@@ -1395,8 +1397,7 @@ for offline, the four figures in the day sheet and the month, the leave form
 counting scheduled days, a guard filing and following an exchange, and the
 manager's general approval screen. **Not yet run on a device:** the scenarios
 in the app's `docs/manual-test-scenarios/work-shifts-app.md` are slice 8's to
-run. **Deploy:** nothing here beyond the code. **Next:** the owner commits both
-repositories; then item 1.
+run. **Deploy:** nothing here beyond the code. **Next:** item 1.
 
 **1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,
 `docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there, its §5).
@@ -1856,7 +1857,7 @@ Stated honestly, so none of these is mistaken for a bug.
   change to the real tree fails the build. Keep it that way.
 
 **Git**
-- `main` is the default branch and carries work shifts pieces 1–2 (`6493015`); piece 3 is committed on `work-shifts-dashboard` (`06f2f0e`) and per-shift rules on `work-shifts-rules` (`0873ba6`); piece 4's backend part is uncommitted on `work-shifts-app-api`.
+- `main` is the default branch and carries all of work shifts (`b3988c2`, the merge of pull request 9): pieces 1–2 (`6493015`), piece 3 (`06f2f0e`), per-shift rules (`0873ba6`) and piece 4's backend part (`dfeaee4`).
 - Commit messages here are descriptive sentences, not conventional-commit
   prefixes — e.g. *"Seed the actual company tree; split invented fixtures out of
   it"*.
