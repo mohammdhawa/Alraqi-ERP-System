@@ -80,12 +80,9 @@ class ShiftSwapPlan
         $timezone = $this->calendar->timezone();
         $from = CarbonImmutable::parse(min($dates), $timezone)->subDays(6)->toDateString();
         $to = CarbonImmutable::parse(max($dates), $timezone)->addDays(Duty::MAX_SHIFTS)->toDateString();
-        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
-        $close = max(0, (int) config('attendance.close_after_minutes', 240));
-
         $duties = [];
         foreach ($this->shifts->shiftsFor(array_values(array_unique(array_column($pairs, 0))), $from, $to) as $employeeId => $shifts) {
-            foreach (Duty::runs(array_values($shifts), $opens, $close) as $duty) {
+            foreach (Duty::runs(array_values($shifts)) as $duty) {
                 $duties[$employeeId][$duty->shiftDate()] = $duty;
             }
         }

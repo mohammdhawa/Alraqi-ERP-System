@@ -105,12 +105,9 @@ class AttendanceShiftClock
 
         $ids = $open->pluck('employee_id')->map(fn ($id): int => (int) $id)->unique()->values()->all();
         $shifts = $this->shifts->shiftsFor($ids, $at->subDays(self::LOOKBACK_DAYS + 6)->toDateString(), $at->addDay()->toDateString());
-        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
-        $closes = max(0, (int) config('attendance.close_after_minutes', 240));
-
         $duties = [];
         foreach ($shifts as $id => $byDate) {
-            foreach (Duty::runs(array_values($byDate), $opens, $closes) as $duty) {
+            foreach (Duty::runs(array_values($byDate)) as $duty) {
                 $duties[$id][$duty->shiftDate()] = $duty;
             }
         }

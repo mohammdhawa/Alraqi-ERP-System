@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Attendance\Requests\Concerns;
 
-use App\Shared\Support\CsvList;
+use App\Modules\HR\Requests\Concerns\FiltersPeople;
 use Carbon\Carbon;
 use Illuminate\Validation\Validator;
 
@@ -21,16 +21,9 @@ use Illuminate\Validation\Validator;
  */
 trait ReportsOnPeople
 {
-    private const MAX_RANGE_DAYS = 92;
+    use FiltersPeople;
 
-    protected function normalisePeople(): void
-    {
-        foreach (['employee_ids', 'department_ids'] as $key) {
-            if ($this->has($key)) {
-                $this->merge([$key => CsvList::parse($this->input($key))]);
-            }
-        }
-    }
+    private const MAX_RANGE_DAYS = 92;
 
     /** `month` (+ `year`, this year by default) becomes from/to, when no range was given. */
     protected function expandMonth(): void
@@ -46,22 +39,6 @@ trait ReportsOnPeople
             $start = Carbon::create($year, $month, 1);
             $this->merge(['from' => $start->toDateString(), 'to' => $start->copy()->endOfMonth()->toDateString()]);
         }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    protected function peopleRules(): array
-    {
-        return [
-            'employee_id'      => ['sometimes', 'integer', 'min:1'],
-            'employee_ids'     => ['sometimes', 'array'],
-            'employee_ids.*'   => ['integer', 'min:1'],
-            'department_id'    => ['sometimes', 'integer', 'min:1'],
-            'department_ids'   => ['sometimes', 'array'],
-            'department_ids.*' => ['integer', 'min:1'],
-            'search'           => ['sometimes', 'nullable', 'string', 'max:100'],
-        ];
     }
 
     /**

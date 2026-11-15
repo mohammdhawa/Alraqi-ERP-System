@@ -34,6 +34,6 @@ class BulkAssignRequest extends AssignWorkScheduleRequest
         $root = (int) $this->validated('department_id');
         $units = $this->boolean('include_subtree') ? Department::subtreeIds([$root]) : [$root];
 
-        return Employee::query()->whereIn('department_id', $units)->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        return Employee::query()->employed()->whereIn('department_id', $units)->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id)->all();
     }
 }

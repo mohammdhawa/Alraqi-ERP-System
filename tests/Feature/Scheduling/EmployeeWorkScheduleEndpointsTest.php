@@ -61,6 +61,22 @@ class EmployeeWorkScheduleEndpointsTest extends TestCase
         $this->getJson($this->url())->assertOk()->assertJsonCount(1, 'data');
     }
 
+    public function test_the_list_names_the_creating_accounts_employee(): void
+    {
+        $user = $this->actingAsUserWithPermissions(['scheduling.manage', 'scheduling.view']);
+        $creator = Employee::factory()->create();
+        $user->forceFill(['employee_id' => $creator->id])->save();
+
+        $this->postJson($this->url(), ['work_schedule_id' => $this->scheduleId('GUARD'), 'from_date' => '2026-11-14', 'cycle_start_date' => '2026-11-14'])
+            ->assertCreated()
+            ->assertJsonPath('data.created_by.name', $creator->full_name);
+
+        $this->getJson($this->url())
+            ->assertOk()
+            ->assertJsonPath('data.0.created_by.id', $user->id)
+            ->assertJsonPath('data.0.created_by.name', $creator->full_name);
+    }
+
     public function test_a_new_assignment_closes_the_open_one_the_day_before(): void
     {
         $this->actingAsUserWithPermissions(['scheduling.manage']);

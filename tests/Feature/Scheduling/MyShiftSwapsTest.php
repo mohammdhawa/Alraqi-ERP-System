@@ -74,6 +74,19 @@ class MyShiftSwapsTest extends TestCase
         $this->assertCount(3, $response->json('data.my_duties.0.shifts'));
     }
 
+    /**
+     * An office worker under the guards' manager is offered nothing (work
+     * shifts piece 4, app spec §4.4): filing would refuse them anyway.
+     */
+    public function test_options_are_empty_for_an_office_worker_under_a_guards_manager(): void
+    {
+        $office = $this->person($this->units['a1']);
+        $this->actingAsPerson($office);
+
+        $this->getJson('/api/me/shift-swaps/options')->assertOk()
+            ->assertExactJson(['success' => true, 'message' => 'تمت العملية بنجاح.', 'data' => ['my_duties' => [], 'partners' => []]]);
+    }
+
     public function test_a_guard_files_an_exchange(): void
     {
         $this->file()->assertCreated()

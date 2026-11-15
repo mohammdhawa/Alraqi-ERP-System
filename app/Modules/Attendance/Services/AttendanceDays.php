@@ -73,20 +73,17 @@ class AttendanceDays
         $records = $this->records($ids, $first->subDays(self::RECORD_LOOKBACK_DAYS)->toDateString(), $to);
         $refused = $this->refused($ids, $from, $to);
         $spans = $this->leave->spans($ids, $from, $to);
-        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
-        $close = max(0, (int) config('attendance.close_after_minutes', 240));
-        $grace = max(0, (int) config('attendance.grace_minutes', 15));
 
         $out = [];
         foreach ($employees as $employee) {
             $id = (int) $employee->getKey();
             $mine = $shifts[$id] ?? [];
             $duties = [];
-            foreach (Duty::runs(array_values($mine), $opens, $close) as $duty) {
+            foreach (Duty::runs(array_values($mine)) as $duty) {
                 $duties[$duty->shiftDate()] = $duty;
             }
 
-            $entries = $this->entries($records->get($id, collect()), $duties, $now, $grace);
+            $entries = $this->entries($records->get($id, collect()), $duties, $now);
             $ends = $employee->termination_date?->toDateString();
 
             for ($day = $first; $day->lte($last); $day = $day->addDay()) {
@@ -168,7 +165,7 @@ class AttendanceDays
      *                                       satisfy that date's shift (final review I3).
      * @return array<string, array{0: AttendanceRecord, 1: ?AttendanceRecord, 2: ShiftPresence, 3: int, 4: bool}>
      */
-    private function entries(Collection $records, array $duties, CarbonImmutable $now, int $grace): array
+    private function entries(Collection $records, array $duties, CarbonImmutable $now): array
     {
         $checkOuts = $records->filter(fn (AttendanceRecord $r): bool => $r->type === AttendanceEventType::CheckOut)
             ->groupBy(fn (AttendanceRecord $r): string => $r->shift_date->toDateString())->map->last();
@@ -181,7 +178,7 @@ class AttendanceDays
             }
             $out = $checkOuts->get($shiftDate);
             $duty = $duties[$shiftDate] ?? null;
-            $split = $duty === null ? [] : DutyPresence::split($duty, $in->recorded_at, $out?->recorded_at, $now, $grace);
+            $split = $duty === null ? [] : DutyPresence::split($duty, $in->recorded_at, $out?->recorded_at, $now);
             $reaches = array_filter($split, static fn (ShiftPresence $p): bool => $p->present) !== [];
 
             if ($duty === null || ($in->outside_schedule && ! $reaches)) {

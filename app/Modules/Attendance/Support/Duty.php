@@ -26,13 +26,22 @@ final readonly class Duty
         public CarbonImmutable $closesAt,
     ) {}
 
-    /** @param  list<ExpectedShift>  $shifts */
-    public static function of(array $shifts, int $opensMinutes, int $closeMinutes): self
+    /**
+     * The window opens by its first shift's rules and closes by its last's
+     * (per-shift rules spec §3.3).
+     *
+     * @param  list<ExpectedShift>  $shifts
+     */
+    public static function of(array $shifts): self
     {
         $first = $shifts[0];
         $last = $shifts[array_key_last($shifts)];
 
-        return new self($shifts, $first->startsAt->subMinutes($opensMinutes), $last->endsAt->addMinutes($closeMinutes));
+        return new self(
+            $shifts,
+            $first->startsAt->subMinutes($first->rules()->checkInOpensMinutes),
+            $last->endsAt->addMinutes($last->rules()->checkOutClosesMinutes),
+        );
     }
 
     /**
@@ -43,7 +52,7 @@ final readonly class Duty
      * @param  list<ExpectedShift>  $shifts  in date order
      * @return list<self>
      */
-    public static function runs(array $shifts, int $opensMinutes, int $closeMinutes): array
+    public static function runs(array $shifts): array
     {
         $duties = [];
         $run = [];
@@ -53,13 +62,13 @@ final readonly class Duty
                 && $last->endsAt->equalTo($shift->startsAt) && count($run) < self::MAX_SHIFTS;
 
             if ($run !== [] && ! $joins) {
-                $duties[] = self::of($run, $opensMinutes, $closeMinutes);
+                $duties[] = self::of($run);
                 $run = [];
             }
             $run[] = $shift;
         }
         if ($run !== []) {
-            $duties[] = self::of($run, $opensMinutes, $closeMinutes);
+            $duties[] = self::of($run);
         }
 
         return $duties;

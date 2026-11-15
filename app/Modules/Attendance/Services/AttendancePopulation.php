@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace App\Modules\Attendance\Services;
 
 use App\Modules\Auth\Models\User;
-use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Enums\EmployeeStatus;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Support\RequestRowScopes;
-use App\Shared\Support\SearchTerm;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -81,37 +79,6 @@ final class AttendancePopulation
      */
     public static function filter(Builder $employees, array $filters): Builder
     {
-        $ids = self::ids($filters, 'employee_id', 'employee_ids');
-        if ($ids !== []) {
-            $employees->whereIn($employees->qualifyColumn('id'), $ids);
-        }
-
-        $units = self::ids($filters, 'department_id', 'department_ids');
-        if ($units !== []) {
-            $employees->whereIn($employees->qualifyColumn('department_id'), Department::subtreeIds($units));
-        }
-
-        $search = trim((string) ($filters['search'] ?? ''));
-        if ($search !== '') {
-            $employees->where(function (Builder $inner) use ($search): void {
-                foreach (['first_name', 'middle_name', 'last_name', 'employee_number'] as $column) {
-                    SearchTerm::orWhere($inner, $column, $search);
-                }
-            });
-        }
-
-        return $employees;
-    }
-
-    /**
-     * @param  array<string, mixed>  $filters
-     * @return array<int, int>
-     */
-    private static function ids(array $filters, string $one, string $many): array
-    {
-        return array_values(array_unique(array_map('intval', [
-            ...($filters[$many] ?? []),
-            ...(isset($filters[$one]) ? [$filters[$one]] : []),
-        ])));
+        return $employees->matchingPeople($filters);
     }
 }

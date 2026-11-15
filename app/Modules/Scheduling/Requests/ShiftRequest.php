@@ -33,7 +33,27 @@ class ShiftRequest extends FormRequest
             'starts_at'        => [$required, 'string', 'date_format:H:i'],
             'duration_minutes' => [$required, 'integer', 'min:1', 'max:1440'],
             'is_active'        => ['sometimes', 'boolean'],
-        ];
+        ] + ($creating
+            // A new shift's first rules version (per-shift rules spec §5.1); each one omitted is the default.
+            ? ShiftRuleRequest::fieldRules('sometimes')
+            // A used shift's rules change only as a dated version (POST …/rules).
+            : array_map(static fn (): array => ['prohibited'], ShiftRuleRequest::fieldRules('sometimes')));
+    }
+
+    /** The given rule fields, for the first version. @return array<string, mixed> */
+    public function ruleFields(): array
+    {
+        return array_intersect_key($this->validated(), ShiftRuleRequest::fieldRules('sometimes'));
+    }
+
+    /** A first version's required minutes beyond the new shift's length — a 422 with its message (spec §5.1). */
+    public function refusal(): ?string
+    {
+        $validated = $this->validated();
+
+        return isset($validated['required_minutes']) && (int) $validated['required_minutes'] > (int) $validated['duration_minutes']
+            ? ShiftRuleRequest::REQUIRED_TOO_LONG
+            : null;
     }
 
     /** @return array<string, string> */
@@ -45,7 +65,7 @@ class ShiftRequest extends FormRequest
             'starts_at'        => 'وقت البدء',
             'duration_minutes' => 'مدة الوردية',
             'is_active'        => 'التفعيل',
-        ];
+        ] + ShiftRuleRequest::fieldAttributes();
     }
 
     /** @return array<string, string> */

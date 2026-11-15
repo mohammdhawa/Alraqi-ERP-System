@@ -13,7 +13,6 @@ use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeStub;
 use App\Modules\Scheduling\Enums\ShiftSwapStatus;
-use App\Modules\Scheduling\Enums\WorkScheduleKind;
 use App\Modules\Scheduling\Exceptions\SchedulingException;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\ShiftSwap;
@@ -51,13 +50,23 @@ class ShiftSwapService
     public function options(Employee $me): array
     {
         $today = $this->calendar->today();
+
+        // Only a guard exchanges (§19.7): someone not on a cycle schedule is
+        // offered nothing, rather than partners filing would then refuse
+        // (work shifts piece 4, app spec §4.4). Filing keeps its own check.
+        $onACycle = EmployeeWorkSchedule::query()->inForceOn($today)->onACycle()
+            ->where('employee_id', $me->getKey())
+            ->exists();
+        if (! $onACycle) {
+            return ['my_duties' => [], 'partners' => []];
+        }
+
         $manager = $this->chain->resolve($me)?->getKey();
 
         $candidates = Employee::query()
             ->whereKeyNot($me->getKey())
             ->where(fn ($q) => $q->whereNull('termination_date')->orWhereDate('termination_date', '>=', $today))
-            ->whereIn('id', EmployeeWorkSchedule::query()->inForceOn($today)
-                ->whereHas('schedule', fn ($q) => $q->where('kind', WorkScheduleKind::Cycle))
+            ->whereIn('id', EmployeeWorkSchedule::query()->inForceOn($today)->onACycle()
                 ->select('employee_id'))
             ->orderBy('first_name')->orderBy('id')
             ->get();
@@ -145,11 +154,12 @@ class ShiftSwapService
                 throw new SchedulingException('لا يمكن إلغاء إلا تبديل معتمد.');
             }
 
-            $first = $swap->changes()->whereNotNull('shift_id')->with('shift')->orderBy('date')->first();
-            $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
+            $first = $swap->changes()->whereNotNull('shift_id')->with('shift.rules')->orderBy('date')->first();
             if ($first !== null) {
+                $date = $first->date->toDateString();
                 [$hour, $minute] = array_map('intval', explode(':', (string) $first->shift->starts_at));
-                $opensAt = CarbonImmutable::parse($first->date->toDateString(), $this->calendar->timezone())->setTime($hour, $minute)->subMinutes($opens);
+                $opensAt = CarbonImmutable::parse($date, $this->calendar->timezone())->setTime($hour, $minute)
+                    ->subMinutes($first->shift->rulesOn($date)->checkInOpensMinutes);
                 if ($opensAt->lte(CarbonImmutable::now($this->calendar->timezone()))) {
                     throw new SchedulingException('لا يمكن إلغاء تبديل بدأت إحدى مناوبتيه.');
                 }
@@ -191,8 +201,6 @@ class ShiftSwapService
         $timezone = $this->calendar->timezone();
         $today = CarbonImmutable::parse($this->calendar->today(), $timezone);
         $now = CarbonImmutable::now($timezone);
-        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
-        $close = max(0, (int) config('attendance.close_after_minutes', 240));
         $last = $today->addDays(self::OPTIONS_DAYS)->toDateString();
 
         // From six days back, so a run is cut where every reader cuts it.
@@ -201,7 +209,7 @@ class ShiftSwapService
         $out = [];
         foreach ($ids as $id) {
             $out[$id] = [];
-            foreach (Duty::runs(array_values($all[$id] ?? []), $opens, $close) as $duty) {
+            foreach (Duty::runs(array_values($all[$id] ?? [])) as $duty) {
                 if ($duty->shiftDate() >= $today->toDateString() && $duty->shiftDate() <= $last && $duty->opensAt->gt($now)) {
                     $out[$id][] = self::present($duty);
                 }

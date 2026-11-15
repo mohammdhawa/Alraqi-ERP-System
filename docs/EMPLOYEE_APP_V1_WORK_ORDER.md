@@ -1775,3 +1775,303 @@ failed first:
 Five minor findings are deferred, listed in the branch's final report.
 
 **1479 tests passing (6336 assertions), Pint clean, 122 API routes, 48 permissions.**
+
+
+### 2026-11-10 — work shifts, piece 3: the dashboard's screens, built
+
+On branch `work-shifts-dashboard` in **both** repositories (backend off `main`
+at `6493015`, the merge of pull request 8, which carries pieces 1 and 2; dashboard
+off `phase_1`), **uncommitted**. Spec
+`docs/superpowers/specs/2026-11-10-work-shifts-dashboard-design.md`, plan
+`docs/superpowers/plans/2026-11-10-work-shifts-dashboard.md`. It builds the
+dashboard side of S13: HR runs work shifts without a developer, and a guards'
+manager decides an exchange in the dashboard.
+
+**Decided while designing (2026-11-10), spec §1.1:**
+
+| | Decided |
+|---|---|
+| D1 | Managers decide exchanges **in the dashboard too**: a general approval screen, `approvals/:id` |
+| D2 | HR's day-to-day edits are made **from the calendar** (click a day; tick rows to assign a schedule); the employee profile also gets a «الجدول» tab |
+| D3 | The attendance screens change only by the **shift, late and early-departure** columns and totals; not the outside-schedule flag, not minutes within/outside the shift, not new wording for statuses 7 and 9 |
+| D4 | **Dashboard-only, no new backend detail for approvers**: the manager decides from the approval's `subject.summary`; no calendar library (a resource timeline is a paid plugin; the free ones handle RTL and per-employee paging poorly) |
+| D5 | The calendar API listed leavers, filtered a unit without its subtree and had no search: **fixed in the backend first** |
+
+**What was built:**
+
+- **Backend** — `GET /api/scheduling/calendar` lists employed people only
+  (نشط or موقوف), takes the reports' person filters (`employee_id(s)`,
+  `department_id(s)` with the subtree, `search`), and an unknown unit or person
+  now narrows to nobody (an empty page) instead of answering 422. One
+  implementation: the filter moved from Attendance to a scope on `Employee`
+  (`FiltersPeople` concern) which both modules read; the attendance reports
+  behave exactly as before. **No migration, no new route, no new permission.**
+- **Dashboard**, `src/sections/scheduling/`, a sidebar group «الورديات
+  والجداول»: the **calendar** (people × dates, coloured by source, URL filters,
+  click or shift-click to change a day or a range, bulk schedule assignment with
+  a per-person result table); **shifts** and **schedules** (create, edit,
+  delete; the editor lists a weekly schedule from Saturday while sending each
+  row's own `position`); the profile's **«الجدول» tab** (schedule periods,
+  one-off changes, «عرض في التقويم»); **HR's exchanges** (`scheduling/swaps`,
+  filters, detail, «إلغاء التبديل»); the **general approval screen**
+  (`approvals/:id`) reached from the inbox, with the inbox's `subject_type`
+  filter and the notification routing for `shift_swap`; the **attendance
+  columns** (shift, late, early departure, in the daily board, the monthly grid
+  and the profile's days). The roles screen can now grant `scheduling.view` and
+  `scheduling.manage`.
+
+**Rulings taken during the build that change behaviour:**
+
+- **Editing a schedule sends `days` only when they changed.** The API refuses
+  any `days` on an assigned or default schedule, so always sending them made
+  those schedules impossible to rename or deactivate. A failed load of the
+  shifts list shows the error and blocks the save (otherwise every row would
+  read «راحة»).
+- **«إنهاء» shows on a schedule period that has started and not ended**
+  (`from_date` today or earlier, `to_date` empty or today or later), as API
+  §19.3 allows; a period not yet started offers only «حذف».
+- **The approval screen's approve button reads «موافقة»**, like the leave
+  screen's: one manager decides leave and exchanges, one word for one action.
+- **No withdraw button** on the approval screen: withdrawing is the exchange's
+  own route (`/api/me/shift-swaps/{swap}/cancel`, the guard's, in the app), not
+  the engine's.
+- The default calendar window, "today" and "past" are **Damascus** dates, not
+  the browser's.
+
+**Fixed after the final whole-branch review:** the shift-change modal no longer
+opens on «يوم راحة» (a placeholder «اختر الوردية…» comes first, «يوم راحة» is
+chosen on purpose, save stays disabled until a choice), and the profile tab's
+«تعديل الوردية» takes a from/to range of up to 31 days; a bulk assignment to a
+unit now covers its employed people only (a person who left is not assigned),
+and the result table names every person.
+
+**Deploy:** backend, no migration. After deploy an admin adds `scheduling.view`
+and `scheduling.manage` to HR's role on the roles screen (no seeded role has
+them; both are company-only).
+
+**Verification (2026-11-10, the working tree as it stands):** backend
+`php artisan test`: **1487 passed**, exit 0; `vendor/bin/pint --test` passes. Dashboard
+`npm test`: 393 passed, 0 failed; `VITE_API_URL=https://example.test npm run
+build` exits 0 (the config refuses a production build without the URL, by
+design). `npm run lint` was **not** run repo-wide: it already fails on 82
+untouched files (985 errors, mostly `react/prop-types`; the repository's
+components use no PropTypes), so each task was gated on `npx eslint` over its
+own files with that rule off. The six manual cases are `E2E-013`–`E2E-018` in
+the dashboard's `docs/MANUAL_DASHBOARD_TEST_SCENARIOS.md`.
+
+**The end-to-end walk in a browser (2026-11-10)**, against the local API at
+phone width, as HR and as the guards' manager: shifts (create, the in-use
+refusal), schedules (Saturday-first editor; `OFFICE` renamed — days no longer
+sent), the calendar (search, colours, bulk assignment naming each person), the
+profile tab (assign, the editable range, the past-date note, the 31-day cap), a
+one-off change (save blocked until a shift is chosen), an exchange filed,
+approved on `approvals/:id`, shown in blue for both guards, and cancelled by HR
+with both schedules restored, the attendance columns, and dark theme — all
+passed. It found six small defects, fixed and re-reviewed the same day: Arabic
+day counts («6 أيام», not «6 يوماً»); the calendar's name and staff number
+running together; the sticky name column too wide on a phone; the exchange
+list's 72-hour duties shown as «08:00 – 08:00»; a manual-test line expecting
+who cancelled an exchange; and, in piece 1's backend,
+`EmployeeWorkScheduleResource` sending `created_by.name` from the account (always
+null) instead of its employee's name — now `createdBy->employee?->full_name`,
+eager-loaded, with a test.
+
+**Deferred minors** (each task's review; none blocks):
+
+- *Needs the owner's approval of wording* — Arabic the implementers chose:
+  the calendar's legend «افتراضي / جدول / تعديل / تبديل», its window error,
+  empty-grid line, «قسم #N» fallback and «تنتهي في اليوم التالي»; and the
+  schedule delete confirmation text (the spec gave no sentence).
+- *Duplication to extract* — the submit/422/dirty handling repeated in the shift
+  and schedule modals (a shared hook before a third modal copies it);
+  `fieldError`/`errorLine` copied across the scheduling modals; `STATUS_BADGE`
+  duplicated in `ApprovalRequest.jsx` and `ApprovalsList.jsx`; the calendar
+  screen is 425 lines (move its filter bar to `CalendarFilterBar.jsx`);
+  `shiftEnd` in `Shifts.jsx` splits `shiftSpan`'s text on " – " (a
+  `shiftEndText` helper would be sturdier).
+- *Loading and error cues* — `useSchedulingOptions` does not pass through
+  `loaded`/`incomplete`, fetches schedules the schedule modal never uses, and a
+  failed schedules fetch blocks the schedule modal under a shifts message; the
+  schedule modal's submit is silently disabled for an invalid cycle length;
+  changing month on the profile tab keeps the old rows on screen; a 403/404 on
+  `?swap=` shows an alert above the table rather than a `StatePanel`; the
+  approval screen shows `status_label` twice; blank minutes cells sit beside "0"
+  count cells in the monthly totals (as specified).
+- *Robustness* — `ShiftChangeModal`'s reset effect depends on `loadChanges`, so
+  a range change while open wipes the draft; its remove does not clear an
+  earlier error; no stale-response guard on concurrent loads; the exchange link
+  is a plain `<a href>` (a full reload; use the router `Link`); the `?swap`
+  fetch effect would refetch in a loop on a body without a matching id; the
+  `page` in the exchanges URL is not sanitised; a half-typed or inverted window
+  warns but the list loads unfiltered; the next-day marker is shrunk twice in
+  `<sup>`; `--default-border` has no dark override checked; ending a span also
+  reloads the changes list needlessly; `asList`'s two-key fallback is
+  speculative.
+- *Missing tests* — a suspended employee stays on the calendar; the active
+  filter in `useSchedulingOptions`; `toShiftChangeBody` with a null shift id;
+  `swapWindowProblem`. Also: `Employee::scopeMatchingPeople`'s docblock should
+  say the `*_ids` must already be arrays.
+- *API gaps recorded, not worked around* (spec §10) — no `in_use` on a shift,
+  no `is_default` on a schedule, no exchange detail for an approver, and a
+  notification about an approval names the subject, not the approval.
+
+**Docs corrected the same day:** `API_DOCUMENTATION.md` §14.2 said the monthly
+report sorts by "every count below"; the server's sort keys are the thirteen in
+`AttendanceReportService::MONTHLY_SORTS`, and the late and early-departure
+counts are not among them.
+
+### 2026-11-11 — work shifts: per-shift rules, built
+
+On branch `work-shifts-rules` in **both** repositories, from piece 3 as the
+owner committed it (`06f2f0e` here, `179a41d` in `../erp-dashboard`),
+**uncommitted**. Spec `docs/superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md`,
+plan `docs/superpowers/plans/2026-11-11-work-shifts-per-shift-rules.md`. The
+owner found the shift form had no grace, windows, overtime or required hours,
+and asked for them per shift: this **reopens S4, S5, S10 and S11** of
+`DECISION_ROUND_WORK_SHIFTS.md`, answered as R1–R7 in its new §F.
+
+**Decided (2026-11-11):** per shift (R1); the "late check-out allowance" is the
+window for accepting a check-out (R2); overtime is the time after the end once
+it reaches a minimum, all of it then counting (R3), counted and shown only
+(R4); required hours flag a short day (R5); two graces (R6); rules change as
+dated versions so past days keep theirs (R7); a table of versions (R8).
+
+**What was built.** Backend: `shift_rules` (dated versions) and a data
+migration giving every existing shift the old company values from
+`2000-01-01`; a `ShiftRules` value carried on each expected shift; the six
+readers of the company-wide config (the reports, the shift clock, check-in
+matching, an exchange's checks) switched to it — a duty opens by its first
+shift's rules and closes by its last's; two routes, `POST/DELETE
+/api/scheduling/shifts/{shift}/rules` (124 in all, no new permission); the
+shift object's `rules` and `rule_versions`; `overtime_minutes` and
+`short_minutes` on every day row and `overtime_*` / `short_*` counts on the
+monthly report. Dashboard: the shift form takes a start and an **end** time
+(«ينتهي في اليوم التالي»), the rules on a new shift, the rule versions on an
+existing one («قواعد جديدة من تاريخ», «حذف» before a version starts), an
+«عمل إضافي» badge on the list, and «عمل إضافي» / «نقص ساعات» columns on the
+three attendance screens. `config/attendance.php` now gives defaults only.
+
+**Rulings while building** (the run's ledger): migrations dated
+`2026_11_12_…` (the plan's name collided with `create_shift_changes_table`);
+the `created` hook skips while the table does not exist yet (the 2026-11-10
+data migration creates `DAY`/`GUARD` first; the backfill covers them);
+`effective_from` is stored as a plain date so the unique index holds on SQLite
+too; two existing query-count tests allow one more query (the rules' eager
+load, still independent of the number of people); the four §5.1 refusals are
+domain 422s with their message, as every scheduling refusal (the validation
+handler would replace the message); `MyAttendanceDaysTest`'s exact key list
+gains the two new fields; the form computes the length from start and end, so
+`toShiftBody` is unchanged.
+
+**Deploy:** `php artisan migrate` (the table and its seed). No new permission.
+
+**The final whole-branch review** (a fresh reviewer, the same day) found no
+critical issue; four findings were fixed, each with a test that failed first:
+changing an **unused** shift's length now carries its versions' required
+minutes along (otherwise every day would have read short); a shift's rules are
+read once and kept, so the schedules and changes lists no longer query them
+per day; a leave or excuse day with presence is **never short** (spec §4.4);
+and a cleared rule field blocks the form instead of reaching the API as 0.
+Deferred (minor): two saves of one date at once give a 500 instead of the 422;
+closing the edit form drops an unsaved new version without asking; an end at
+exactly 00:00 reads «ينتهي في اليوم التالي» on the form but not on the list;
+a duty's early grace comes from its last shift *with presence*; no test yet of
+an exchange's "opened" check under a per-shift window.
+
+**Verification (2026-11-11):** backend `php artisan test` **1528 passed (6534
+assertions)**, Pint clean; dashboard `npm test` 402 passed, the build exits 0,
+eslint clean on the touched files.
+
+**The browser walk (2026-11-11)**, against the local API after `migrate` (the
+two `shift_rules` migrations seeded `DAY` and `GUARD` with the old values), as
+HR: a shift created from 22:00 to 06:00 read «المدة: 8 س · ينتهي في اليوم
+التالي» and listed at 480 minutes ending 06:00 the next day; a cleared rule
+field showed «أكمل قواعد الوردية.» and blocked saving; its rules list read
+«منذ إنشاء الوردية» with no «حذف»; a version from tomorrow saved first in the
+list with «بواسطة» and «حذف», and deleting it left the first version; with
+overtime from 30 minutes and 400 minutes required, the daily board showed a
+09:20–16:40 day as 20 late and «عمل إضافي 40 د», and a 09:30–16:10 day as 30
+late, no overtime (10 below the minimum) and «نقص ساعات 10 د». No defect was
+found. The test shift, the test check-ins and the temporary rules were removed
+afterwards.
+
+### 2026-11-15 — work shifts, piece 4: the app, built
+
+On branch `work-shifts-app` in `../alraqi-erp-app` (from its `main`,
+`0598ccf`) and `work-shifts-app-api` here (from `work-shifts-rules` as the
+owner committed it, `0873ba6`), **uncommitted in both**. Spec
+`docs/superpowers/specs/2026-11-14-work-shifts-app-design.md`, plan
+`docs/superpowers/plans/2026-11-14-work-shifts-app.md` and the manual
+scenarios `docs/manual-test-scenarios/work-shifts-app.md`, all in the app's
+repository. It is the last of the four pieces: the app reads the shifts.
+
+**Decided (2026-11-14, the app spec's §3, W1–W23):** build for everyone,
+guards and night shifts included (W1); a guards' manager decides an exchange
+in the app (W2); a tap that will land outside the schedule says so first and
+is never blocked (W3); the employee sees all four figures (W4); the app learns
+its duty from a `duty` card on `/api/me/summary` and never works a window out
+itself (W5); after a duty's close the check-out is locked and only HR records
+it (W6). **Decided 2026-11-15:** a missed check-out the server reports shows
+the locked state only, with no extra line on other states; «عرض تفاصيل
+اليوم» opens the day the home card shows.
+
+**What was built here** (all additive; no migration, no new route — 124 in
+all — and no new permission):
+
+- `/api/me/summary` gains **`duty`** (`MyDuty`, API §17.3): `open_check_in`,
+  the check-in a check-out tapped now would close; `missed_check_out`, the
+  latest check-in whose close passed with no check-out, reported as far back
+  as an open one is looked for and cleared when HR records the check-out
+  (`OpenCheckIns::missedBefore`); and `duties`, from the one in progress
+  through the next seven days, each with `opens_at`, `starts_at`, `ends_at`,
+  `closes_at`, its shifts and its accepted check-in and check-out. The duties
+  are the resolver's own (`Duty::runs`), so one-off changes, approved
+  exchanges and the rule version of each date apply.
+- The day grid's `summary` (`/me/attendance/days` and HR's §14.3) gains nine
+  keys, the monthly report's arithmetic: `late_*`, `early_departure_*`,
+  `overtime_*` and `short_*` as a count and minutes each, and
+  `outside_schedule_count`. Each day row gains `check_in_shift_date`, so a
+  guard's second and third days find their duty's records.
+- `/me/shift-swaps/options` gives two empty lists to a caller not on a cycle
+  schedule (W23); filing keeps its own check.
+- API doc §17.3, §17.4 and §19.7, with their examples.
+
+**What was built in the app:** the home card drawn from the duty card by
+seven ordered rules, re-read every minute from what the phone holds (an open
+check-in and its «يُقبل الانصراف حتى» notice, leave, an open window, the
+lock after a close, a missing check-out, a duty done, no window with the next
+duty named); the warning sheet before a check-in outside the schedule; the
+last duty card kept on the phone for its user and wiped at sign-out, for a
+cold start offline; the four figures in the day sheet and the month's
+counts; the leave form counting scheduled days; a guard filing an exchange,
+«طلباتي»'s exchanges list and the exchange screen; the manager's general
+approval screen (`/requests/approval/:approvalId`); notification taps and
+refreshes for `shift.*` and `shift_swap.*`. The old "every day, 24 hours"
+mirror is removed.
+
+**Rulings while building** are in the run's ledger
+(`.superpowers/sdd/2026-11-14-work-shifts-app/progress.md` in the app's
+repository), each with its cost if wrong. The ones that touch this
+repository: `MyDuty` counts every accepted record of the duty's date, an
+early outside-schedule check-in included, as the check-in rule does; the two
+exact-shape assertions (`AttendanceEmployeeGridTest`, `MyAttendanceDaysTest`)
+gained the additive keys; the new grid tests are in
+`MyDaysShiftCountsTest`.
+
+**The final whole-branch review** (a fresh reviewer, 2026-11-15) found no
+critical issue. Fixed, each with a test that failed first: an early
+outside-schedule check-in did not take the duty on the card; offline across
+two duties a phone check-in after a phone check-out was never open; a failed
+options read hid «تبديل مناوبة» until restart; «تسجيل حضور خارج الجدول» was
+offered on a day whose date already has a check-in. The seven minor findings
+were fixed the same day on the owner's ask. Declined, as the spec fixes them:
+a night worker on leave today is not shown last night's check-in; the card
+can lag the close by up to a minute.
+
+**Deploy:** nothing beyond the code — no migration, no seeder.
+
+**Verification (2026-11-15, the working trees as they stand):** backend
+`php artisan test` **1546 passed (6636 assertions)**; app `flutter test`
+**1567 passed**, `flutter analyze` 5 infos, all older than this piece.
+**Not done:** no run on a device — the manual scenarios are slice 8's to
+run — and no commit in either repository.

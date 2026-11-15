@@ -172,7 +172,7 @@ states — someone can be both on one day — so they sit beside the day's state
 (present, absent, on leave…) rather than replacing it. A deduction is a pay rule
 and belongs with the calculator.
 
-`Answer:` **B** — recorded, no penalty, with **one grace of 15 minutes** for every shift, applied to arriving late and to leaving early.
+`Answer:` **B** — recorded, no penalty, with **one grace of 15 minutes** for every shift, applied to arriving late and to leaving early. ⚙️ **Reopened 2026-11-11** (§F, R1/R6): each shift has its own two graces; 15 is the default.
 
 ### S5 — The reminder and the close — reopens *Q10*
 
@@ -189,7 +189,7 @@ whole company. A night shift cannot survive 23:59.
 times for everyone else. The 60-minute minimum between a check-in and its
 check-out, and no check-in during approved leave, stay as they are.
 
-`Answer:` **A** — per shift, **the close 4 hours after the shift's end**. Since S3 gives everyone a schedule, 17:00 and 23:59 go entirely: the default shift reminds at 16:00 and closes at 20:00. The 60-minute minimum and no check-in during approved leave stay.
+`Answer:` **A** — per shift, **the close 4 hours after the shift's end**. Since S3 gives everyone a schedule, 17:00 and 23:59 go entirely: the default shift reminds at 16:00 and closes at 20:00. The 60-minute minimum and no check-in during approved leave stay. ⚙️ **Reopened 2026-11-11** (§F, R1/R2): the close is each shift's own; 4 hours is the default.
 
 ### S6 — Public holidays — reopens *Q8.2*
 
@@ -293,7 +293,7 @@ Three numbers, and one rule:
    schedule? Recommended: **accepted and shown**, as a refused day is today, so
    no real work goes unrecorded.
 
-`Answer:` 1 — **the start date** (a guard's duty from Saturday 08:00 is Saturday's, Sunday's and Monday's shifts) · 2 — **60 minutes** before the start · 3 — **4 hours** after the end, the same as S5's close · 4 — **accepted and flagged** to HR as outside the schedule.
+`Answer:` 1 — **the start date** (a guard's duty from Saturday 08:00 is Saturday's, Sunday's and Monday's shifts) · 2 — **60 minutes** before the start · 3 — **4 hours** after the end, the same as S5's close · 4 — **accepted and flagged** to HR as outside the schedule. ⚙️ **Reopened 2026-11-11** (§F, R1/R2): the 60 minutes before and 4 hours after are each shift's own; those values are the defaults.
 
 ### S11 — The hours a shift counts
 
@@ -308,7 +308,7 @@ Three numbers, and one rule:
 stored, and payroll gets what it needs to decide overtime later. Approving
 overtime now would be a pay decision with no calculator behind it.
 
-`Answer:` **B** — both the time within the shift and the time outside it; nothing approved or paid as overtime until payroll.
+`Answer:` **B** — both the time within the shift and the time outside it; nothing approved or paid as overtime until payroll. ⚙️ **Reopened 2026-11-11** (§F, R3–R5): a shift may count overtime (after its end, past a minimum) and flag short days; both are shown, nothing is paid.
 
 ---
 
@@ -345,3 +345,29 @@ request, an approval chain and screens in the app, and can follow once the
 guards are on the ERP.
 
 `Answer:` **B** — both now. One-off changes are recorded by HR. A swap is requested by a guard naming the other guard; **the other guard does not have to accept first**; it is approved in **one step by the direct manager** (the org tree's chain, as leave's first step). The approver decides for both.
+
+---
+
+## F. Reopened 2026-11-11 — per-shift rules
+
+⚙️ **S4, S5, S10 and S11 were reopened on 2026-11-11** by the project owner:
+the grace, the check-in window, the close and overtime become **each shift's
+own rules**, set by HR on the shift form, instead of one company-wide set. The
+design is [`superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md`](superpowers/specs/2026-11-11-work-shifts-per-shift-rules-design.md);
+the answers, as given:
+
+| # | Question | Answer (2026-11-11) |
+|---|---|---|
+| R1 | Per shift? | **Yes** — reopens S4, S5, S10, S11. |
+| R2 | The late check-out allowance | **The acceptance window**: how long after a shift's end a check-out is still accepted (S5/S10's 4-hour close), per shift. |
+| R3 | How overtime is counted | **After the shift's end, past a minimum**: once the minutes after the end reach the shift's minimum, all of them count. Arriving early is not overtime. |
+| R4 | What counted overtime does | **Counted and shown only** — no approval, no pay until payroll (S11 stands on pay). |
+| R5 | Required hours | **Flag a short day**: minutes worked within the shift below its required minutes mark the day short by the difference. No penalty. |
+| R6 | One grace or two | **Two** — a late-arrival grace and an early-departure grace (S4 had one). |
+| R7 | Editing a used shift's rules | **Dated versions** from a date HR picks (today or later); past days keep the rules they had. |
+
+**What stays:** S4's "recorded, no penalty"; S10's start date and "accepted
+and flagged"; S11's "nothing paid until payroll". The values decided on
+2026-11-09 (15 minutes' grace, 60 minutes before, 4 hours after) are every
+existing shift's first rules and the defaults of a new one, so nothing changed
+until HR edits a shift.

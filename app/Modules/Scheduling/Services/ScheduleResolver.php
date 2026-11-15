@@ -69,7 +69,7 @@ class ScheduleResolver implements ExpectedShifts
         $id = (int) $employee->getKey();
         $changes = $this->changesFor([$id], $from, $to)[$id] ?? [];
 
-        $shifts = Shift::withTrashed()->whereIn('id', array_filter($overrides, static fn (?int $s): bool => $s !== null))->get()->keyBy('id');
+        $shifts = Shift::withTrashed()->with('rules')->whereIn('id', array_filter($overrides, static fn (?int $s): bool => $s !== null))->get()->keyBy('id');
         foreach ($overrides as $date => $shiftId) {
             $changes[$date] = ['shift' => $shiftId === null ? null : $shifts->get($shiftId), 'source' => 'change'];
         }
@@ -185,12 +185,7 @@ class ScheduleResolver implements ExpectedShifts
     /** @return list<Duty> */
     private function dutiesAround(Employee $employee, string $from, string $to): array
     {
-        $opens = max(0, (int) config('attendance.check_in_opens_minutes', 60));
-        $close = max(0, (int) config('attendance.close_after_minutes', 240));
-
-        $duties = Duty::runs(array_values($this->shiftsFor([(int) $employee->getKey()], $from, $to)[(int) $employee->getKey()]), $opens, $close);
-
-        return $duties;
+        return Duty::runs(array_values($this->shiftsFor([(int) $employee->getKey()], $from, $to)[(int) $employee->getKey()]));
     }
 
     /**
@@ -261,7 +256,9 @@ class ScheduleResolver implements ExpectedShifts
         [$hour, $minute] = array_map('intval', explode(':', (string) $shift->starts_at));
         $startsAt = $day->setTime($hour, $minute);
 
-        return new ExpectedShift($day->toDateString(), $startsAt, $startsAt->addMinutes($shift->duration_minutes), $shift->code, $shift->name, $source, (int) $shift->getKey());
+        $date = $day->toDateString();
+
+        return new ExpectedShift($date, $startsAt, $startsAt->addMinutes($shift->duration_minutes), $shift->code, $shift->name, $source, (int) $shift->getKey(), $shift->rulesOn($date));
     }
 
     /**
@@ -273,7 +270,7 @@ class ScheduleResolver implements ExpectedShifts
     private function changesFor(array $ids, string $from, string $to): array
     {
         $out = [];
-        foreach (ShiftChange::query()->forEmployees($ids)->between($from, $to)->with('shift')->get() as $change) {
+        foreach (ShiftChange::query()->forEmployees($ids)->between($from, $to)->with('shift.rules')->get() as $change) {
             $out[(int) $change->employee_id][$change->date->toDateString()] = ['shift' => $change->shift, 'source' => $change->origin->source()];
         }
 
@@ -290,7 +287,7 @@ class ScheduleResolver implements ExpectedShifts
             ->whereIn('employee_id', $ids)
             ->whereDate('from_date', '<=', $to)
             ->where(fn ($q) => $q->whereNull('to_date')->orWhereDate('to_date', '>=', $from))
-            ->with('schedule.days.shift')
+            ->with('schedule.days.shift.rules')
             ->get()
             ->groupBy('employee_id');
     }
@@ -304,7 +301,7 @@ class ScheduleResolver implements ExpectedShifts
     {
         if ($this->default === null) {
             $code = (string) config('attendance.default_schedule');
-            $this->default = WorkSchedule::query()->where('code', $code)->with('days.shift')->first()
+            $this->default = WorkSchedule::query()->where('code', $code)->with('days.shift.rules')->first()
                 ?? throw new \RuntimeException("The default work schedule [{$code}] does not exist: set attendance.default_schedule and run SchedulingSeeder.");
         }
 
