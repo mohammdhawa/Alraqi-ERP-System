@@ -7,6 +7,7 @@ namespace App\Modules\Scheduling\Models;
 use App\Modules\Attendance\Support\AttendanceCalendar;
 use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
+use App\Modules\Scheduling\Enums\WorkScheduleKind;
 use App\Modules\Scheduling\Exceptions\SchedulingException;
 use App\Modules\Scheduling\Support\AssignmentGuard;
 use App\Shared\Traits\HasAuditLog;
@@ -90,5 +91,11 @@ class EmployeeWorkSchedule extends Model
     {
         $query->whereDate('from_date', '<=', $date)
             ->where(fn (Builder $q) => $q->whereNull('to_date')->orWhereDate('to_date', '>=', $date));
+    }
+
+    /** Assignments to a cycle schedule: a guard's, the only ones that exchange (§19.7). */
+    public function scopeOnACycle(Builder $query): void
+    {
+        $query->whereHas('schedule', fn (Builder $q) => $q->where('kind', WorkScheduleKind::Cycle));
     }
 }

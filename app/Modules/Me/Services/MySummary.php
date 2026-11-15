@@ -45,6 +45,7 @@ final class MySummary
         private readonly NotificationService $notifications,
         private readonly ApprovalInbox $inbox,
         private readonly ExpectedShifts $shifts,
+        private readonly MyDuty $duty,
     ) {}
 
     /**
@@ -59,6 +60,10 @@ final class MySummary
             'employee'         => $this->employeeCard($employee),
             'attendance_today' => $day,
             'attendance_month' => $month,
+            // The duty in progress and the next ones, with their windows
+            // (work shifts piece 4, app spec §4.1): what the app's hero is
+            // drawn from, and what it keeps for offline.
+            'duty'             => $this->duty->for($employee),
             'leave_balance'    => $this->balances->for((int) $employee->getKey(), Carbon::parse($today)->year)->toArray(),
             'notifications'    => ['unread_count' => $this->notifications->unreadCount($user)],
             'approvals'        => ['pending_count' => $this->inbox->pendingFor($user)->count()],

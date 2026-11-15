@@ -167,6 +167,17 @@ class AttendanceEmployeeGridTest extends TestCase
             'rejected_days'              => 1,
             'off_days'                   => 0,
             'missing_checkouts'          => 0,
+            // Against the pinned all-day shift (PinsADayOff): the monthly
+            // report's arithmetic, added 2026-11-14 (work shifts piece 4).
+            'late_count'                 => 1,
+            'late_minutes'               => 480,
+            'early_departure_count'      => 1,
+            'early_departure_minutes'    => 479,
+            'overtime_count'             => 0,
+            'overtime_minutes'           => 0,
+            'short_count'                => 1,
+            'short_minutes'              => 959,
+            'outside_schedule_count'     => 0,
             'total_work_hours'           => 8,
             'total_work_hours_formatted' => '8h 0m',
             'attendance_rate'            => 14.3,

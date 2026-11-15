@@ -1994,3 +1994,84 @@ overtime from 30 minutes and 400 minutes required, the daily board showed a
 late, no overtime (10 below the minimum) and «نقص ساعات 10 د». No defect was
 found. The test shift, the test check-ins and the temporary rules were removed
 afterwards.
+
+### 2026-11-15 — work shifts, piece 4: the app, built
+
+On branch `work-shifts-app` in `../alraqi-erp-app` (from its `main`,
+`0598ccf`) and `work-shifts-app-api` here (from `work-shifts-rules` as the
+owner committed it, `0873ba6`), **uncommitted in both**. Spec
+`docs/superpowers/specs/2026-11-14-work-shifts-app-design.md`, plan
+`docs/superpowers/plans/2026-11-14-work-shifts-app.md` and the manual
+scenarios `docs/manual-test-scenarios/work-shifts-app.md`, all in the app's
+repository. It is the last of the four pieces: the app reads the shifts.
+
+**Decided (2026-11-14, the app spec's §3, W1–W23):** build for everyone,
+guards and night shifts included (W1); a guards' manager decides an exchange
+in the app (W2); a tap that will land outside the schedule says so first and
+is never blocked (W3); the employee sees all four figures (W4); the app learns
+its duty from a `duty` card on `/api/me/summary` and never works a window out
+itself (W5); after a duty's close the check-out is locked and only HR records
+it (W6). **Decided 2026-11-15:** a missed check-out the server reports shows
+the locked state only, with no extra line on other states; «عرض تفاصيل
+اليوم» opens the day the home card shows.
+
+**What was built here** (all additive; no migration, no new route — 124 in
+all — and no new permission):
+
+- `/api/me/summary` gains **`duty`** (`MyDuty`, API §17.3): `open_check_in`,
+  the check-in a check-out tapped now would close; `missed_check_out`, the
+  latest check-in whose close passed with no check-out, reported as far back
+  as an open one is looked for and cleared when HR records the check-out
+  (`OpenCheckIns::missedBefore`); and `duties`, from the one in progress
+  through the next seven days, each with `opens_at`, `starts_at`, `ends_at`,
+  `closes_at`, its shifts and its accepted check-in and check-out. The duties
+  are the resolver's own (`Duty::runs`), so one-off changes, approved
+  exchanges and the rule version of each date apply.
+- The day grid's `summary` (`/me/attendance/days` and HR's §14.3) gains nine
+  keys, the monthly report's arithmetic: `late_*`, `early_departure_*`,
+  `overtime_*` and `short_*` as a count and minutes each, and
+  `outside_schedule_count`. Each day row gains `check_in_shift_date`, so a
+  guard's second and third days find their duty's records.
+- `/me/shift-swaps/options` gives two empty lists to a caller not on a cycle
+  schedule (W23); filing keeps its own check.
+- API doc §17.3, §17.4 and §19.7, with their examples.
+
+**What was built in the app:** the home card drawn from the duty card by
+seven ordered rules, re-read every minute from what the phone holds (an open
+check-in and its «يُقبل الانصراف حتى» notice, leave, an open window, the
+lock after a close, a missing check-out, a duty done, no window with the next
+duty named); the warning sheet before a check-in outside the schedule; the
+last duty card kept on the phone for its user and wiped at sign-out, for a
+cold start offline; the four figures in the day sheet and the month's
+counts; the leave form counting scheduled days; a guard filing an exchange,
+«طلباتي»'s exchanges list and the exchange screen; the manager's general
+approval screen (`/requests/approval/:approvalId`); notification taps and
+refreshes for `shift.*` and `shift_swap.*`. The old "every day, 24 hours"
+mirror is removed.
+
+**Rulings while building** are in the run's ledger
+(`.superpowers/sdd/2026-11-14-work-shifts-app/progress.md` in the app's
+repository), each with its cost if wrong. The ones that touch this
+repository: `MyDuty` counts every accepted record of the duty's date, an
+early outside-schedule check-in included, as the check-in rule does; the two
+exact-shape assertions (`AttendanceEmployeeGridTest`, `MyAttendanceDaysTest`)
+gained the additive keys; the new grid tests are in
+`MyDaysShiftCountsTest`.
+
+**The final whole-branch review** (a fresh reviewer, 2026-11-15) found no
+critical issue. Fixed, each with a test that failed first: an early
+outside-schedule check-in did not take the duty on the card; offline across
+two duties a phone check-in after a phone check-out was never open; a failed
+options read hid «تبديل مناوبة» until restart; «تسجيل حضور خارج الجدول» was
+offered on a day whose date already has a check-in. The seven minor findings
+were fixed the same day on the owner's ask. Declined, as the spec fixes them:
+a night worker on leave today is not shown last night's check-in; the card
+can lag the close by up to a minute.
+
+**Deploy:** nothing beyond the code — no migration, no seeder.
+
+**Verification (2026-11-15, the working trees as they stand):** backend
+`php artisan test` **1546 passed (6636 assertions)**; app `flutter test`
+**1567 passed**, `flutter analyze` 5 infos, all older than this piece.
+**Not done:** no run on a device — the manual scenarios are slice 8's to
+run — and no commit in either repository.

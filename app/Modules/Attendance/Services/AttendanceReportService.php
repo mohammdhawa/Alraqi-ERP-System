@@ -412,6 +412,9 @@ class AttendanceReportService
                 'status_label'            => $day->state->label(),
                 // The duty's check-in — what PATCH /records/{record}/checkout takes.
                 'check_in_id'             => $day->in?->id,
+                // The duty's date: a guard's three days share their first
+                // (work shifts piece 4, app spec §4.3).
+                'check_in_shift_date'     => $day->in?->shift_date?->toDateString(),
                 'check_in_time'           => $day->in?->recorded_at->toIso8601String(),
                 'check_out_time'          => $day->out?->recorded_at->toIso8601String(),
                 'work_hours'              => $day->hours,
@@ -460,6 +463,17 @@ class AttendanceReportService
                 'rejected_days'              => $c['rejected'],
                 'off_days'                   => $c['off'],
                 'missing_checkouts'          => $c['missing'],
+                // The four figures, as the monthly report counts them (work
+                // shifts piece 4, app spec §4.2).
+                'late_count'                 => $c['late_count'],
+                'late_minutes'               => $c['late_minutes'],
+                'early_departure_count'      => $c['early_count'],
+                'early_departure_minutes'    => $c['early_minutes'],
+                'overtime_count'             => $c['overtime_count'],
+                'overtime_minutes'           => $c['overtime_minutes'],
+                'short_count'                => $c['short_count'],
+                'short_minutes'              => $c['short_minutes'],
+                'outside_schedule_count'     => $c['outside'],
                 'total_work_hours'           => $c['hours'],
                 'total_work_hours_formatted' => $this->formatHours($c['hours']),
                 'attendance_rate'            => $c['expected'] > 0 ? round($c['present'] / $c['expected'] * 100, 1) : null,

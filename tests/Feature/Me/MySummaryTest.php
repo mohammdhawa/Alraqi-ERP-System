@@ -82,7 +82,7 @@ class MySummaryTest extends TestCase
         $data = $this->summary()->json('data');
 
         $this->assertSame(
-            ['employee', 'attendance_today', 'attendance_month', 'leave_balance', 'notifications', 'approvals', 'leave_requests', 'salary'],
+            ['employee', 'attendance_today', 'attendance_month', 'duty', 'leave_balance', 'notifications', 'approvals', 'leave_requests', 'salary'],
             array_keys($data),
         );
         $this->assertNull($data['salary']);

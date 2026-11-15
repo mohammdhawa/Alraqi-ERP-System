@@ -12,6 +12,7 @@ use App\Modules\Attendance\Support\Duty;
 use App\Modules\HR\Models\Employee;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Which check-in is still open (work shifts spec §5.1 rule 2, §5.2).
@@ -73,7 +74,30 @@ class OpenCheckIns
         return $this->openAt($employee, $moment);
     }
 
+    /**
+     * The latest check-in nothing checked out whose close is already before
+     * $moment — a check-out the person missed and can no longer record, only
+     * HR can. Looked for as far back as an open one, so it stops being
+     * reported once it is that old.
+     */
+    public function missedBefore(Employee $employee, CarbonInterface $moment): ?AttendanceRecord
+    {
+        return $this->unclosedAround($employee, $moment)
+            ->first(fn (AttendanceRecord $checkIn): bool => $this->closeOf($checkIn)->lt($moment));
+    }
+
     private function openAt(Employee $employee, CarbonInterface $moment): ?AttendanceRecord
+    {
+        return $this->unclosedAround($employee, $moment)
+            ->first(fn (AttendanceRecord $checkIn): bool => $this->closeOf($checkIn)->gte($moment));
+    }
+
+    /**
+     * Accepted check-ins with no accepted check-out, latest first.
+     *
+     * @return Collection<int, AttendanceRecord>
+     */
+    private function unclosedAround(Employee $employee, CarbonInterface $moment): Collection
     {
         $date = CarbonImmutable::instance($moment)->setTimezone($this->calendar->timezone());
 
@@ -88,7 +112,6 @@ class OpenCheckIns
                 ->whereNull('outs.rejected_at')
                 ->whereNull('outs.deleted_at'))
             ->orderByDesc('recorded_at')->orderByDesc('id')
-            ->get()
-            ->first(fn (AttendanceRecord $checkIn): bool => $this->closeOf($checkIn)->gte($moment));
+            ->get();
     }
 }

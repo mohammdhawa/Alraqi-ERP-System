@@ -13,7 +13,6 @@ use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Modules\HR\Resources\EmployeeStub;
 use App\Modules\Scheduling\Enums\ShiftSwapStatus;
-use App\Modules\Scheduling\Enums\WorkScheduleKind;
 use App\Modules\Scheduling\Exceptions\SchedulingException;
 use App\Modules\Scheduling\Models\EmployeeWorkSchedule;
 use App\Modules\Scheduling\Models\ShiftSwap;
@@ -51,13 +50,23 @@ class ShiftSwapService
     public function options(Employee $me): array
     {
         $today = $this->calendar->today();
+
+        // Only a guard exchanges (§19.7): someone not on a cycle schedule is
+        // offered nothing, rather than partners filing would then refuse
+        // (work shifts piece 4, app spec §4.4). Filing keeps its own check.
+        $onACycle = EmployeeWorkSchedule::query()->inForceOn($today)->onACycle()
+            ->where('employee_id', $me->getKey())
+            ->exists();
+        if (! $onACycle) {
+            return ['my_duties' => [], 'partners' => []];
+        }
+
         $manager = $this->chain->resolve($me)?->getKey();
 
         $candidates = Employee::query()
             ->whereKeyNot($me->getKey())
             ->where(fn ($q) => $q->whereNull('termination_date')->orWhereDate('termination_date', '>=', $today))
-            ->whereIn('id', EmployeeWorkSchedule::query()->inForceOn($today)
-                ->whereHas('schedule', fn ($q) => $q->where('kind', WorkScheduleKind::Cycle))
+            ->whereIn('id', EmployeeWorkSchedule::query()->inForceOn($today)->onACycle()
                 ->select('employee_id'))
             ->orderBy('first_name')->orderBy('id')
             ->get();

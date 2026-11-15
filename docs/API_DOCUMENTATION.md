@@ -1037,13 +1037,13 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 | `type` | Sent to | `reference` | Dashboard opens | App opens |
 |---|---|---|---|---|
-| `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1) | the approval screen for that request | the same, under الطلبات |
+| `approval.step_pending` | the approver whose step is now current | the request being approved (a leave request in v1; ⚙️ or a `shift_swap`) | the approval screen for that request | the same, under الطلبات — ⚙️ for a `shift_swap` (2026-11-14) the app opens «بانتظار قراري»: the reference is the exchange, which the approver cannot read, so the approval cannot be found from it (the dashboard does the same) |
 | `approval.step_assigned` | someone a **later** step was reassigned to — on the chain, not yet their turn (2026-10-16) | the request being approved | the approval screen for that request | the same |
 | `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled` | the requester | their leave request | that leave request | that leave request |
 | `leave.excuse_filed`, `leave.excuse_cancelled`, `leave.returned_to_work` | the employee | the excuse / the leave | the full text | the employee's leave history |
 | `attendance.checkout_reminder` | the employee | — | the full text | the check-in/out screen |
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
-| `shift.change_recorded`, `shift.change_removed` (2026-11-10) | the employee whose shift HR changed, for today or later | the change (`shift_change`) / the employee | the full text | "my days" on that date |
+| `shift.change_recorded`, `shift.change_removed` (2026-11-10) | the employee whose shift HR changed, for today or later | the change (`shift_change`) / the employee | the full text | "my days" on that date — ⚙️ the app (2026-11-14) opens its دوامي on the current month: the date is only in the text, and the reference leads to none |
 | `shift_swap.*` (2026-11-10) | the requester and the partner (§19.7, who is told what) | the exchange (`shift_swap`) | the exchange, read-only | the exchange (`GET /api/me/shift-swaps/{swap}`) |
 
 ⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (⚙️ since
@@ -2678,7 +2678,9 @@ covers the whole range. `sort`: `date`, `status`, `work_hours`.
 
 Each day: `date`, `weekday` (0 Sunday … 6 Saturday), `working_day`, `shift`,
 `status`, `status_label`, `check_in_id` (for §13.3; the duty's check-in, so a
-guard's three days share one), `check_in_time`, `check_out_time`, `work_hours`
+guard's three days share one), ⚙️ `check_in_shift_date` (2026-11-14: that
+check-in's `shift_date`, the date its records are filed under — a guard's
+three days share their first; `null` with no check-in), `check_in_time`, `check_out_time`, `work_hours`
 (this shift's share), `work_hours_formatted`, `late_minutes`,
 `early_departure_minutes`, `minutes_within_shift`, `minutes_outside_shift`,
 `outside_schedule`, `leave_type` (whenever leave covers the
@@ -2691,7 +2693,11 @@ day off (`7`), else an excuse (`5`), else leave (`4`), else a refusal (`8`),
 else absent (`6`) — ⚙️ 2026-11-09: else, while the shift has not ended, `9`
 لم يُسجَّل بعد. A day after today keeps its leave or day-off state
 for the calendar but is not counted. `summary` carries the monthly report's
-counts plus `off_days`, over `from`…`counted_to`; the response also carries
+counts plus `off_days`, over `from`…`counted_to` — ⚙️ since 2026-11-14 (work
+shifts piece 4) including `late_count`, `late_minutes`,
+`early_departure_count`, `early_departure_minutes`, `overtime_count`,
+`overtime_minutes`, `short_count`, `short_minutes` and
+`outside_schedule_count`, with the monthly report's arithmetic; the response also carries
 `working_days` (the whole window) and `counted_to`.
 
 ### 14.4 Absent today
@@ -3116,7 +3122,7 @@ type says), `attachments[]` (up to **5** files, PDF / JPG / PNG, ≤ 10 MB each;
 | «توجد إجازة قيد الاعتماد أو معتمدة تتداخل مع هذه الفترة.» | a pending or approved leave over any of the days |
 | «لا يمكن تقديم الطلب: منصب مدير «…» شاغر.» and the engine's other chain refusals (§15) | the chain cannot resolve — **nothing is saved, no file kept** |
 
-`requested_days` is the **working** days in the span (every day today). The
+`requested_days` is the **working** days in the span — ⚙️ corrected 2026-11-14: the person's **scheduled** days (work shifts S9: a Friday off and a guard's rest days are never charged; a guard's 72-hour duty is 3), not every day. The
 first approver is notified («طلب إجازة جديد»); **the requester gets no
 receipt** — the request is in their list at once.
 
@@ -3469,6 +3475,19 @@ One object of **cards, each `null` until its module can answer** (requirements
     "expected_days": 19, "present_days": 15, "on_leave_days": 2, "excused_days": 0,
     "absent_days": 2, "total_work_hours": 118.5, "total_work_hours_formatted": "118:30"
   },
+  "duty": {
+    "open_check_in": { "id": 51, "recorded_at": "2026-10-19T08:02:00+03:00", "shift_date": "2026-10-19", "outside_schedule": false, "closes_at": "2026-10-19T20:00:00+03:00" },
+    "missed_check_out": null,
+    "duties": [
+      {
+        "shift_date": "2026-10-19",
+        "opens_at": "2026-10-19T08:00:00+03:00", "starts_at": "2026-10-19T09:00:00+03:00",
+        "ends_at": "2026-10-19T16:00:00+03:00", "closes_at": "2026-10-19T20:00:00+03:00",
+        "shifts": [ { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-19T09:00:00+03:00", "ends_at": "2026-10-19T16:00:00+03:00" } ],
+        "check_in_time": "2026-10-19T08:02:00+03:00", "check_out_time": null
+      }
+    ]
+  },
   "leave_balance": { "year": 2026, "allocated_days": 15, "remaining_days": 11, "…": "§16.2" },
   "notifications": { "unread_count": 3 },
   "approvals": { "pending_count": 1 },
@@ -3487,6 +3506,35 @@ One object of **cards, each `null` until its module can answer** (requirements
 - `attendance_month` — the 1st of this month to today, the grid's figures. A
   today with nothing recorded yet is left out of `expected_days` and
   `absent_days` alike, so the two cards agree.
+- ⚙️ `duty` — **new 2026-11-14** (work shifts piece 4, the app's spec
+  `alraqi-erp-app/docs/superpowers/specs/2026-11-14-work-shifts-app-design.md`
+  §4.1). Where the person stands against **their duties**, which the calendar
+  date of `attendance_today` cannot say (a night shift at 02:00, a guard on the
+  morning his 72 hours end). Never `null`.
+  - `open_check_in` — the check-in a check-out tapped **now** would close
+    (§12's rule): the latest accepted check-in with no check-out whose close is
+    after now — its duty's close, or for an outside-schedule check-in the end
+    of its date. `{id, recorded_at, shift_date, outside_schedule, closes_at}`,
+    or `null`.
+  - `missed_check_out` — the latest accepted check-in with no check-out whose
+    close is **before** now: one the person can no longer check out of, only
+    HR can (`PATCH /records/{record}/checkout`). `{id, recorded_at,
+    shift_date, outside_schedule, closed_at}`, or `null`. Looked for as far
+    back as an open check-in is (5 days), so it stops being reported after
+    that; it clears as soon as HR records the check-out.
+  - `duties` — every duty whose `closes_at` is after now and whose `opens_at`
+    is within the next **7 days**, oldest first: the duty in progress (or still
+    inside its close) and the coming ones. A duty is the one §12 attributes
+    check-ins to — back-to-back shifts joined (at most three), one-off changes
+    and approved exchanges applied, each shift's rule version in force on its
+    date. `opens_at` = `starts_at` − the first shift's `check_in_opens_minutes`;
+    `closes_at` = `ends_at` + the last shift's `check_out_closes_minutes`.
+    `check_in_time` / `check_out_time` are the accepted check-in and
+    check-out of the duty's `shift_date`, `null` when there is none — an
+    outside-schedule one included (in at 07:55 before an 08:00 window), as the
+    check-in rule counts it: a second check-in that date is refused.
+  - A client compares the present moment with these instants; it never
+    computes a window itself.
 - `leave_balance` — this year's, exactly `GET /api/me/leave-balance` (§16.2).
 - `approvals.pending_count` — the steps waiting on me now (`GET
   /api/me/approvals`, §15.2).
@@ -3543,9 +3591,9 @@ read on Thursday the 22nd at noon with nothing recorded yet that day:
         "date": "2026-10-18", "weekday": 0, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-18T09:00:00+03:00", "ends_at": "2026-10-18T16:00:00+03:00" },
         "status": 8, "status_label": "تسجيل مرفوض",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null,
         "rejection": {
           "record_id": 44,
@@ -3563,27 +3611,27 @@ read on Thursday the 22nd at noon with nothing recorded yet that day:
         "date": "2026-10-19", "weekday": 1, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-19T09:00:00+03:00", "ends_at": "2026-10-19T16:00:00+03:00" },
         "status": 2, "status_label": "حاضر",
-        "check_in_id": 41, "check_in_time": "2026-10-19T08:52:00+03:00", "check_out_time": "2026-10-19T16:10:00+03:00",
+        "check_in_id": 41, "check_in_shift_date": "2026-10-19", "check_in_time": "2026-10-19T08:52:00+03:00", "check_out_time": "2026-10-19T16:10:00+03:00",
         "work_hours": 7.3, "work_hours_formatted": "7h 18m",
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 420, "minutes_outside_shift": 18, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 420, "minutes_outside_shift": 18, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-20", "weekday": 2, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-20T09:00:00+03:00", "ends_at": "2026-10-20T16:00:00+03:00" },
         "status": 3, "status_label": "انصراف مفقود",
-        "check_in_id": 43, "check_in_time": "2026-10-20T09:20:00+03:00", "check_out_time": null,
+        "check_in_id": 43, "check_in_shift_date": "2026-10-20", "check_in_time": "2026-10-20T09:20:00+03:00", "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-21", "weekday": 3, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-21T09:00:00+03:00", "ends_at": "2026-10-21T16:00:00+03:00" },
         "status": 5, "status_label": "غياب بعذر",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": "حضور مبرر", "rejection": null, "correction": null,
         "excuse": {
           "leave_request_id": 17,
@@ -3599,36 +3647,36 @@ read on Thursday the 22nd at noon with nothing recorded yet that day:
         "date": "2026-10-22", "weekday": 4, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-22T09:00:00+03:00", "ends_at": "2026-10-22T16:00:00+03:00" },
         "status": 9, "status_label": "لم يُسجَّل بعد",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-23", "weekday": 5, "working_day": false,
         "shift": null,
         "status": 7, "status_label": "عطلة",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-24", "weekday": 6, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-24T09:00:00+03:00", "ends_at": "2026-10-24T16:00:00+03:00" },
         "status": 4, "status_label": "في إجازة",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": "إجازة سنوية", "rejection": null, "correction": null, "excuse": null
       },
       {
         "date": "2026-10-25", "weekday": 0, "working_day": true,
         "shift": { "code": "DAY", "name": "الدوام الإداري", "starts_at": "2026-10-25T09:00:00+03:00", "ends_at": "2026-10-25T16:00:00+03:00" },
         "status": 9, "status_label": "لم يُسجَّل بعد",
-        "check_in_id": null, "check_in_time": null, "check_out_time": null,
+        "check_in_id": null, "check_in_shift_date": null, "check_in_time": null, "check_out_time": null,
         "work_hours": null, "work_hours_formatted": null,
-        "late_minutes": 0, "early_departure_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
+        "late_minutes": 0, "early_departure_minutes": 0, "overtime_minutes": 0, "short_minutes": 0, "minutes_within_shift": 0, "minutes_outside_shift": 0, "outside_schedule": false,
         "leave_type": null, "rejection": null, "correction": null, "excuse": null
       }
     ],
@@ -3643,6 +3691,15 @@ read on Thursday the 22nd at noon with nothing recorded yet that day:
       "rejected_days": 1,
       "off_days": 0,
       "missing_checkouts": 1,
+      "late_count": 0,
+      "late_minutes": 0,
+      "early_departure_count": 0,
+      "early_departure_minutes": 0,
+      "overtime_count": 0,
+      "overtime_minutes": 0,
+      "short_count": 0,
+      "short_minutes": 0,
+      "outside_schedule_count": 0,
       "total_work_hours": 7.3,
       "total_work_hours_formatted": "7h 18m",
       "attendance_rate": 50
@@ -4268,6 +4325,48 @@ POST /api/me/shift-swaps/{swap}/cancel
 - **options** — `my_duties`: my duties starting in the next 31 days that have
   not opened; `partners`: each colleague I can exchange with, and theirs. A
   duty is `{date, starts_at, ends_at, shifts}`; `date` is what POST takes.
+  ⚙️ 2026-11-14 (work shifts piece 4): **both lists are empty** for a caller
+  not on a cycle schedule today — an office worker whose manager also manages
+  guards is offered nothing, rather than partners filing would refuse. A
+  client shows "exchange a duty" only when `partners` is not empty.
+
+```json
+{
+  "success": true,
+  "message": "تمت العملية بنجاح.",
+  "data": {
+    "my_duties": [
+      {
+        "date": "2026-11-20",
+        "starts_at": "2026-11-20T08:00:00+03:00",
+        "ends_at": "2026-11-23T08:00:00+03:00",
+        "shifts": [
+          { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-20T08:00:00+03:00", "ends_at": "2026-11-21T08:00:00+03:00" },
+          { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-21T08:00:00+03:00", "ends_at": "2026-11-22T08:00:00+03:00" },
+          { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-22T08:00:00+03:00", "ends_at": "2026-11-23T08:00:00+03:00" }
+        ]
+      }
+    ],
+    "partners": [
+      {
+        "employee": { "id": 32, "full_name": "سامي محمود العلي", "employee_number": "700000032" },
+        "duties": [
+          {
+            "date": "2026-11-17",
+            "starts_at": "2026-11-17T08:00:00+03:00",
+            "ends_at": "2026-11-20T08:00:00+03:00",
+            "shifts": [
+              { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-17T08:00:00+03:00", "ends_at": "2026-11-18T08:00:00+03:00" },
+              { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-18T08:00:00+03:00", "ends_at": "2026-11-19T08:00:00+03:00" },
+              { "code": "GUARD", "name": "مناوبة حراسة", "starts_at": "2026-11-19T08:00:00+03:00", "ends_at": "2026-11-20T08:00:00+03:00" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 - **POST** — `my_duty_date`, `partner_id`, `partner_duty_date`, `reason`
   (optional). 201 with `data.shift_swap`.
 - **GET {swap}** — the requester or the partner; anyone else 404. `my_role` is

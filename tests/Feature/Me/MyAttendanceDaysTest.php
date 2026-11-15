@@ -267,15 +267,17 @@ class MyAttendanceDaysTest extends TestCase
         $this->assertSame(['id', 'full_name', 'employee_number'], array_keys($data['employee']));
         $this->assertSame(['id' => $this->units['a']->id, 'name' => 'إدارة أ'], $data['department']);
         $this->assertSame([
-            'date', 'weekday', 'working_day', 'shift', 'status', 'status_label', 'check_in_id', 'check_in_time', 'check_out_time',
+            'date', 'weekday', 'working_day', 'shift', 'status', 'status_label', 'check_in_id', 'check_in_shift_date', 'check_in_time', 'check_out_time',
             'work_hours', 'work_hours_formatted', 'late_minutes', 'early_departure_minutes', 'overtime_minutes', 'short_minutes', 'minutes_within_shift',
             'minutes_outside_shift', 'outside_schedule', 'leave_type', 'rejection', 'correction', 'excuse',
         ], array_keys($data['days'][0]));
         $this->assertSame(0, $data['days'][0]['weekday'], '21 June 2026 is a Sunday');
         $this->assertSame([
             'expected_days', 'present_days', 'on_leave_days', 'excused_days', 'excused_deducted_days', 'excused_not_deducted_days',
-            'absent_days', 'rejected_days', 'off_days', 'missing_checkouts', 'total_work_hours', 'total_work_hours_formatted',
-            'attendance_rate',
+            'absent_days', 'rejected_days', 'off_days', 'missing_checkouts',
+            'late_count', 'late_minutes', 'early_departure_count', 'early_departure_minutes', 'overtime_count', 'overtime_minutes',
+            'short_count', 'short_minutes', 'outside_schedule_count',
+            'total_work_hours', 'total_work_hours_formatted', 'attendance_rate',
         ], array_keys($data['summary']));
     }
 
