@@ -2088,3 +2088,53 @@ of its pull request 4 (`work-shifts-rules`). `../alraqi-erp-app`: `main` is
 
 **Still not done:** no run of piece 4 on a device. **Next:** the app's
 slice 8, pilot hardening (`START_HERE.md` §10 item 1).
+
+### 2026-11-15 — a dev clock, for hand-run scenarios
+
+The owner could not wait hours for a shift's close or days for a guard's duty
+to run the manual scenarios. Built on `main`, uncommitted: `php artisan
+dev:clock` (`MoveDevClock`) and `App\Shared\Support\DevClock`, bound and booted
+first in `AppServiceProvider::register`, with `config/dev_clock.php`.
+
+- The command stores an **offset** from the real clock in
+  `storage/app/dev-clock.json` (git-ignored); a boot in `APP_ENV=local` gives
+  Carbon a closure that adds it, so the moved clock ticks. Every "now" in
+  `app/` is Carbon's; nothing reads `time()` or the database's `NOW()`.
+- **Local only, twice:** the command refuses any environment but `local`
+  (and `testing`, for its own tests), and no other environment's boot reads
+  the file. A testing boot is never moved, so the suite keeps its own clock.
+- A moment is wall time in the attendance timezone; a relative one (`+3 days`,
+  `tomorrow 08:05`) counts from the moved clock. A move clears the cache, whose
+  expiries and rate limits belong to the old clock, and warns when it goes back.
+- `--adb=<serial>` sets an emulator to the same moment: automatic time off,
+  then `cmd alarm set-time` (no root, so a Google Play image works), falling
+  back to `su 0 date`; `--reset --adb` restores the real time and automatic
+  time. A failure there fails the command and leaves the server's clock moved,
+  saying so.
+
+No migration, no route, no permission. **Verification:** `DevClockTest` (13);
+run for real against the local environment — `+3 days` moved `now()` and the
+attendance calendar's today in a fresh process, `--reset` returned both — and
+against the running emulator (`emulator-5554`, a Google Play image, API 37),
+moved two days ahead and back, automatic time on again. **Not done:** no
+scenario has been run with it yet; a real phone's clock is still set by hand.
+
+### 2026-11-15 — a full shift no longer a minute short; an attendance scenario pack
+
+**Seconds.** `DutyPresence::split` counted presence from the exact moments, so
+a shift worked 09:00:32 to 16:00:10 came out 419 minutes, one short, though
+every screen reads 09:00 and 16:00. Now each moment counts as the minute it
+reads: the check-in, the check-out and an open check-in's `$now` are truncated
+to the minute (on copies, so a record's own moment keeps its seconds). A
+check-out at 15:59:10 is still one minute short, as it reads. Every figure
+derived from the split — within, short, late, early, overtime, work hours —
+follows. No migration, no contract change. **Verification:**
+`DutyPresenceTest`, two new cases (21 in the file, passing).
+
+**Scenarios.** [`ATTENDANCE_END_TO_END_TEST_SCENARIOS.md`](ATTENDANCE_END_TO_END_TEST_SCENARIOS.md)
+is a hand-run pack across the API, the app and the dashboard (`ATT-*`, P1–P3):
+recording and capture, the offline queue, the employee's calendar and notices,
+dashboard review and actions, schedule rules and report figures, and the
+scheduled jobs, retention and API boundaries, with an execution record. It runs beside the app's work-shifts
+device pack (`WS-*`), and the dev clock above is how its time-bound cases are
+reached. **Not done:** planned checks only; none has been run.

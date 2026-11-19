@@ -38,6 +38,7 @@ use App\Shared\Models\Attachment;
 use App\Shared\Push\FcmPushTransport;
 use App\Shared\Push\LogPushTransport;
 use App\Shared\Push\PushTransport;
+use App\Shared\Support\DevClock;
 use App\Shared\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -55,6 +56,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // The dev clock (`php artisan dev:clock`): a LOCAL environment's "now",
+        // moved for hand-run scenarios that cannot wait for a shift to end.
+        // First, so nothing reads the time before it; and a no-op everywhere
+        // but APP_ENV=local, whatever file is on the disk.
+        $this->app->bind(DevClock::class, fn (): DevClock => new DevClock((string) config('dev_clock.path')));
+        $this->app->make(DevClock::class)->boot($this->app->environment());
+
         // Push delivery (work order §4.3). FCM when Firebase credentials are
         // configured (FIREBASE_CREDENTIALS — the legacy project's service
         // account, D8); otherwise every push is a log line, and the

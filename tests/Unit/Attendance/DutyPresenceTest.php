@@ -214,4 +214,20 @@ class DutyPresenceTest extends TestCase
 
         $this->assertSame([0, 0, 45], [$presence['2026-11-14']->overtimeMinutes, $presence['2026-11-15']->overtimeMinutes, $presence['2026-11-16']->overtimeMinutes]);
     }
+
+    public function test_seconds_do_not_count_a_full_shift_as_a_minute_short(): void
+    {
+        // A tap at 09:00:32 reads 09:00 on every screen; it is 09:00 here too.
+        $day = $this->split($this->officeDay(), '2026-11-14 09:00:32', '2026-11-14 16:00:42')['2026-11-14'];
+
+        $this->assertSame([420, 0, 0, 0, 7.0], [$day->minutesWithin, $day->shortMinutes, $day->lateMinutes, $day->earlyDepartureMinutes, $day->workHours]);
+    }
+
+    public function test_a_check_out_in_the_last_minute_is_one_minute_short_as_it_reads(): void
+    {
+        // 15:59:10 reads 15:59: one minute short, matching the screen.
+        $day = $this->split($this->officeDay(), '2026-11-14 09:00:50', '2026-11-14 15:59:10')['2026-11-14'];
+
+        $this->assertSame([419, 1], [$day->minutesWithin, $day->shortMinutes]);
+    }
 }

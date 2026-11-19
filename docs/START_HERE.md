@@ -73,7 +73,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | ⚙️ (2026-11-15) `main` at `b3988c2`, the merge of pull request 9 (`work-shifts-app-api`): **all four pieces of work shifts and per-shift rules are merged** — piece 3 `06f2f0e`, per-shift rules `0873ba6`, piece 4's backend part `dfeaee4`; pieces 1 and 2 came with pull request 8 (`6493015`). `../erp-dashboard`'s `main` is `a0d1185` (its pull request 4) and `../alraqi-erp-app`'s is `708311d` (its pull request 6) |
-| **Test suite** | **1546 passing**, Pint clean (`php artisan test`, 2026-11-15) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **Test suite** | **1561 passing**, Pint clean (`php artisan test`, 2026-11-19) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 124 routes under `/api`, 48 permissions |
 | **Working tree** | Everything built so far is on `main` in all three repositories, with no feature branch ahead of it; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
@@ -119,6 +119,15 @@ php artisan test
 First time on a new machine: `cp .env.example .env` then `php artisan key:generate`
 before migrating.
 
+⚙️ **Testing by hand without waiting (2026-11-15).** `php artisan dev:clock
+"2026-11-21 07:55"` moves a **local** server's clock (`"+1 day"`, `"tomorrow
+08:05"`; `--reset` returns it; no argument shows it), and `--adb=<serial>`
+moves an Android emulator with it. It is an offset in `storage/app/dev-clock.json`
+that only an `APP_ENV=local` boot reads (`App\Shared\Support\DevClock`); the
+command is refused elsewhere. Rows written meanwhile carry the moved time, so
+use a test database and reset afterwards. How to use it in a scenario: the
+app's `docs/manual-test-scenarios/work-shifts-app.md`, Conventions.
+
 **What seeding gives you** (`database/seeders/DatabaseSeeder.php`):
 
 1. `PermissionSeeder` — ⚙️ the 46 permission rows (43 route-level + 3 field-level)
@@ -138,7 +147,7 @@ one by looking.
 
 ## 4. Which document to read for what
 
-⚙️ `docs/` holds twenty-eight top-level files written at different times, plus the
+⚙️ `docs/` holds thirty top-level files written at different times, plus the
 specs and plans in `docs/superpowers/`. Several describe states the code has since
 moved past. This table says which one to trust for what.
 
@@ -151,6 +160,7 @@ moved past. This table says which one to trust for what.
 | **`EMPLOYEE_APP_REQUIREMENTS.md`** | **What the employee mobile app needs from HR**, mapped onto the stages, plus the decisions it forces before the import | Requirements captured 2026-09-21, not scheduled work. It settles GAP-3 and names work no stage owns |
 | ⚙️ **`EMPLOYEE_APP_V1_WORK_ORDER.md`** | **The app's v1 pilot on the ERP**, and in its §8 **the running record of what was built and decided**, entry by entry. Its §3 lists thirteen decisions | §4.1–§4.8 are built. §4's text is the original plan, so trust §8 over it where they differ |
 | ⚙️ `ATTENDANCE_BUILD.md`, `APPROVALS_ENGINE_DESIGN.md`, `LEAVE_BUILD.md` | **How each module was designed** — its rules, its slices, what differs from legacy | Attendance predates the work-site episode, which left nothing behind (work order §8, 2026-11-02) |
+| ⚙️ `ATTENDANCE_END_TO_END_TEST_SCENARIOS.md` | **The hand-run attendance checks** across the API, the app and the dashboard (`ATT-*`), run beside the app's work-shifts pack | Planned, not run (2026-11-15); the dev clock (§3) reaches its time-bound cases |
 | ⚙️ `DECISION_ROUND_ATTENDANCE_LEAVE.md`, `PARITY_AUDIT_ATTENDANCE_LEAVE.md` | The 14 questions the attendance and leave rules rest on, and the rule-by-rule check against legacy | Both closed; the answers are in work order §8 (2026-10-16, 2026-10-20) |
 | ⚙️ `DECISION_ROUND_WORK_SHIFTS.md` | The 13 questions work shifts need answered first: they reopen Q8–Q10 of the round above, with legacy's evidence on the guards | Closed 2026-11-09; the answers are in work order §8 (2026-11-09) |
 | ⚙️ `EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`, `WORKBOOK_COLUMN_MAP.md` | The import by upload, and what each workbook column becomes | The صرح file is no longer read (2026-10-24) |
@@ -1402,7 +1412,9 @@ run. **Deploy:** nothing here beyond the code. **Next:** item 1.
 **1. The app, slice 8 — pilot hardening** (`../alraqi-erp-app`,
 `docs/superpowers/specs/2026-10-25-erp-employee-app-design.md` there, its §5).
 Slices 5 approvals, 6 notifications and push, and 7 حسابي and راتبي are merged.
-⚙️ It inherits work shifts piece 4's manual scenarios (item 0).
+⚙️ It inherits work shifts piece 4's manual scenarios (item 0), and
+[`ATTENDANCE_END_TO_END_TEST_SCENARIOS.md`](ATTENDANCE_END_TO_END_TEST_SCENARIOS.md)
+beside them; `dev:clock` (§3) moves the server and an emulator to reach them.
 What is left is checks on a device (the refresh race after 15 minutes idle with an
 offline queue, an offline check-in then reconnect, the first login through the
 forced change) and the release build (the approved launcher icon, a new Android

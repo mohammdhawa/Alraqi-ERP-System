@@ -19,7 +19,10 @@ use Carbon\CarbonInterface;
  * - outside: time before the duty's start, on the first shift with presence,
  *   and after its end, on the last shift.
  *
- * An open check-in's presence runs to $now. Whole minutes throughout.
+ * An open check-in's presence runs to $now. Whole minutes throughout: each
+ * moment counts as the minute it reads (22:00:32 is 22:00), so a shift worked
+ * from the minute it starts to the minute it ends is not a minute short for
+ * the seconds of the tap.
  */
 final class DutyPresence
 {
@@ -30,7 +33,10 @@ final class DutyPresence
             return self::nothing($duty);
         }
 
-        $end = $out ?? $now;
+        // Copies: a record's own (mutable) moment keeps its seconds.
+        $in = $in->copy()->startOfMinute();
+        $out = $out?->copy()->startOfMinute();
+        $end = $out ?? $now->copy()->startOfMinute();
         $overlaps = array_map(
             static fn (ExpectedShift $shift): int => self::minutes(max($in, $shift->startsAt), min($end, $shift->endsAt)),
             $duty->shifts,
