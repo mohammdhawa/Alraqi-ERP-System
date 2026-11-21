@@ -6,16 +6,21 @@ namespace App\Shared\Push;
 
 use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Contract\Messaging;
+use Kreait\Firebase\Messaging\AndroidConfig;
+use Kreait\Firebase\Messaging\ApnsConfig;
 use Kreait\Firebase\Messaging\CloudMessage;
-use Kreait\Firebase\Messaging\Notification;
 use Kreait\Firebase\Messaging\SendReport;
 use RuntimeException;
 
 /**
  * Push through Firebase Cloud Messaging (work order §4.3), with
  * kreait/firebase-php — the library the legacy backend already uses, against
- * the same Firebase project (D8), so the Flutter app's existing FCM setup
- * receives these pushes unchanged.
+ * the same Firebase project (D8).
+ *
+ * Android gets a data-only message, which the app draws itself (title and
+ * body are in the data); iOS gets an APNs alert. An app that only shows a
+ * push's `notification` shows nothing on Android: it has to draw from the
+ * data, as `alraqi-erp-app` does since 2026-11-21.
  *
  * Bound in place of LogPushTransport when Firebase credentials are configured
  * (`FIREBASE_CREDENTIALS`, see AppServiceProvider).
@@ -39,13 +44,27 @@ final class FcmPushTransport implements PushTransport
 
     public function send(array $tokens, PushMessage $message): array
     {
+        $alert = array_filter(['title' => $message->title, 'body' => $message->body], fn (?string $v): bool => $v !== null);
+
         $report = $this->messaging->sendMulticast(
             CloudMessage::new()
-                ->withNotification(Notification::create($message->title, $message->body))
-                // `click_action` is what the legacy Flutter handler routes a
-                // tap on; kept so the re-pointed app opens notifications as
-                // it does today.
-                ->withData([...$message->data, 'click_action' => 'FLUTTER_NOTIFICATION_CLICK']),
+                // No `notification`: Android would draw it itself, in no group
+                // the app can set, and stack several under a summary of its
+                // own whose tap opens nothing (device run 2026-11-19, F2). On
+                // Android the app draws every push from the data, under its
+                // own summary; iOS draws the APNs alert below.
+                ->withData([
+                    ...$message->data,
+                    ...$alert,
+                    // `click_action` is what the legacy Flutter handler routes
+                    // a tap on; kept so the re-pointed app opens notifications
+                    // as it does today.
+                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                ])
+                // A data message reaches a sleeping or closed app only at high
+                // priority.
+                ->withAndroidConfig(AndroidConfig::fromArray(['priority' => 'high']))
+                ->withApnsConfig(ApnsConfig::fromArray(['payload' => ['aps' => ['alert' => $alert, 'sound' => 'default']]])),
             $tokens,
         );
 

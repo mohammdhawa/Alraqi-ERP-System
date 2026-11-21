@@ -66,13 +66,35 @@ class FcmPushTransportTest extends TestCase
 
         $this->assertSame(['phone', 'tablet'], $this->calls[0]['tokens']);
         $sent = $this->calls[0]['message']->jsonSerialize();
-        $this->assertSame('تمت الموافقة على الإجازة', $sent['notification']['title']);
-        $this->assertSame('من 12 إلى 14 تشرين الأول', $sent['notification']['body']);
         $this->assertSame('leave.approved', $sent['data']['type']);
         $this->assertSame('42', $sent['data']['reference_id']);
         // The legacy Flutter handler routes a tap on this key; kept so the
         // re-pointed app needs no change to open a notification.
         $this->assertSame('FLUTTER_NOTIFICATION_CLICK', $sent['data']['click_action']);
+    }
+
+    public function test_android_gets_data_only_for_the_app_to_draw(): void
+    {
+        $this->transport(fn () => null)->send(['phone'], $this->message());
+
+        $sent = $this->calls[0]['message']->jsonSerialize();
+        // No `notification`: Android would draw it itself, outside any group
+        // the app can set, and stack several under a summary whose tap opens
+        // nothing (device run F2). The app draws it from the data instead.
+        $this->assertArrayNotHasKey('notification', $sent);
+        $this->assertSame('تمت الموافقة على الإجازة', $sent['data']['title']);
+        $this->assertSame('من 12 إلى 14 تشرين الأول', $sent['data']['body']);
+        // A data message wakes a sleeping or closed app only at high priority.
+        $this->assertSame('high', $sent['android']['priority']);
+    }
+
+    public function test_ios_keeps_an_alert_drawn_by_the_system(): void
+    {
+        $this->transport(fn () => null)->send(['phone'], $this->message());
+
+        $alert = $this->calls[0]['message']->jsonSerialize()['apns']['payload']['aps']['alert'];
+        $this->assertSame('تمت الموافقة على الإجازة', $alert['title']);
+        $this->assertSame('من 12 إلى 14 تشرين الأول', $alert['body']);
     }
 
     public function test_unknown_and_invalid_tokens_are_reported_dead(): void
@@ -110,7 +132,10 @@ class FcmPushTransportTest extends TestCase
     {
         $this->transport(fn () => null)->send(['phone'], new PushMessage('إعلان'));
 
-        $this->assertSame('إعلان', $this->calls[0]['message']->jsonSerialize()['notification']['title']);
+        $sent = $this->calls[0]['message']->jsonSerialize();
+        $this->assertSame('إعلان', $sent['data']['title']);
+        $this->assertArrayNotHasKey('body', $sent['data']);
+        $this->assertSame(['title' => 'إعلان'], $sent['apns']['payload']['aps']['alert']);
     }
 
     // ── Which transport is bound ─────────────────────────────────────────

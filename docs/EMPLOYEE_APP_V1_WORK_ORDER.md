@@ -2138,3 +2138,36 @@ dashboard review and actions, schedule rules and report figures, and the
 scheduled jobs, retention and API boundaries, with an execution record. It runs beside the app's work-shifts
 device pack (`WS-*`), and the dev clock above is how its time-bound cases are
 reached. **Not done:** planned checks only; none has been run.
+
+### 2026-11-21 — Android pushes drawn by the app (device run F2)
+
+The work-shifts device run (2026-11-19, the app's
+`docs/manual-test-scenarios/work-shifts-app-run-2026-11-19.md`) found that two
+or more pushes stacked in the shade opened nothing when tapped. Confirmed on
+`emulator-5554`: Firebase drew each push in no group, Android put them under
+an automatic summary (`g:Aggregate_AlertingSection`, flags
+`GROUP_SUMMARY|AUTOGROUP_SUMMARY`), and that summary's tap only starts the
+app, with no push data. Firebase cannot give a push a group, so the owner
+chose to have the app draw every Android push.
+
+- **Here:** `FcmPushTransport` sends no FCM `notification`. The data gains
+  `title` and `body`; Android gets `priority: high` (a data message wakes a
+  sleeping or closed app only at high priority); iOS gets an APNs `alert`
+  with the same text, drawn by the system. `API_DOCUMENTATION.md` §6 says so.
+- **In `../alraqi-erp-app`:** every Android push is drawn by the app — in
+  front, from the background handler, and with the app's process killed — in
+  one group under its own summary, whose tap opens «الإشعارات»; a tap on a
+  push that started the app is routed through the local-notifications launch
+  details; the manifest names `raqi_approvals` as the default channel
+  (background pushes had shown under Firebase's «Miscellaneous»).
+
+No migration, no route, no permission. **Deploy:** the server change and the
+app update go out together: an app that only shows a push's `notification`
+shows nothing on Android after it. **Verification:** `FcmPushTransportTest`
+(2 new cases); the suite passes (1563). On the emulator: four pushes in the
+background sit under the app's summary on its channel, no automatic summary;
+tapping the stack opens «الإشعارات», one expanded push opens «دوامي», a push
+in front is drawn, and one sent with the process killed wakes it, is drawn,
+and opens «دوامي» from a cold start. **Not done:** iOS is unchanged in
+principle but untested (no `GoogleService-Info.plist`); a real Android phone,
+whose battery saver may hold data messages, still to check.

@@ -73,7 +73,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | | |
 |---|---|
 | **Branch** | ⚙️ (2026-11-15) `main` at `b3988c2`, the merge of pull request 9 (`work-shifts-app-api`): **all four pieces of work shifts and per-shift rules are merged** — piece 3 `06f2f0e`, per-shift rules `0873ba6`, piece 4's backend part `dfeaee4`; pieces 1 and 2 came with pull request 8 (`6493015`). `../erp-dashboard`'s `main` is `a0d1185` (its pull request 4) and `../alraqi-erp-app`'s is `708311d` (its pull request 6) |
-| **Test suite** | **1561 passing**, Pint clean (`php artisan test`, 2026-11-19) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
+| **Test suite** | **1563 passing**, Pint clean (`php artisan test`, 2026-11-21) — the latest work is at the end of `EMPLOYEE_APP_V1_WORK_ORDER.md` §8 |
 | **API** | 124 routes under `/api`, 48 permissions |
 | **Working tree** | Everything built so far is on `main` in all three repositories, with no feature branch ahead of it; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
