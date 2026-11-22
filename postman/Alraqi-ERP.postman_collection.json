@@ -1535,6 +1535,362 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Documents - foundations",
+			"description": "API_DOCUMENTATION.md §20 (2026-11-22). Signatures, units' stamps and the letterhead. Uploading a stamp and deleting a signature are the system administrator's alone: not permissions.",
+			"item": [
+				{
+					"name": "Draw my signature",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/signature",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"signature"
+							]
+						},
+						"description": "§20.1 — a PNG up to 512 KB, drawn once; drawn_on 1 app, 2 dashboard. 409 when one exists.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "signature",
+									"type": "file",
+									"src": ""
+								},
+								{
+									"key": "drawn_on",
+									"value": "1",
+									"type": "text"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show my signature",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/me/signature",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"me",
+								"signature"
+							]
+						},
+						"description": "§20.1 — the owner's own PNG, streamed; 404 when none."
+					},
+					"response": []
+				},
+				{
+					"name": "Employee signature history",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/signature",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"signature"
+							]
+						},
+						"description": "§20.2 — the system administrator: versions and dates, never the image."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete employee signature",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/signature",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"signature"
+							]
+						},
+						"description": "§20.2 — the system administrator; reason 3–500 characters. The version is kept.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"توقيع غير واضح\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List units' stamps",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/stamps?missing=1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"stamps?missing=1"
+							]
+						},
+						"description": "§20.3 — the system administrator: every unit and whether it has a stamp; missing=1 keeps those without one."
+					},
+					"response": []
+				},
+				{
+					"name": "Upload unit stamp",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/stamps/{{departmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"stamps",
+								"{{departmentId}}"
+							]
+						},
+						"description": "§20.3 — the system administrator: PNG or JPG up to 2 MB; replaces the current version, which is kept.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "stamp",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show unit stamp",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/stamps/{{departmentId}}/image",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"stamps",
+								"{{departmentId}}",
+								"image"
+							]
+						},
+						"description": "§20.3 — the system administrator: the current version, streamed."
+					},
+					"response": []
+				},
+				{
+					"name": "Show letterhead",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/letterhead",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"letterhead"
+							]
+						},
+						"description": "§20.4 — documents.templates.manage."
+					},
+					"response": []
+				},
+				{
+					"name": "Upload letterhead header",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/letterhead/header",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"letterhead",
+								"header"
+							]
+						},
+						"description": "§20.4 — documents.templates.manage: PNG or JPG up to 2 MB. The part is header or footer.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "image",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show letterhead header image",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/letterhead/header/image",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"letterhead",
+								"header",
+								"image"
+							]
+						},
+						"description": "§20.4 — documents.templates.manage."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete letterhead footer",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/letterhead/footer",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"letterhead",
+								"footer"
+							]
+						},
+						"description": "§20.4 — documents.templates.manage."
+					},
+					"response": []
+				}
+			]
 		}
 	]
 }

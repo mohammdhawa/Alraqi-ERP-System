@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Documents\Controllers\EmployeeSignatureController;
 use App\Modules\HR\Controllers\EmployeeAssignmentController;
 use App\Modules\HR\Controllers\EmployeeController;
 use App\Modules\HR\Controllers\EmployeeImportController;
@@ -118,6 +119,16 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
             ->middleware(['permission:hr.assignments.view', 'can:viewAssignments,employee'])->name('assignments.index');
         Route::post('employees/{employee}/assignments', [EmployeeAssignmentController::class, 'store'])
             ->middleware(['permission:hr.assignments.create', 'can:recordAssignment,employee'])->name('assignments.store');
+
+        // التوقيع — the system administrator's view and deletion of an
+        // employee's signature (documents design §10.1, D15): its versions
+        // and dates, never the image. `documents.signatures.delete` is a Gate
+        // ability only the super-admin bypass passes, never a permission, so
+        // it can never be given to HR.
+        Route::get('employees/{employee}/signature', [EmployeeSignatureController::class, 'show'])
+            ->middleware('can:documents.signatures.delete')->name('signature.show');
+        Route::delete('employees/{employee}/signature', [EmployeeSignatureController::class, 'destroy'])
+            ->middleware('can:documents.signatures.delete')->name('signature.destroy');
 
         // جدول الدوام — a person's schedule spans (work shifts spec §9.2): HR
         // only, company-wide, so no row policy; another person's span is a 404.

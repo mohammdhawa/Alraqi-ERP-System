@@ -128,6 +128,17 @@ class PermissionSeeder extends Seeder
             'scheduling.view',
             'scheduling.manage',
         ],
+        // Documents (docs/superpowers/specs/2026-11-22-documents-design.md §5).
+        // Company-wide: neither is on PermissionReach's allow-list, and no
+        // seeded role carries them. Reading every document and building the
+        // templates are grants a role may carry. Uploading a unit's stamp,
+        // deleting a signature and reassigning a document's step are NOT here:
+        // they are the system administrator's alone (D15, D23.1, §19 Q3), Gate
+        // abilities in AppServiceProvider that no role can be given.
+        'documents' => [
+            'documents.view',
+            'documents.templates.manage',
+        ],
     ];
 
     /**
@@ -185,6 +196,8 @@ class PermissionSeeder extends Seeder
         'leave.requests.returnToWork' => 'تسجيل العودة إلى العمل',
         'scheduling.view'            => 'عرض الورديات والجداول',
         'scheduling.manage'          => 'إدارة الورديات والجداول',
+        'documents.view'             => 'عرض جميع المستندات',
+        'documents.templates.manage' => 'إدارة قوالب المستندات',
     ];
 
     public function run(): void

@@ -9,6 +9,7 @@ use App\Modules\Departments\Enums\Sector;
 use App\Modules\Departments\Exceptions\DepartmentHasChildrenException;
 use App\Modules\Departments\Exceptions\DepartmentHierarchyException;
 use App\Modules\Departments\Exceptions\DepartmentIsRootException;
+use App\Modules\Departments\Exceptions\ManagerOfAnotherUnitException;
 use App\Modules\Departments\Support\DepartmentHierarchyGuard;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Traits\HasAuditLog;
@@ -157,6 +158,21 @@ class Department extends Model
             if ($violations !== []) {
                 throw new DepartmentHierarchyException($violations[0]->message);
             }
+
+            // One unit per manager (documents round D27.1, design §13). Only
+            // when a manager is NAMED: a row that already breaks the rule
+            // (data from before it) still saves its other edits, and
+            // `departments:managers-of-several` lists those rows for HR.
+            if ($department->manager_id !== null && $department->isDirty('manager_id')) {
+                self::refuseSecondUnit((int) $department->manager_id, $department->exists ? (int) $department->getKey() : null);
+            }
+        });
+
+        // A restored unit brings its manager back: checked as a naming is.
+        static::restoring(function (self $department): void {
+            if ($department->manager_id !== null) {
+                self::refuseSecondUnit((int) $department->manager_id, (int) $department->getKey());
+            }
         });
 
         static::deleting(function (self $department): void {
@@ -175,6 +191,31 @@ class Department extends Model
                 throw new DepartmentHasChildrenException;
             }
         });
+    }
+
+    /**
+     * The non-deleted unit, active or not, that this employee manages other
+     * than $exceptId — the one-unit rule's question (D27.1).
+     */
+    public static function otherUnitManagedBy(int $employeeId, ?int $exceptId): ?self
+    {
+        return self::query()
+            ->where('manager_id', $employeeId)
+            ->when($exceptId !== null, static fn (Builder $query) => $query->whereKeyNot($exceptId))
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * @throws ManagerOfAnotherUnitException
+     */
+    private static function refuseSecondUnit(int $employeeId, ?int $exceptId): void
+    {
+        $other = self::otherUnitManagedBy($employeeId, $exceptId);
+
+        if ($other !== null) {
+            throw new ManagerOfAnotherUnitException($other->name);
+        }
     }
 
     /**

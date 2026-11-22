@@ -19,6 +19,7 @@ use App\Modules\Auth\Models\Notification;
 use App\Shared\Models\AuditLog;
 use App\Shared\Support\NotificationEventCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Tests\Feature\Approvals\Concerns\ApprovalFixtures;
 use Tests\Feature\Approvals\Fakes\FakeApprovable;
@@ -243,7 +244,10 @@ class ApprovalSubmissionTest extends TestCase
     {
         // headA, with the general manager's post empty: still a vacant post.
         $this->units['gm']->update(['manager_id' => null]);
-        $this->units['a1']->update(['manager_id' => $this->people['headA']->id]);
+        // headA heading a second unit is refused on save since the one-unit
+        // rule (documents round D27.1), but rows from before it stand, and
+        // the chain must still read them as before: written past the guard.
+        DB::table('departments')->where('id', $this->units['a1']->id)->update(['manager_id' => $this->people['headA']->id]);
 
         $this->assertRefused(
             fn () => $this->submit($this->people['headA']),

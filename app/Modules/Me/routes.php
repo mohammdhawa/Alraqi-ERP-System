@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Modules\Approvals\Controllers\MyApprovalsController;
 use App\Modules\Attendance\Controllers\MyAttendanceController;
+use App\Modules\Documents\Controllers\MySignatureController;
 use App\Modules\Leave\Controllers\LeaveBalanceController;
 use App\Modules\Leave\Controllers\MyLeaveController;
 use App\Modules\Me\Controllers\DeviceTokenController;
@@ -50,6 +51,16 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
 
     Route::get('/photo', [MyPhotoController::class, 'show'])
         ->name('me.photo.show');
+
+    // The caller's own signature (documents design §10.1): drawn once, the
+    // first time one is needed (D14, D24), then only seen. No delete or
+    // replace route for its owner (D15); the system administrator's is under
+    // /api/hr/employees/{employee}/signature. Streamed, never a URL.
+    Route::post('/signature', [MySignatureController::class, 'store'])
+        ->name('me.signature.store');
+
+    Route::get('/signature', [MySignatureController::class, 'show'])
+        ->name('me.signature.show');
 
     // The home screen (§4.8, requirements §6.2): one object of cards, each
     // null until its module can answer — today only salary (Stage 4).

@@ -85,6 +85,9 @@ final class AuditTargetStub
         'shift_change'           => 'تعديل وردية',
         'shift_swap'             => 'تبديل مناوبة',
         'shift_rule'             => 'قواعد وردية',
+        'employee_signature'     => 'توقيع موظف',
+        'unit_stamp'             => 'ختم وحدة',
+        'document_letterhead'    => 'ترويسة المستندات',
     ];
 
     /**

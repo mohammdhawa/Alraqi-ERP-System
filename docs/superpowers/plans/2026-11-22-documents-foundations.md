@@ -187,6 +187,8 @@ Expected: PASS (the real-qpdf test skipped where qpdf is absent), Pint clean.
 
 - [ ] **Step 6: Stop for review**
 
+> **Amended after the final review (2026-11-22).** `pageCount()` imports every page and writes the copy, and catches any `Throwable` (FPDI's count reads only `/Count`, and broken files throw TypeErrors and warnings too). Images, here and in Tasks 3–5, are checked whole by `App\Modules\Documents\Support\CompleteImage` (PNG chunks and CRCs to IEND, JPEG end marker), not by `getimagesize()` alone. Later pieces inherit both.
+
 ---
 
 ### Task 3: Sealed images and employees' signatures
