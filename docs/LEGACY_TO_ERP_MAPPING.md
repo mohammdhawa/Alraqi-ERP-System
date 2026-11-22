@@ -154,7 +154,7 @@ name before trying the full name.
 |---|---|---|
 | `departments` (flat, `code`, `stamp`) | `departments` tree, levels 1–5 | **No data moves.** The ERP tree is seeded from the org chart (Batch 1) and is the authority |
 | `sections` (`department_id`, `stamp`) | `departments` rows at the section tier | Same |
-| `stamp` (moved from departments to sections in legacy) | Documents, November | A stamp is a document-rendering concern |
+| `stamp` (moved from departments to sections in legacy) | Documents, November | A stamp is a document-rendering concern. ⚙️ 2026-11-22: **every unit, at every level, has its own stamp**, uploaded by the admin only, printed with the approving manager's signature (`DECISION_ROUND_DOCUMENTS.md` §H, D23) |
 | `leave_requests.department_id/section_id`, `attendance_records.department_id/section_id` (ownership snapshots, `2026_08_31_000003`) | ⚙️ **dropped** (D6, 2026-10-16: current unit) | Legacy stamps the requester's unit on each row so authorization survives a transfer. The ERP's GAP-3 scope reads the employee's **current** unit. Recommended: follow the current unit, as GAP-3 already does for employees — a new manager inherits the whole history, the old one loses it. If a snapshot is ever needed, `employee_assignments` already answers "where was this person on date X" without a copy on every row |
 
 The legacy two-tier picture (department → section) is used **only** as a hint
@@ -434,7 +434,7 @@ unclassified is dropped from every scoped grant.
 | (inside `attendance.report.view`) `PUT users/{user}/leave-balance` | `leave.balances.update` (+ `leave.balances.view`) | row-scoped |
 | (inside `attendance.report.view`) excuse, cancel excuse, return-to-work | `leave.excuses.create`, `leave.excuses.delete`, `leave.requests.returnToWork` | row-scoped |
 | `leave.reassign_approver` | `approvals.reassign` | row-scoped (through the requester) |
-| `notifications.broadcast` | `notifications.broadcast` — **new**, with a route | `NotificationService::sendToDepartment/sendToRole` exist but no endpoint calls them. Not v1: the app's broadcast screen is an admin tool and stays on legacy until the dashboard has it |
+| `notifications.broadcast` | `notifications.broadcast` — **new**, with a route | `NotificationService::sendToDepartment/sendToRole` exist but no endpoint calls them. Not v1: the app's broadcast screen is an admin tool and stays on legacy until the dashboard has it. ⚙️ **Needed before the release** (2026-11-22): announcements by notification replace circulars, `DECISION_ROUND_DOCUMENTS.md` D20, D26 |
 | role `employee` | nothing | Self-service needs no permission (`EMPLOYEE_APP_REQUIREMENTS.md` §6.1) |
 | role `manager` / `chief` | a scoped grant of an HR/attendance role, scope «الوحدات التي أديرها» | The tree replaces the label |
 | role `admin` | the ERP `admin` role | `super_admin` stays with the technical department |

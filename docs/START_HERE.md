@@ -78,7 +78,7 @@ module, with the ERP as the host. Not a rewrite, not a big bang. See §8.
 | **Working tree** | Everything built so far is on `main` in all three repositories, with no feature branch ahead of it; check `git status` for anything since |
 | **Open gaps** | none — `API_BUILD_STANDARD.md` §12 (the last, GAP-20, closed 2026-10-16) |
 | **Production data** | none — the real import has not run. The work order records "no real employee on a production server" as an assumption (§8, 2026-10-24) |
-| **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan and ⚙️ work shifts piece 4 are merged to its `main` (`708311d`, 2026-11-15); piece 4 has not yet run on a device; slice 8, pilot hardening, is next (§10 item 1) |
+| **Flutter app** | `../alraqi-erp-app`: slices 0–7 of the 0–8 plan and ⚙️ work shifts piece 4 are merged to its `main` (`708311d`, 2026-11-15); piece 4 has not yet run on a device; slice 8, pilot hardening, is next (§10 item 1) — ⚙️ piece 4 ran on an emulator 2026-11-19 (work order §8), and since 2026-11-21 slice 8 and the pilot wait for §10 item 0 |
 
 **Done:** Phase 1 (the whole foundation), Batches 1–3 of Phase 1.5 (departments,
 the employees rebuild, the import tooling), and the backend of the Employee App
@@ -92,9 +92,11 @@ on the approvals engine; the Stage 3 parallel month; payroll.
 
 **Next:** §10. The pilot's 2026-11-01 date has passed and stopped being binding on
 2026-10-16 ([`EMPLOYEE_APP_V1_WORK_ORDER.md`](EMPLOYEE_APP_V1_WORK_ORDER.md) §5):
-work goes in dependency order. ⚙️ **Since 2026-11-09 the app's release waits for
-work shifts**, which wait for their decision round
-([`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md)).
+work goes in dependency order. ⚙️ **Since 2026-11-21 there is no pilot until
+three more things are built** (owner's ruling): **the HR module with all its
+functionalities, document approvals, and employee performance evaluation**
+(§10 item 0). Work shifts, which the release waited for from 2026-11-09, are
+built and merged.
 
 ---
 
@@ -147,7 +149,7 @@ one by looking.
 
 ## 4. Which document to read for what
 
-⚙️ `docs/` holds thirty top-level files written at different times, plus the
+⚙️ `docs/` holds thirty-one top-level files written at different times, plus the
 specs and plans in `docs/superpowers/`. Several describe states the code has since
 moved past. This table says which one to trust for what.
 
@@ -163,9 +165,10 @@ moved past. This table says which one to trust for what.
 | ⚙️ `ATTENDANCE_END_TO_END_TEST_SCENARIOS.md` | **The hand-run attendance checks** across the API, the app and the dashboard (`ATT-*`), run beside the app's work-shifts pack | Planned, not run (2026-11-15); the dev clock (§3) reaches its time-bound cases |
 | ⚙️ `DECISION_ROUND_ATTENDANCE_LEAVE.md`, `PARITY_AUDIT_ATTENDANCE_LEAVE.md` | The 14 questions the attendance and leave rules rest on, and the rule-by-rule check against legacy | Both closed; the answers are in work order §8 (2026-10-16, 2026-10-20) |
 | ⚙️ `DECISION_ROUND_WORK_SHIFTS.md` | The 13 questions work shifts need answered first: they reopen Q8–Q10 of the round above, with legacy's evidence on the guards | Closed 2026-11-09; the answers are in work order §8 (2026-11-09) |
+| ⚙️ `DECISION_ROUND_DOCUMENTS.md` | The 32 questions the document module needed answered before it is built, with legacy's counts: moving the old documents, numbering, who creates and approves, the templates, documents sent to employees and their drawn signatures, managers' signatures and unit stamps, announcements, the switch | **Closed 2026-11-22**; the answers are in work order §8 (2026-11-21, 2026-11-22). The company's forms for the templates are awaited (D32.1) |
 | ⚙️ `EMPLOYEE_IMPORT_UPLOAD_DESIGN.md`, `WORKBOOK_COLUMN_MAP.md` | The import by upload, and what each workbook column becomes | The صرح file is no longer read (2026-10-24) |
 | ⚙️ `KOBO_EMPLOYEE_NUMBER_DESIGN.md`, `EMPLOYEE_ACCOUNT_ON_CREATE_DESIGN.md` | The number a person signs in with, and the account made with a hand-added employee | — |
-| ⚙️ **`LEGACY_TO_ERP_MAPPING.md`** | **What every legacy attendance, leave, approval, device and notification table, route and permission becomes** in the ERP, and which data moves | First pass, 2026-10-05. Documents are not mapped yet (November) |
+| ⚙️ **`LEGACY_TO_ERP_MAPPING.md`** | **What every legacy attendance, leave, approval, device and notification table, route and permission becomes** in the ERP, and which data moves | First pass, 2026-10-05. Documents are not mapped yet; their decisions are in `DECISION_ROUND_DOCUMENTS.md` (closed 2026-11-22) |
 | **`GAP3_SCOPED_AUTHORIZATION_WORK_ORDER.md`** | **The build plan for row-level authorization** — the four pieces, the traps, and what is out of the first slice | Written 2026-09-24 as a handoff. The decisions it implements are §9 (14, 18, 19); this file is the *how* |
 | `phase1-completion-report.md` | Why Phase 1 is shaped the way it is; the decision index in §5 | Written before Phase 1.5; its "what comes next" (§7) is superseded |
 | `API_DOCUMENTATION.md` | The API contract, for frontend work | — |
@@ -1129,7 +1132,7 @@ cheaper to answer as a set than one at a time.
 | 12 | **`إدارة الإمداد والتوريد`** | **It exists. The seeded tree is correct** — `SUP`, a division, per the org chart | Batch 3. Closes §11 question 1 |
 | 13 | **GAP-12 — writing a field you cannot read** | **من لا يرى لا يكتُب.** Writing `agreed_salary`, `sham_cash_account` or any of the nine classification axes requires `hr.employees.viewSalary`; writing `national_id` requires `hr.employees.viewIdentity` | The asymmetry the real import would have shipped with. No new permission needed |
 | 14 | **GAP-3 — a manager's scope** | **The whole subtree.** A division head sees every section and office beneath them and all their staff — not just the rows whose `department_id` is their own unit | Row-level authorization, and لوحة المدير with it |
-| 15 | **The escalation chain's operational rules** | ~~`direct_manager_id` if set, else~~ (amended 2026-09-24, decision 20) the manager of the employee's unit; **if the post is vacant or the requester is that manager, climb to the nearest ancestor that has one**; terminate at المدير العام. Manual reassignment stays available, as the legacy system already provides | The manager resolver — which the app home screen needs and the Stage 2 approvals engine needs. "Structure without a walk" ends here |
+| 15 | **The escalation chain's operational rules** | ~~`direct_manager_id` if set, else~~ (amended 2026-09-24, decision 20) the manager of the employee's unit; **if the post is vacant or the requester is that manager, climb to the nearest ancestor that has one**; terminate at المدير العام. ⚙️ **2026-11-22: "no one acts for a vacant post"** (`DECISION_ROUND_DOCUMENTS.md` D27.3) applies to documents only: **this decision stands as built** for leave, shift swaps and the direct manager (D28, 2026-11-22). Manual reassignment stays available, as the legacy system already provides | The manager resolver — which the app home screen needs and the Stage 2 approvals engine needs. "Structure without a walk" ends here |
 | 16 | **GAP-13 — the audit trail leaking the axes** | **`auth.audit.viewValues` implies `hr.employees.viewSalary`.** The two are never granted apart | The reversible option was taken on purpose: redaction would have destroyed "who changed this person's grade, and to what" permanently, on an append-only table |
 | 17 | **Does an employee see their own classification axes?** | **Yes — in full**, including السوية التنظيمية، نوع النشاط، الخبرة and التمييز | `/api/me`. ⚠️ This raises the bar on the import: every axis must be correct and defensible **per person** before the app ships, because each employee will read their own |
 
@@ -1327,11 +1330,72 @@ Each piece has its entry, with its decisions, in the work order's §8.
 
 ## 10. What to do next
 
-⚙️ **Rewritten 2026-11-04, items 0 and 1 updated 2026-11-09.** In dependency
-order. Nothing here has a date: the project owner withdrew the calendar on
-2026-10-16.
+⚙️ **Rewritten 2026-11-04, items 0 and 1 updated 2026-11-09, the release scope
+widened 2026-11-21.** In dependency order. Nothing here has a date: the project
+owner withdrew the calendar on 2026-10-16.
 
-**0. Work shifts, before the app's release** (decided 2026-11-09:
+⚙️ **0. Before any release: HR, document approvals, performance evaluation**
+(owner's ruling, 2026-11-21; work order §8). The pilot (item 3) is not released
+until all three are built. Each needs its scope decided with the owner first,
+as work shifts did:
+
+- **The HR module with all its functionalities.** Payroll, السلف and العهد stay
+  out of HR (owner, 2026-11-21; Stage 4 and §5.2, §5.10 stand). What the app's
+  spec asks of HR and has no home today is in
+  [`EMPLOYEE_APP_REQUIREMENTS.md`](EMPLOYEE_APP_REQUIREMENTS.md) §2 and §5:
+  certificates, prior experience and contract dates (§5.8–§5.9), the employee's
+  documents (`employee_documents` has one type with endpoints), and the HR
+  dashboard's list (area 11). The full list is not yet written down.
+- **Document approvals.** Stage 2's other half: the legacy document module
+  (uploads, templates and generated PDFs, numbering, comments, its workflow;
+  `legacy-system-merge-plan.md` §4) onto the approvals engine built in
+  October, plus «قرأت ووافقت», which legacy never had
+  (`EMPLOYEE_APP_REQUIREMENTS.md` §5.4). **The ERP replaces the legacy module
+  entirely, and the legacy documents are moved across** (owner, 2026-11-21).
+  **Documents are also sent directly to employees, who sign them** with a
+  signature they draw in the app, printed on the PDF when they tap «قرأت
+  ووافقت»; **every unit has its own stamp**, and a manager's approval prints
+  the unit's stamp with the manager's own signature (owner, 2026-11-22). The
+  same day: only HR sends to employees, with or without approvals; an employee
+  may refuse with a reason; every signature is confirmed by fingerprint, face
+  or password; no company-wide circulars, but **general announcements by
+  notification**; **a manager manages one unit only**, and **no one acts for
+  a vacant post**. Also answered: the 20 people on legacy documents are matched
+  by hand, pending legacy documents are deleted rather than moved, the صادر and
+  reference numbers continue, every manager creates documents and names who
+  signs, المدير العام's decision is final, a document can be deleted until its
+  first signature, templates match the company's forms, and both the app and
+  the dashboard get document screens. Its questions, with legacy's counts, are
+  in [`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md), **closed
+  2026-11-22**: every question is answered, and the company's forms for the
+  templates are awaited (D32.1). Every document sent to an employee is **filed
+  on their record** (refused ones marked refused, with the reason); signed
+  PDFs carry **no check code or QR** (D20.2, revised the same day).
+  "No one acts for a vacant post" holds for documents only: **decision 15
+  stays** for leave, shift swaps and the direct manager (D28), and no built
+  approval code changes. The last answers: HR's managers send to employees;
+  the creator or the admin deletes before the first signature and the number
+  is never reused; templates are filtered by category and name; **only
+  template documents take a صادر number**, from the creator's إدارة's register,
+  starting from a number typed by hand; وارد is typed by hand. **The design is
+  written and its questions answered** (2026-11-22,
+  `docs/superpowers/specs/2026-11-22-documents-design.md`): templates through a
+  page editor on the dashboard; **four separate workflows** (its §1.4): an HR
+  document goes **directly** to one employee with no approval and carries only
+  their signature; leave and shift swaps stay as built; a document needing
+  management approvals is signed **in order** by the managers named, then
+  المدير العام. The engine decides as it does today; its one addition is a
+  visibility rule that hides documents from the general approvals screens.
+  **Next: the plans, piece by piece** (its §17).
+- **Employee performance evaluation** (تقييم الأداء). In neither system; it is
+  what sets `employees.distinction_grade` (§11 question 3), and payroll reads
+  it (`EMPLOYEE_APP_REQUIREMENTS.md` §5.1). The owner will describe how it
+  works (2026-11-21); nothing of it is designed before that.
+
+Items 1–3 below wait for item 0; the work-shifts device run of 2026-11-19 and
+its fixes (F1, F2) are recorded in the work order §8.
+
+**Done, 2026-11-15 — work shifts, which the release waited for from 2026-11-09** (decided 2026-11-09:
 [`DECISION_ROUND_WORK_SHIFTS.md`](DECISION_ROUND_WORK_SHIFTS.md), closed the same
 day; what each answer changes is in the work order's §8). Scope: fixed day and
 night shifts and the guards' 72-hours-on, 3-days-off cycle; late and early

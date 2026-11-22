@@ -2171,3 +2171,256 @@ in front is drawn, and one sent with the process killed wakes it, is drawn,
 and opens «دوامي» from a cold start. **Not done:** iOS is unchanged in
 principle but untested (no `GoogleService-Info.plist`); a real Android phone,
 whose battery saver may hold data messages, still to check.
+
+### 2026-11-21 — no pilot until HR, document approvals and evaluation are built
+
+The project owner's ruling: **the pilot is not released now.** Before any
+release, three things are finished:
+
+1. **the HR module with all its functionalities;**
+2. **document approvals** — the legacy document module onto the approvals
+   engine (Stage 2's other half), with «قرأت ووافقت»;
+3. **employee performance evaluation** (تقييم الأداء), which neither system has
+   and which sets `distinction_grade`.
+
+What changes: the app's slice 8, Batch 4 (the real import) and the pilot (§4.11)
+now wait for these three (`START_HERE.md` §10 item 0). The work-shifts device run
+of 2026-11-19 stands: its findings F1 and F2 are fixed and merged in both
+repositories (app `6c27550`, `79f1a5e`; here `9e843cf`), and its run sheet and
+record are in the app (`0c08265`, on its own branch when this was written).
+
+**Answered the same day:**
+
+- **Payroll, السلف and العهد stay out of HR.** The ruling reopens none of them
+  (Stage 4 and `EMPLOYEE_APP_REQUIREMENTS.md` §5.2, §5.10 stand).
+- **The ERP replaces the legacy document module entirely**, and the legacy
+  documents are moved across: the import gains the documents, their files,
+  comments and history.
+- **The owner will describe the evaluation.** Nothing of it is designed before
+  that.
+
+**Not decided yet:** the rest of HR's list (what the app's spec asks of HR and
+has no home is the start: §5.8–§5.9, the employee's documents, the dashboard's
+list), the documents' own decisions, and the order of the three.
+
+### 2026-11-22 — documents: sent to employees, signed; a stamp per unit
+
+The documents decision round opened on 2026-11-21
+([`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md)). The owner
+answered two of its questions, revising one:
+
+- **D10, revised: documents sent directly to employees are in this release.**
+  The first answer, on 2026-11-21, was no. This brings in what legacy never
+  had: HR or a manager sends a document (a contract, a decision, a
+  certificate, a circular) to employees, who read it in the app.
+- **D11: «قرأت ووافقت» is a drawn signature.** The app asks every employee to
+  draw their personal signature, which is stored securely with their account;
+  when they read a document and tap «قرأت ووافقت», that signature is printed at
+  the bottom of the PDF. This answers `EMPLOYEE_APP_REQUIREMENTS.md` §8
+  question 2 (a signature, not a receipt).
+- **Managers' signatures and unit stamps** (the round's §H): every
+  organisational unit, at every level, has its own official stamp; every
+  manager has a personal signature; a manager approving as the manager of a
+  unit prints that unit's stamp with their own signature beside it. The stamp
+  belongs to the unit and stays when the manager changes. This replaces
+  legacy's approval card, which prints the approver's section stamp and no
+  signature.
+
+What changes: the employee app gains document screens for every employee
+(receive, read, sign) whatever D12 answers, and a signature pad; the ERP gains
+stored signatures and a stamp per unit, and prints both into PDFs.
+
+**Not decided yet:** the round's other 22 questions, eleven of them new, raised
+by these rules (D14–D24): when the signature is drawn and how it changes, what
+confirms a signature (a tap, or the fingerprint or password), whether an
+employee can refuse, who sends to whom, whether a document is approved before
+it reaches employees and whether المدير العام approves those too, the signed
+copy of a circular sent to many, which stamp a manager of several units uses,
+a rejection on the PDF, who uploads stamps, and whether a manager's signature
+is drawn or scanned.
+
+### 2026-11-22 — documents: D14–D24 answered
+
+The owner answered the eleven questions the signature and stamp rules raised
+([`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md) §G, §H):
+
+| | Answer |
+|---|---|
+| D14 | The signature is **drawn the first time** the employee signs a document (a manager's, at their first approval) |
+| D15 | **An employee cannot delete their own signature.** A permission of its own deletes one, and **it is never given to HR**; the owner then draws a new one at their next signing |
+| D16 | **Every signature is confirmed** by fingerprint, face or password, for «قرأت ووافقت» and for a manager's approval alike; «قرأت ووافقت» is offered once the document is opened to its end |
+| D17 | **An employee can refuse to sign, and must give a reason** |
+| D18 | **Only HR sends documents to employees.** A newcomer does not receive what was sent before they joined |
+| D19 | **No approval is required** before a document reaches employees; المدير العام is not required on those documents, work certificates included |
+| D20 | **No company-wide circulars as documents.** General announcements go out **as notifications** |
+| D21 | **A manager manages one unit only** |
+| D22 | **A rejection carries the unit's stamp and the manager's signature too**, as legacy prints its stamp on a rejection |
+| D23 | **Only the admin uploads units' stamps** |
+| D24 | **Managers draw their signature** like every employee |
+
+What changes beyond the documents module: the org chart gains a rule (one unit
+per manager: the dashboard and the import enforce it, D27), and legacy's
+broadcast, left on legacy for v1 (`LEGACY_TO_ERP_MAPPING.md` §9), is built in
+the ERP as announcements (D26).
+
+**Not decided yet:** D1–D9, D12 and D13 (the first part of the round, from
+moving the old documents to the switch); D25–D27, which these answers raise
+(what a document sent without approval carries, the announcements, the one-unit
+rule on the org chart); and parts of D18, D20, D21 and D23 (several recipients
+per document, a check code, filing in the employee's record, a unit with no
+stamp, an approver with no unit, the company seal).
+
+### 2026-11-22 — documents: the rest of the round answered, and decision 15 reopened
+
+The owner answered the documents round's first half and its §J
+([`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md)), and clarified
+two earlier answers:
+
+| | Answer |
+|---|---|
+| D1 | The 20 people on legacy documents are **matched by hand** to their ERP employees |
+| D2 | The owner **deletes the pending legacy documents**; none moves. Only decided documents move |
+| D3 | The صادر counters and the reference sequences **continue** |
+| D4 | **Every manager creates documents**, at every level |
+| D5 | The creating manager **names the managers who sign**; only unit managers can be named; **المدير العام's decision is final** |
+| D6 | A manager's rejection is recorded; **المدير العام decides** |
+| D7 | A document **can be deleted until someone signs it** |
+| D8 | **An advanced creation mechanism matching the company's templates**, with a filter when choosing one |
+| D12 | **Document screens in both the app and the dashboard** |
+| D13 | **No date yet** for moving the documents |
+| D15 | Confirmed: nobody deletes, replaces or redraws their own signature; deleting one is **the system administrator's permission**, never HR's |
+| D16.3 | Clarified: **the app does not force reading to the end**; reading is the employee's responsibility |
+| D18.2 | **One employee per document** |
+| D21 | A non-manager **cannot be an approver**; a manager whose unit has no stamp **is told it is missing** |
+| D23.2 | The company's seal **is the stamp of الإدارة العامة** |
+| D25 | A document needing a stamp is **approved by a manager first**; the HR manager is enough |
+| D26 | **Announcements** by the system administrator and the HR manager, to everyone, to managers only, or to one unit, **with a title, a text, files and images** |
+| D27 | **One unit per manager**, enforced on the dashboard; the import keeps the first unit and leaves the second vacant; **no one acts for a vacant post**, not even the manager above |
+
+D20 (a check code, and filing signed documents in the employee's record) was
+not understood as written; it is rewritten in the round with worked examples
+and waits for an answer.
+
+**What changes beyond documents:** D27.3 reverses half of decision 15
+(`START_HERE.md` §9, ratified 2026-09-23 and built): today the manager above
+stands in for a vacant post in leave approvals, shift-swap approvals and the
+direct manager the app shows. The round's **D28** asks how far the new rule
+reaches and what happens to such a request; nothing built is changed until it
+is answered.
+
+**Not decided yet** (the round's §K): D28–D32 (the reach of D27.3, who in HR
+sends to employees, the last word on documents to employees and on المدير
+العام's own documents, the details of deleting, the company's real forms and
+the template filter), and the open parts of D3, D9, D20, D21.2 and D26.
+
+### 2026-11-22 — documents: D20 and D28 answered; decision 15 stays
+
+Three more answers in [`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md):
+
+- **D20.2, C — a QR code to check a document.** Every signed PDF carries a QR
+  code; anyone who scans it reaches a public page of the ERP, without signing
+  in, that says whether the document is genuine and shows its kind, number,
+  date and signers, nothing of its content. This is the ERP's first page open
+  without an account.
+- **D20.3, A — signed documents filed on the employee's record.** Every
+  document sent to an employee is filed automatically on their record
+  (الملف الوظيفي), under the type HR picks when sending. A refused document is
+  filed too, clearly marked refused, with its reason. The types to pick from
+  are still to be listed (the round's §K).
+- **D28, D — decision 15 stays as built** (ratified 2026-09-23, `START_HERE.md`
+  §9). When a unit has no manager, the manager of the unit above approves
+  leave requests and shift swaps and is the direct manager the app shows; a
+  manager's own requests go to their superior. D28 is an exception to D27.3,
+  which therefore holds for documents only (a manager never signs or stamps
+  for a unit they do not manage). **No built code changes; the approval logic
+  is not to be touched.**
+
+**Not decided yet** (the round's §K): D29–D32 (who in HR sends to employees,
+the last word on documents to employees and on المدير العام's own documents,
+the details of deleting, the company's real forms and the template filter), the
+filing types of D20.3, and the open parts of D3, D9, D21.2 and D26.
+
+### 2026-11-22 — documents: D20.2 revised, no check code
+
+The owner cancelled the QR code of D20.2 the same day: **signed PDFs carry no
+check code and no QR, and there is no public check page.** The ERP keeps no
+page open without an account. The document's printed number is how HR finds a
+paper and compares it (D20.2 answer A, `DECISION_ROUND_DOCUMENTS.md`).
+
+### 2026-11-22 — documents: the decision round closed
+
+The owner answered the round's last questions
+([`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md) §K), "as
+recommended" except D3:
+
+| | Answer |
+|---|---|
+| D3.2 | **Legacy's six صادر counters are not mapped onto ERP units.** Each unit's counter starts empty; its first document's number is typed by hand from the paper register (legacy's first-number rule), and the counter carries on from it. The reference sequences, which belong to no unit, carry on as they are |
+| D3.3 | **Only documents made from a template take a صادر number**, as legacy; uploaded documents do not |
+| D3 وارد | **Typed by hand**, as legacy: an optional field with no counter |
+| D9 | The HR templates **stay documents**; the HR round decides which change the employee's record. **طلب إجازة is retired** (its old documents move). The pay templates stay documents |
+| D20.3 | The filing types gain **قرار تعيين، قرار ترقية، شهادة عمل، إنذار** |
+| D21.2 | A manager whose unit has no stamp **cannot approve until the admin uploads it** |
+| D26 | An announcement to a unit **also reaches the units below it** |
+| D29 | **Every manager inside HR** (the HR manager and the managers of HR's sections) sends documents to employees |
+| D30 | A document to an employee that goes through approvals: **the last approver HR names decides**. A document المدير العام creates: **approved once every manager he named has signed**; their rejections are recorded and change nothing |
+| D31 | **The creator or the system administrator** deletes before the first signature; it leaves every list, the audit trail keeps it; **its صادر number is never reused** |
+| D32 | Templates are **filtered by category and searched by name**; **the admin builds them** on the dashboard |
+
+**The round is closed.** Awaited, not a decision: **the company's forms** for
+the templates (D32.1); until they come, a layout follows legacy's fields and
+its generic layout. D13 (when the documents move) has no date; the build does
+not depend on it.
+
+**Next:** the documents design, written from the round, then its plan. HR's
+list and the evaluation still wait for their own rounds (`START_HERE.md` §10
+item 0).
+
+### 2026-11-22 — documents: the design written
+
+`docs/superpowers/specs/2026-11-22-documents-design.md`, from the closed round.
+
+- **Templates: a page editor on the dashboard** (the owner's pick of three). The
+  admin writes each form's page, with the letterhead fixed and the fields placed
+  in the text. A form the editor cannot draw can keep a hand-made layout, as
+  legacy's طلب شراء does.
+- **The approvals engine is used as it is** (D28). Documents have their own
+  approve and reject endpoints: the missing-stamp hold, the first signature, the
+  fingerprint or password, and the card printed in the same transaction. An
+  observer on the engine's steps refuses a document decision made through the
+  general endpoints.
+- **mPDF alone** prints everything. Legacy's decisions move as a read-only
+  history, not as engine approvals.
+- **Eight pieces**: foundations, documents between managers, templates and
+  numbers, documents to employees, announcements, the dashboard, the app, the
+  import.
+- **Corrected by the builder check:** the employee import names no unit
+  managers today, so D27.2 has nothing to apply to yet (it is HR work).
+
+**Open, six questions** (the design's §19): answered the same day, below.
+
+### 2026-11-22 — documents: the design's questions answered; four workflows
+
+The owner answered the builder check's six questions and clarified that
+**four workflows are kept apart** (the design's §1.4):
+
+| | Workflow | Rule |
+|---|---|---|
+| 1 | An HR document to an employee | Sent **directly** by one of HR's managers (D29 stands) to one employee. **No approval, no approver, no المدير العام.** The employee signs «قرأت ووافقت» (or refuses with a reason) and that completes it. **Only the employee's signature** is printed, no stamp |
+| 2 | Leave | As built, **unchanged** |
+| 3 | Shift swaps | As built, **unchanged** |
+| 4 | A document needing management approvals | A manager names the managers who sign, **in order only** (no parallel), then المدير العام decides |
+
+This revises the round's D19.1, D25, D30.1 and I.1 (each marked on its line).
+The other answers:
+
+| | Answer |
+|---|---|
+| صادر register | **The creator's إدارة**, as legacy; sections and offices share it |
+| Document chains on the general approvals screens | **Hidden**, through one optional visibility rule in the approvals module that leave and swaps do not declare. Nothing in how approvals are decided changes |
+| Reassigning a document's step | **The system administrator only** |
+| PDFs the printing cannot open | **Converted on the server** (`qpdf` or Ghostscript), refused if that fails. **The production server needs one installed** |
+| Filed contracts and decisions | عقد العمل, قرار تعيين, قرار ترقية **behind the salary permission**, as Sham Cash |
+
+**Next:** the plans, piece by piece (the design's §17), starting with the
+foundations.

@@ -108,7 +108,7 @@ section is commentary on it.
 | 4 | الإجازات | **Stage 3** (ported), approvals from **Stage 2** | Legacy runs it, with multi-step approvals already (`leave_request_approvals.approval_order`). Two gaps — §4.2 and §5.6 |
 | 5 | الطلبات الإدارية | **Stage 2** engine + per-type modules | The engine does not exist yet. Adds one consumer to its design brief — §5.3. طلب سلفة is no longer among them; it went to إدارة المالية with the ledger |
 | 6 | الملف الوظيفي | **exists**, mostly | ~50 columns, assignments, documents, warnings. Missing: certificates, prior experience, contract dates — §5.8–§5.9. **العهد are إدارة المالية, not HR, and are not built** — §5.10 |
-| 7 | العقود والمستندات | **Stage 2** | Ported. **"قرأت ووافقت" is new** — the legacy module has no acknowledgement — §5.4 |
+| 7 | العقود والمستندات | **Stage 2** | Ported. **"قرأت ووافقت" is new** — the legacy module has no acknowledgement — §5.4. ⚙️ In this release, as a drawn signature (2026-11-22) |
 | 8 | الإشعارات | table **exists**, transport in **Stage 3** | `notifications` + endpoints exist; FCM arrives with the port. Six named triggers = an event catalogue — §5.7 |
 | 9 | التقييم | **no stage owns it** | ⚠️ The biggest finding in this document — §5.1 |
 | 10 | لوحة المدير | ✅ **GAP-3 built 2026-09-24** | A `managed` grant lists exactly the manager's subtree — §4.1 |
@@ -289,6 +289,28 @@ company to know an employee has seen a circular.
 Small to build, easy to forget: an acknowledgement row per (document, employee)
 with a timestamp, plus a "who has not acknowledged yet" read for HR. Stage 2.
 Whether it is a legal signature or an informational receipt is a question — §8.
+
+⚙️ **Decided 2026-11-22: a drawn signature, in this release**
+([`DECISION_ROUND_DOCUMENTS.md`](DECISION_ROUND_DOCUMENTS.md) D10, D11).
+Documents are sent directly to employees. Each employee draws a personal
+signature in the app, stored securely with their account; tapping «قرأت ووافقت»
+prints it at the bottom of the PDF. Managers sign too, beside their unit's
+stamp (the round's §H). The same day (D14–D24): the signature is drawn at the
+first signing and its owner cannot delete it; every signature is confirmed by
+fingerprint, face or password; an employee may refuse, with a reason; only HR
+sends documents to employees; and there are no company-wide circulars: area
+7's «التعاميم» become announcements by notification (D26), with files and
+images. A document goes to one employee; the app does not force reading to the
+end before signing (D16, D18, clarified 2026-11-22). No check code or QR is
+printed (D20.2, revised 2026-11-22). Every document sent to an employee is
+filed on their record (area 6, الملفات
+والمستندات) under the type HR picks, refused ones marked refused with the
+reason (D20.3). **Settled while designing (2026-11-22,
+`docs/superpowers/specs/2026-11-22-documents-design.md` §1.4):** a document HR
+sends to an employee **never goes through approvals** and carries **only the
+employee's signature**, no stamp. The employee's «قرأت ووافقت» is an
+acknowledgment, not an approval. Filed contracts and appointment and promotion
+decisions are read only with the salary permission.
 
 ### 5.5 عطلة — there is no holiday calendar
 
@@ -575,14 +597,16 @@ Short, and each one changes something concrete.
 site worker signs in, and whether every employee gets an account at all — both in
 §7.1, with the reason (attendance runs through the app). On **2026-09-23**:
 **manager scope** — the whole subtree (§4.1), and **whether an employee sees
-their own classification axes** — yes, in full (§6.1). Six are left.
+their own classification axes** — yes, in full (§6.1). Six were left; 5 was
+answered on 2026-10-16 and 2 on 2026-11-22, both struck through below.
 
 1. **السلف — the boundary, not the module.** Ownership is settled: إدارة المالية,
    2026-09-22. What is still open is the seam — when Stage 4 payroll needs the
    monthly deduction, does it read a finance ledger through a defined contract,
    or does HR key the figure in by hand each period? (§5.2)
-2. **Is "قرأت ووافقت" a signature or a receipt?** A legal acknowledgement needs
-   more than a timestamp. (§5.4)
+2. ✅ ~~**Is "قرأت ووافقت" a signature or a receipt?** A legal acknowledgement
+   needs more than a timestamp. (§5.4)~~ **A signature the employee draws,
+   printed on the PDF** (2026-11-22, §5.4).
 3. **Evaluation: what scale, and how often?** This is open question 3 in
    [`START_HERE.md` §11](START_HERE.md), and §5.1 gives it an owner. Payroll
    reads the answer.
