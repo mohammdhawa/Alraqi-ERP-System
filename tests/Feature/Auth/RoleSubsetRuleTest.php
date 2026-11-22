@@ -14,6 +14,7 @@ use App\Modules\Departments\Enums\DepartmentLevel;
 use App\Modules\Departments\Models\Department;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -228,7 +229,10 @@ class RoleSubsetRuleTest extends TestCase
 
         // Managing B as well puts part of the grant beyond the admin's pay reach.
         UserRole::where('user_id', $grantee->id)->delete();
-        $this->units['b']->update(['manager_id' => $head->id]);
+        // A second unit is refused on save since the one-unit rule (documents
+        // round D27.1), but rows from before it stand, and a managed grant
+        // must still be measured against them: written past the guard.
+        DB::table('departments')->where('id', $this->units['b']->id)->update(['manager_id' => $head->id]);
 
         $this->postJson('/api/auth/roles/assign', $body)->assertForbidden();
     }

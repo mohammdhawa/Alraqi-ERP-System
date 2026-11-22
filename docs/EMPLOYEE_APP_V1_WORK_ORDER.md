@@ -2424,3 +2424,31 @@ The other answers:
 
 **Next:** the plans, piece by piece (the design's §17), starting with the
 foundations.
+
+### 2026-11-22 — documents piece 1 (foundations) built
+
+Plan `docs/superpowers/plans/2026-11-22-documents-foundations.md`, built on
+branch `documents-foundations` (not yet committed or merged), backend only.
+
+- **Signatures** (`/api/me/signature`): drawn once, encrypted, seen only by
+  their owner. **Only the system administrator** deletes one
+  (`/api/hr/employees/{employee}/signature`), and the deleted version is kept.
+- **Units' stamps** (`/api/documents/stamps`): uploaded by **the system
+  administrator only**, encrypted, every version kept, with the list of units
+  still without one.
+- **The letterhead** (`/api/documents/letterhead`), with
+  `documents.templates.manage`.
+- **Permissions**: `documents.view` and `documents.templates.manage`, no
+  seeded role. The two "system administrator only" rights are not
+  permissions, so no role can be given them.
+- **One unit per manager**: naming someone who already manages a unit is
+  refused, with the unit's name. `php artisan departments:managers-of-several`
+  lists existing cases. Decision 15 and the approvals engine are untouched.
+- **mPDF**, a private folder per print, and the **upload check** that
+  converts a PDF the printing cannot open. **The production server must have
+  `qpdf` installed** (or Ghostscript, `DOCUMENTS_PDF_REPAIR=ghostscript`);
+  without it such PDFs are refused at upload.
+
+Documented in `API_DOCUMENTATION.md` §20 and the Postman collection's
+"Documents - foundations" folder. **Next:** piece 2's plan, documents between
+managers.

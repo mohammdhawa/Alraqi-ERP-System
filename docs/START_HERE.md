@@ -1386,7 +1386,10 @@ as work shifts did:
   management approvals is signed **in order** by the managers named, then
   المدير العام. The engine decides as it does today; its one addition is a
   visibility rule that hides documents from the general approvals screens.
-  **Next: the plans, piece by piece** (its §17).
+  **Piece 1 (foundations) is built** (2026-11-22, branch `documents-foundations`,
+  not yet committed or merged): signatures, units' stamps, the letterhead,
+  the one-unit rule, mPDF and the upload check. **The server needs `qpdf`.**
+  Next: piece 2's plan, documents between managers.
 - **Employee performance evaluation** (تقييم الأداء). In neither system; it is
   what sets `employees.distinction_grade` (§11 question 3), and payroll reads
   it (`EMPLOYEE_APP_REQUIREMENTS.md` §5.1). The owner will describe how it

@@ -162,6 +162,15 @@ class AuditLogDetailResource extends AuditLogResource
         'shift_change'           => ['scheduling.view'],
         'shift_swap'             => ['scheduling.view'],
         'shift_rule'             => ['scheduling.view'],
+        // Documents (documents design §6.3). A signature row is an encrypted
+        // file's name, its dates and a deletion reason: what HR reads on the
+        // employee's record. The image itself is never in the trail.
+        'employee_signature'     => ['hr.employees.view'],
+        // A unit's stamp version: an encrypted file's name and who uploaded it.
+        'unit_stamp'             => ['departments.view'],
+        // The letterhead: two image file names and who changed them, no
+        // personal data. As leave_type: reading the trail is enough.
+        'document_letterhead'    => ['auth.audit.view'],
     ];
 
     /**

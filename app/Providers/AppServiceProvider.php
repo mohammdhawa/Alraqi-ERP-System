@@ -12,6 +12,13 @@ use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Modules\Documents\Models\DocumentLetterhead;
+use App\Modules\Documents\Models\EmployeeSignature;
+use App\Modules\Documents\Models\UnitStamp;
+use App\Modules\Documents\Pdf\Repair\GhostscriptRepairer;
+use App\Modules\Documents\Pdf\Repair\NullRepairer;
+use App\Modules\Documents\Pdf\Repair\PdfRepairer;
+use App\Modules\Documents\Pdf\Repair\QpdfRepairer;
 use App\Modules\HR\Import\OpenSpoutWorkbookReader;
 use App\Modules\HR\Import\WorkbookReader;
 use App\Modules\HR\Models\Employee;
@@ -78,6 +85,20 @@ class AppServiceProvider extends ServiceProvider
 
         // The employee importer reads HR's workbooks through this (§4.4).
         $this->app->bind(WorkbookReader::class, OpenSpoutWorkbookReader::class);
+
+        // What rewrites a PDF the printing cannot open (documents design
+        // §11.5): qpdf by default. Decided at resolve time from config, so a
+        // server without the tool can be set to `none` or `ghostscript`.
+        $this->app->bind(PdfRepairer::class, static function (): PdfRepairer {
+            $binary = (string) config('documents.pdf.repair.binary');
+            $timeout = (int) config('documents.pdf.repair.timeout', 60);
+
+            return match (config('documents.pdf.repair.driver')) {
+                'ghostscript' => new GhostscriptRepairer($binary, $timeout),
+                'none'        => new NullRepairer,
+                default       => new QpdfRepairer($binary, $timeout),
+            };
+        });
 
         // Attendance asks "is this person on approved leave today?" through a
         // contract it owns (§4.5), answered by the Leave module from approved
@@ -171,6 +192,9 @@ class AppServiceProvider extends ServiceProvider
             'shift_change'           => ShiftChange::class,
             'shift_rule'             => ShiftRule::class,
             'shift_swap'             => ShiftSwap::class,
+            'employee_signature'     => EmployeeSignature::class,
+            'unit_stamp'             => UnitStamp::class,
+            'document_letterhead'    => DocumentLetterhead::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check
@@ -181,6 +205,15 @@ class AppServiceProvider extends ServiceProvider
         // are instantly available to super admins with no re-seed. The
         // CheckPermission middleware honours the same rule via hasPermission().
         Gate::before(fn (User $user) => $user->isSuperAdmin() ? true : null);
+
+        // The documents rights that belong to the system administrator alone
+        // (documents design §5): uploading a unit's stamp (D23.1) and deleting
+        // an employee's signature (D15, "never given to HR"). Each is an
+        // ability nobody passes, so only the super-admin bypass above lets
+        // anyone through. They must never become permission rows: a row is
+        // something a role editor can grant.
+        Gate::define('documents.stamps.manage', static fn (): bool => false);
+        Gate::define('documents.signatures.delete', static fn (): bool => false);
 
         // The baseline limit for every API route ($middleware->throttleApi() in
         // bootstrap/app.php applies it). Keyed on the authenticated user where

@@ -53,8 +53,12 @@ class PermissionSeederTest extends TestCase
      * `.returnToWork`, and `leave.excuses.create`, `.delete`.
      *
      * Work shifts added two (2026-11-09): `scheduling.view`, `.manage`.
+     *
+     * Documents added two (2026-11-22): `documents.view`,
+     * `documents.templates.manage`. The system administrator's rights (a
+     * stamp, a signature's deletion) are Gate abilities, not rows.
      */
-    private const TOTAL = 48;
+    private const TOTAL = 50;
 
     public function test_it_seeds_exactly_the_expected_catalogue(): void
     {
@@ -69,6 +73,7 @@ class PermissionSeederTest extends TestCase
             'auth.roles.assign', 'auth.roles.create', 'auth.roles.delete', 'auth.roles.update', 'auth.roles.view',
             'auth.users.create', 'auth.users.delete', 'auth.users.update', 'auth.users.view',
             'departments.create', 'departments.delete', 'departments.update', 'departments.view',
+            'documents.templates.manage', 'documents.view',
             'hr.assignments.create', 'hr.assignments.view',
             'hr.employees.create', 'hr.employees.delete', 'hr.employees.import', 'hr.employees.update', 'hr.employees.view',
             'hr.employees.viewIdentity', 'hr.employees.viewSalary',

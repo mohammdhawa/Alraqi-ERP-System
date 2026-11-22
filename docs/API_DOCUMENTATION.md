@@ -360,6 +360,7 @@ Permission string format: `{module}.{resource}.{action}`.
 | Auth – Roles      | `auth.roles.view`, `auth.roles.create`, `auth.roles.update`, `auth.roles.delete`, `auth.roles.assign` — **`update` edits a role's definition; `assign` grants roles to users** (split 2026-09-26) |
 | Auth – Audit      | `auth.audit.view` — **no create/update/delete**, see [§9](#9-audit-log--سجل-التدقيق); `auth.audit.viewValues` — **field-level**, see below |
 | Scheduling        | `scheduling.view`, `scheduling.manage` — ⚙️ 2026-11-09, **company-only**, HR's work shifts ([§19](#19-work-shifts--الورديات-والجداول)) |
+| Documents         | `documents.view`, `documents.templates.manage` — ⚙️ 2026-11-22, **company-only**, no seeded role ([§20](#20-documents--foundations-المستندات)). Uploading a unit's stamp and deleting a signature are **not permissions**: the system administrator's alone |
 
 > `hr.assignments` has no `update` or `delete` **by design**, not by omission:
 > سجل التعيين is append-only, because editing a historical posting changes what
@@ -1243,7 +1244,7 @@ The API therefore returns a **resolved** value: a section reads back
 
 **Errors**
 
-- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · nothing under the deepest tier `لا يمكن إضافة وحدات فرعية تحت مكتب لأنها أدنى مستوى في هيكل الشركة.` · sector on a non‑division `الجهة تُحدَّد على مستوى إدارة (المستوى 2) فقط؛ الوحدات الأدنى ترث جهتها من الوحدة الأعلى.` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.`
+- `422` — field/hierarchy violations, e.g. missing name `اسم الوحدة التنظيمية مطلوب.` · second root `يوجد بالفعل وحدة جذر (الإدارة العامة) في هيكل الشركة، ولا يمكن إنشاء أكثر من جذر واحد.` · wrong child tier `الوحدة التابعة لـ… يجب أن تكون … (المستوى …).` · nothing under the deepest tier `لا يمكن إضافة وحدات فرعية تحت مكتب لأنها أدنى مستوى في هيكل الشركة.` · sector on a non‑division `الجهة تُحدَّد على مستوى إدارة (المستوى 2) فقط؛ الوحدات الأدنى ترث جهتها من الوحدة الأعلى.` · deleted/missing parent `الوحدة التنظيمية الأصل غير موجودة أو تم حذفها.` · cycle `لا يمكن نقل الوحدة التنظيمية لتصبح تابعة لإحدى الوحدات الفرعية التابعة لها.` · unknown manager `المدير المحدد غير موجود.` · ⚙️ 2026-11-22, **one unit per manager** (documents round D27.1): naming as manager someone who already manages another unit, active or not, `هذا الموظف مدير لوحدة «…» بالفعل، ولا يدير الموظف أكثر من وحدة واحدة.` (the unit they manage is named). Only a naming is checked: a unit already breaking the rule, from before it, saves its other edits. `php artisan departments:managers-of-several` lists such people
 - `409` — deleting the **root**: `لا يمكن حذف الإدارة العامة، فهي الوحدة الجذر لهيكل الشركة.`
 - `409` — deleting a unit that still has live children: `لا يمكن حذف وحدة تنظيمية تحتوي على وحدات فرعية. الرجاء نقل أو حذف الوحدات الفرعية أولًا.`
 
@@ -2057,6 +2058,17 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zzi| GET      | `/api/scheduling/swaps`                      | bearer   | `scheduling.view` (§19.8) |
 | 18zzj| GET      | `/api/scheduling/swaps/{swap}`               | bearer   | `scheduling.view` (§19.8) |
 | 18zzk| POST     | `/api/scheduling/swaps/{swap}/cancel`        | bearer   | `scheduling.manage` (§19.8) |
+| 18zzl| POST     | `/api/me/signature`                          | bearer   | — (self-scoped, §20.1) |
+| 18zzm| GET      | `/api/me/signature`                          | bearer   | — (self-scoped, §20.1) |
+| 18zzn| GET      | `/api/hr/employees/{employee}/signature`     | bearer   | the system administrator (§20.2) |
+| 18zzo| DELETE   | `/api/hr/employees/{employee}/signature`     | bearer   | the system administrator (§20.2) |
+| 18zzp| GET      | `/api/documents/stamps`                      | bearer   | the system administrator (§20.3) |
+| 18zzq| POST     | `/api/documents/stamps/{department}`         | bearer   | the system administrator (§20.3) |
+| 18zzr| GET      | `/api/documents/stamps/{department}/image`   | bearer   | the system administrator (§20.3) |
+| 18zzs| GET      | `/api/documents/letterhead`                  | bearer   | `documents.templates.manage` (§20.4) |
+| 18zzt| POST     | `/api/documents/letterhead/{part}`           | bearer   | `documents.templates.manage` (§20.4) |
+| 18zzu| GET      | `/api/documents/letterhead/{part}/image`     | bearer   | `documents.templates.manage` (§20.4) |
+| 18zzv| DELETE   | `/api/documents/letterhead/{part}`           | bearer   | `documents.templates.manage` (§20.4) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -4458,3 +4470,129 @@ POST /api/scheduling/swaps/{swap}/cancel                                        
   إلا تبديل معتمد.»), before the earlier of its duties opens («لا يمكن إلغاء
   تبديل بدأت إحدى مناوبتيه.»). Its rows go, both guards are back on their
   schedules, and both are told. After that, HR uses one-off changes (§19.6).
+
+---
+
+## 20. Documents — foundations (المستندات)
+
+⚙️ **New 2026-11-22** (documents, piece 1:
+`docs/superpowers/specs/2026-11-22-documents-design.md`; the decision round
+`DECISION_ROUND_DOCUMENTS.md`, closed 2026-11-22). What every later documents
+piece stands on: employees' signatures, units' stamps and the letterhead. No
+document, template or approval exists yet (pieces 2–4).
+
+**Who.** Two rights are **the system administrator's alone** (the built-in
+`super_admin` role): uploading a unit's stamp (D23.1) and deleting an
+employee's signature (D15, never HR). They are **not permissions**: no role,
+whatever it holds, passes them, so a role editor can never give them to HR.
+Anyone else gets a **403**. The letterhead needs `documents.templates.manage`.
+`documents.view` (every document, the statistics) is used from piece 2.
+
+**Files.** All on the private disk, streamed, never a URL, with
+`Cache-Control: private, no-store`. Signatures and stamps are **encrypted** at
+rest. Nobody can download another person's signature; there is no route for
+it. A replaced stamp or a deleted signature is kept: a document signed earlier
+points at the exact version it printed.
+
+**Deploy.**
+
+- `composer install` (adds `mpdf/mpdf`) and `php artisan migrate`.
+- `php artisan db:seed --class=PermissionSeeder` for `documents.view` and
+  `documents.templates.manage`; add them to the roles that need them.
+- **Install `qpdf` on the server.** Piece 2's upload check rewrites with it a
+  PDF the printing cannot open (one saved by Word or a scanner); without it,
+  such a PDF is refused at upload. Where only Ghostscript is installed, set
+  `DOCUMENTS_PDF_REPAIR=ghostscript`; `none` refuses every such file. Also
+  `DOCUMENTS_PDF_REPAIR_BINARY` (the tool's path, default `qpdf` or `gs`) and
+  `DOCUMENTS_PDF_REPAIR_TIMEOUT` (seconds, default `60`).
+- Run `php artisan departments:managers-of-several` before and after: it lists
+  anyone who manages more than one unit (the one-unit rule, §7), and exits `1`
+  when it lists anyone.
+
+### 20.1 My signature
+
+```
+POST /api/me/signature        multipart: signature (file), drawn_on
+GET  /api/me/signature
+```
+
+The pad's drawing, **drawn once**: the first time the employee signs (D14), or
+a manager approves (D24). Its owner **cannot delete, replace or redraw it**
+(D15); there is no `DELETE` here (405).
+
+- `signature` — a **PNG** up to **512 KB**, read by content (a renamed file is
+  refused). `drawn_on` — `1` the app, `2` the dashboard.
+- `201` `تم حفظ توقيعك.` with `{ "drawn_at": "…+03:00" }`.
+- `409` `لديك توقيع محفوظ، ولا يمكن تغييره. لحذفه راجع مدير النظام.`
+- `422` `التوقيع يجب أن يكون صورة PNG لا يتجاوز حجمها 512 كيلوبايت.` ·
+  `التوقيع مطلوب.` · `مكان رسم التوقيع غير صالح.`
+- `403` `لا يوجد موظف مرتبط بهذا الحساب.` — an account with no employee.
+- `GET` streams the owner's own PNG, or `404` `لا يوجد توقيع محفوظ.`
+
+### 20.2 An employee's signature — the system administrator
+
+```
+GET    /api/hr/employees/{employee}/signature
+DELETE /api/hr/employees/{employee}/signature     { "reason": "…" }
+```
+
+`GET` gives the versions and their dates, **never the image**:
+
+```json
+{
+  "current": { "drawn_at": "2026-11-23T09:12:00+03:00", "drawn_on": 1 },
+  "deleted": [
+    { "drawn_at": "…", "drawn_on": 1, "deleted_at": "…", "delete_reason": "توقيع غير واضح" }
+  ]
+}
+```
+
+`DELETE` deletes the live version, which is **kept** with the reason and who
+deleted it; its owner draws a new one at their next signing.
+
+- `200` `تم حذف التوقيع.` · `404` `لا يوجد توقيع محفوظ.`
+- `422` `سبب الحذف مطلوب، من 3 إلى 500 حرف.`
+
+### 20.3 Units' stamps — the system administrator
+
+```
+GET  /api/documents/stamps                    ?missing=1
+POST /api/documents/stamps/{department}       multipart: stamp (file)
+GET  /api/documents/stamps/{department}/image
+```
+
+**Every unit has its own official stamp**, at every tier; it belongs to the
+unit, not to its manager. الإدارة العامة's stamp is the company's seal (D23.2).
+
+- `GET` lists every non-deleted unit, the root first:
+  `[{ "id", "name", "level", "parent_id", "has_stamp", "stamp_uploaded_at" }]`.
+  `?missing=1` keeps those **without** one: every stamp should be in before
+  the release (D21.2).
+- `POST` — `stamp` a **PNG or JPG** up to **2 MB**, read by content. A new
+  upload replaces the current version; the old one is kept.
+  `201` `تم حفظ ختم الوحدة.` with `{ "uploaded_at" }` ·
+  `422` `الختم يجب أن يكون صورة PNG أو JPG لا يتجاوز حجمها 2 ميغابايت.` ·
+  `404` for a deleted unit.
+- `GET …/image` streams the current version (for checking the upload), or
+  `404` `لم يُرفع ختم لهذه الوحدة بعد.`
+
+### 20.4 The letterhead — `documents.templates.manage`
+
+```
+GET    /api/documents/letterhead
+POST   /api/documents/letterhead/{part}         multipart: image (file)
+GET    /api/documents/letterhead/{part}/image
+DELETE /api/documents/letterhead/{part}
+```
+
+`{part}` is `header` or `footer` (anything else `404`). The company's header
+and footer images, framing every template page that shows them (piece 3). Not
+encrypted: a letterhead signs nothing.
+
+- `GET` → `{ "header": { "uploaded_at" } | null, "footer": … }`.
+- `POST` — `image` a **PNG or JPG** up to **2 MB**, replacing the part's old
+  file. `201` `تم حفظ الترويسة.` ·
+  `422` `الصورة يجب أن تكون PNG أو JPG لا يتجاوز حجمها 2 ميغابايت.`
+- `DELETE` → `200` `تم حذف الترويسة.`
+- `GET …/image`, and `DELETE` of a part never uploaded: `404`
+  `لم تُرفع هذه الصورة بعد.`
