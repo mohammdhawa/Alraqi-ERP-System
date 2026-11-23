@@ -1387,9 +1387,13 @@ as work shifts did:
   المدير العام. The engine decides as it does today; its one addition is a
   visibility rule that hides documents from the general approvals screens.
   **Piece 1 (foundations) is built** (2026-11-22, branch `documents-foundations`,
-  not yet committed or merged): signatures, units' stamps, the letterhead,
+  committed as `6ae8347`, merged by PR #10): signatures, units' stamps, the letterhead,
   the one-unit rule, mPDF and the upload check. **The server needs `qpdf`.**
-  Next: piece 2's plan, documents between managers.
+  **Piece 2 (documents between managers) is built too** (2026-11-23, branch
+  `documents-between-managers`, not committed): sending, ordered signing with
+  stamps and cards, the boxes, comments, deleting, and the visibility rule that
+  keeps documents off the general approvals screens. Next: piece 3, templates
+  and numbers.
 - **Employee performance evaluation** (تقييم الأداء). In neither system; it is
   what sets `employees.distinction_grade` (§11 question 3), and payroll reads
   it (`EMPLOYEE_APP_REQUIREMENTS.md` §5.1). The owner will describe how it

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Modules\Documents\Controllers\DocumentCommentController;
+use App\Modules\Documents\Controllers\DocumentController;
 use App\Modules\Documents\Controllers\LetterheadController;
 use App\Modules\Documents\Controllers\UnitStampController;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +23,79 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth:sanctum', 'audit'])
     ->name('documents.')
     ->group(function () {
+        // إرسال مستند للاعتماد — a unit's manager (the service decides). The
+        // `/{document}` routes to come take `whereNumber`, so `/stamps` and
+        // `/letterhead` stay theirs.
+        Route::post('/', [DocumentController::class, 'store'])->name('store');
+
+        // الصناديق — incoming, outgoing, and all (`documents.view`, which the
+        // controller checks so its refusal has its own words).
+        Route::get('/', [DocumentController::class, 'index'])->name('index');
+
+        // مستندات تحتاج إلى تدخل — the pending documents no one can move as
+        // they stand (spec §7.8). `documents.close` is a Gate ability only the
+        // super-admin bypass passes, never a permission.
+        Route::get('/attention', [DocumentController::class, 'attention'])
+            ->middleware('can:documents.close')
+            ->name('attention');
+
+        // العرض — the creator, a step holder or `documents.view`; a deleted
+        // document still binds, to answer 410 to those who may see it.
+        Route::get('/{document}', [DocumentController::class, 'show'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:view,document')
+            ->name('show');
+        // الحذف — the creator or the administrator, before any signature; a
+        // deleted document still binds, to answer 410.
+        Route::delete('/{document}', [DocumentController::class, 'destroy'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:delete,document')
+            ->name('destroy');
+        Route::get('/{document}/file', [DocumentController::class, 'file'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:view,document')
+            ->name('file');
+
+        // التعليقات والمرفقات — any party reads and writes the thread; a deleted
+        // document answers 410 to them. A file is bound scoped to its document,
+        // so another document's is a 404.
+        Route::get('/{document}/comments', [DocumentCommentController::class, 'index'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:view,document')
+            ->name('comments.index');
+        Route::post('/{document}/comments', [DocumentCommentController::class, 'store'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:view,document')
+            ->name('comments.store');
+        Route::get('/{document}/attachments/{attachment}', [DocumentController::class, 'attachment'])
+            ->whereNumber(['document', 'attachment'])
+            ->withTrashed()
+            ->scopeBindings()
+            ->middleware('can:view,document')
+            ->name('attachment');
+
+        // القرار — the caller's own current step (the service decides whose
+        // turn it is); anyone off the document is refused before the body is
+        // read.
+        Route::post('/{document}/decision', [DocumentController::class, 'decide'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:view,document')
+            ->name('decision');
+
+        // «لم يُستكمل» — the system administrator closes a pending document
+        // (spec §7.8); a deleted one still binds, to answer 410.
+        Route::post('/{document}/close', [DocumentController::class, 'close'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:documents.close')
+            ->name('close');
+
         // أختام الوحدات — the system administrator alone (D23.1).
         // `documents.stamps.manage` is a Gate ability only the super-admin
         // bypass passes, never a permission. A deleted unit is a 404 at

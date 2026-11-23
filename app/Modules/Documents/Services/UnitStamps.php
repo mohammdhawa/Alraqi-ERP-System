@@ -9,6 +9,7 @@ use App\Modules\Departments\Models\Department;
 use App\Modules\Documents\Models\UnitStamp;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -35,12 +36,22 @@ final class UnitStamps
             ->first();
     }
 
+    /**
+     * The cache key set while the system administrators have been told this
+     * unit has no stamp (documents design §7.2): they are told once per unit,
+     * until a stamp is uploaded.
+     */
+    public static function missingKey(Department $unit): string
+    {
+        return "documents.stamp-missing.{$unit->getKey()}";
+    }
+
     public function replace(Department $unit, UploadedFile $image, User $by): UnitStamp
     {
         $path = $this->sealed->put((string) file_get_contents((string) $image->getRealPath()), self::DIRECTORY);
 
         try {
-            return DB::transaction(function () use ($unit, $image, $by, $path): UnitStamp {
+            $stamp = DB::transaction(function () use ($unit, $image, $by, $path): UnitStamp {
                 // Two uploads at once would otherwise both stay current.
                 Department::query()->whereKey($unit->getKey())->lockForUpdate()->first();
 
@@ -58,6 +69,10 @@ final class UnitStamps
 
             throw $e;
         }
+
+        Cache::forget(self::missingKey($unit));
+
+        return $stamp;
     }
 
     public function bytes(UnitStamp $stamp): string

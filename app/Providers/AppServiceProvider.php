@@ -12,13 +12,18 @@ use App\Modules\Auth\Models\Permission;
 use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
+use App\Modules\Documents\Models\Document;
+use App\Modules\Documents\Models\DocumentComment;
 use App\Modules\Documents\Models\DocumentLetterhead;
+use App\Modules\Documents\Models\DocumentMark;
 use App\Modules\Documents\Models\EmployeeSignature;
 use App\Modules\Documents\Models\UnitStamp;
+use App\Modules\Documents\Observers\DocumentStepGuard;
 use App\Modules\Documents\Pdf\Repair\GhostscriptRepairer;
 use App\Modules\Documents\Pdf\Repair\NullRepairer;
 use App\Modules\Documents\Pdf\Repair\PdfRepairer;
 use App\Modules\Documents\Pdf\Repair\QpdfRepairer;
+use App\Modules\Documents\Services\DecisionGate;
 use App\Modules\HR\Import\OpenSpoutWorkbookReader;
 use App\Modules\HR\Import\WorkbookReader;
 use App\Modules\HR\Models\Employee;
@@ -136,6 +141,10 @@ class AppServiceProvider extends ServiceProvider
         // told apart from another job's. SetRequestContext replaces that id with
         // the real one on an HTTP request.
         $this->app->scoped(RequestContext::class);
+
+        // The open door a document step's decision goes through (documents
+        // design §7.3); held in memory, one per process.
+        $this->app->singleton(DecisionGate::class);
     }
 
     /**
@@ -143,6 +152,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A document's steps are decided and reassigned only through the
+        // documents module (documents design §7.3).
+        ApprovalStep::observe(DocumentStepGuard::class);
+
         // MORPH MAP — the public name of every polymorphic type (C12).
         //
         // Without this, getMorphClass() returns the fully-qualified class name,
@@ -195,6 +208,9 @@ class AppServiceProvider extends ServiceProvider
             'employee_signature'     => EmployeeSignature::class,
             'unit_stamp'             => UnitStamp::class,
             'document_letterhead'    => DocumentLetterhead::class,
+            'document'               => Document::class,
+            'document_mark'          => DocumentMark::class,
+            'document_comment'       => DocumentComment::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check
@@ -207,13 +223,15 @@ class AppServiceProvider extends ServiceProvider
         Gate::before(fn (User $user) => $user->isSuperAdmin() ? true : null);
 
         // The documents rights that belong to the system administrator alone
-        // (documents design §5): uploading a unit's stamp (D23.1) and deleting
-        // an employee's signature (D15, "never given to HR"). Each is an
-        // ability nobody passes, so only the super-admin bypass above lets
-        // anyone through. They must never become permission rows: a row is
-        // something a role editor can grant.
+        // (documents design §5): uploading a unit's stamp (D23.1), deleting
+        // an employee's signature (D15, "never given to HR"), and closing a
+        // stuck document «لم يُستكمل» with the list of those needing
+        // attention (§7.8). Each is an ability nobody passes, so only the
+        // super-admin bypass above lets anyone through. They must never
+        // become permission rows: a row is something a role editor can grant.
         Gate::define('documents.stamps.manage', static fn (): bool => false);
         Gate::define('documents.signatures.delete', static fn (): bool => false);
+        Gate::define('documents.close', static fn (): bool => false);
 
         // The baseline limit for every API route ($middleware->throttleApi() in
         // bootstrap/app.php applies it). Keyed on the authenticated user where
