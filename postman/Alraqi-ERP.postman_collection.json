@@ -87,6 +87,11 @@
 			"key": "shiftSwapId",
 			"value": "1",
 			"type": "string"
+		},
+		{
+			"key": "documentId",
+			"value": "1",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -1887,6 +1892,471 @@
 							]
 						},
 						"description": "§20.4 — documents.templates.manage."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Documents - between managers",
+			"description": "API_DOCUMENTATION.md §20.5-§20.14 (2026-11-23). A unit's manager sends a PDF to managers in order, then المدير العام decides. Set `documentId` to a document's id.",
+			"item": [
+				{
+					"name": "Create document",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							]
+						},
+						"description": "§20.6 — a unit's manager (403 otherwise). title, description, import_number, file (PDF or photo, 20 MB), approvers[] 1-10 employee ids in signing order, attachments[] up to 10. 201.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "طلب اعتماد",
+									"type": "text"
+								},
+								{
+									"key": "description",
+									"value": "",
+									"type": "text"
+								},
+								{
+									"key": "import_number",
+									"value": "",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								},
+								{
+									"key": "approvers[]",
+									"value": "{{employeeId}}",
+									"type": "text"
+								},
+								{
+									"key": "attachments[]",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List documents - incoming",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents?box=incoming",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							],
+							"query": [
+								{
+									"key": "box",
+									"value": "incoming"
+								}
+							]
+						},
+						"description": "§20.7 — documents the caller holds a step on, the caller's turn first. Optional status (1-7) and search."
+					},
+					"response": []
+				},
+				{
+					"name": "List documents - outgoing",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents?box=outgoing",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							],
+							"query": [
+								{
+									"key": "box",
+									"value": "outgoing"
+								}
+							]
+						},
+						"description": "§20.7 — documents the caller created."
+					},
+					"response": []
+				},
+				{
+					"name": "List documents - all",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents?box=all",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							],
+							"query": [
+								{
+									"key": "box",
+									"value": "all"
+								}
+							]
+						},
+						"description": "§20.7 — documents.view; 403 «لا تملك صلاحية عرض جميع المستندات.» otherwise."
+					},
+					"response": []
+				},
+				{
+					"name": "Show document",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}"
+							]
+						},
+						"description": "§20.8 — the creator, a step holder or documents.view; 410 when deleted."
+					},
+					"response": []
+				},
+				{
+					"name": "Show document file",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/file",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"file"
+							]
+						},
+						"description": "§20.8 — the printed copy once a decision made one, else the original; streamed PDF."
+					},
+					"response": []
+				},
+				{
+					"name": "Decide document - approve (password)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/decision",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"decision"
+							]
+						},
+						"description": "§20.9 — the caller's own turn. 428 = no signature drawn: open the pad, POST /api/me/signature, retry. confirmed_by 1 biometric, 2 password.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"decision\": \"approve\",\n  \"note\": \"\",\n  \"confirmed_by\": 2,\n  \"password\": \"password\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Decide document - reject (biometric)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/decision",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"decision"
+							]
+						},
+						"description": "§20.9 — confirmed_by 1 needs no password.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"decision\": \"reject\",\n  \"note\": \"يحتاج تعديلاً\",\n  \"confirmed_by\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List document comments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/comments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"comments"
+							]
+						},
+						"description": "§20.10 — oldest first, not paged."
+					},
+					"response": []
+				},
+				{
+					"name": "Add document comment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/comments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"comments"
+							]
+						},
+						"description": "§20.10 — any party; body 1-2000 characters. 201.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"body\": \"ملاحظة على المستند\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Download document attachment",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/attachments/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"attachments",
+								"1"
+							]
+						},
+						"description": "§20.11 — a supporting file of this document, streamed; another document's is 404."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete document",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}"
+							]
+						},
+						"description": "§20.12 — the creator or the system administrator, before any signature. 422 after the first."
+					},
+					"response": []
+				},
+				{
+					"name": "Close document - not completed",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/close",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"close"
+							]
+						},
+						"description": "§20.14 — the system administrator alone (403 otherwise). Closes a pending document «لم يُستكمل» (status 7) with a reason of 3 to 500 characters; the creator is told and sends it again. 422 when it is not pending, 410 when deleted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"المدير العام الجديد سبق أن وقّع عليه\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Documents needing attention",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/attention",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"attention"
+							]
+						},
+						"description": "§20.14 — the system administrator alone. Pending documents no one can move as they stand, each with attention.reason (former_general_manager or approver_manages_no_unit), step_id and approver. Paged (page, per_page)."
 					},
 					"response": []
 				}

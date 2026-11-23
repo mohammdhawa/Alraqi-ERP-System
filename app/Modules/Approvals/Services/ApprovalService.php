@@ -274,6 +274,32 @@ class ApprovalService
         });
     }
 
+    // ── Cancelling (documents design §7.8) ───────────────────────────────
+
+    /**
+     * The system administrator closes a request that cannot move. Unlike the
+     * requester's withdrawal it is allowed after decisions: every decided
+     * step stays as it was recorded, and the pending ones close. The owner's
+     * one further addition for documents (2026-11-23): only documents call
+     * it, and who may is the caller's to check. Leave and swaps never do.
+     *
+     * @throws ApprovalException
+     */
+    public function cancel(Approval $approval): Approval
+    {
+        return DB::transaction(function () use ($approval): Approval {
+            $approval = $this->lockPending($approval->getKey(), 'لا يمكن إغلاق طلب ليس قيد الاعتماد.');
+
+            /** @var Model&Approvable $subject */
+            $subject = $approval->approvable;
+            $pending = $approval->steps->filter(static fn (ApprovalStep $step): bool => $step->isPending());
+
+            $this->close($approval, $pending, ApprovalStatus::Cancelled, SkipReason::ClosedByAdministrator, $subject);
+
+            return $approval->fresh('steps');
+        });
+    }
+
     // ── Reassigning (design §6) ──────────────────────────────────────────
 
     /**

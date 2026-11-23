@@ -2069,6 +2069,17 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zzt| POST     | `/api/documents/letterhead/{part}`           | bearer   | `documents.templates.manage` (§20.4) |
 | 18zzu| GET      | `/api/documents/letterhead/{part}/image`     | bearer   | `documents.templates.manage` (§20.4) |
 | 18zzv| DELETE   | `/api/documents/letterhead/{part}`           | bearer   | `documents.templates.manage` (§20.4) |
+| 18zzw| POST     | `/api/documents`                             | bearer   | a unit's manager (§20.6) |
+| 18zzx| GET      | `/api/documents`                             | bearer   | own boxes; `all` needs `documents.view` (§20.7) |
+| 18zzy| GET      | `/api/documents/{document}`                  | bearer   | creator, step holder or `documents.view` (§20.8) |
+| 18zzz| GET      | `/api/documents/{document}/file`             | bearer   | creator, step holder or `documents.view` (§20.8) |
+| 18zzza| POST     | `/api/documents/{document}/decision`         | bearer   | the caller's own step (§20.9) |
+| 18zzzb| GET      | `/api/documents/{document}/comments`         | bearer   | creator, step holder or `documents.view` (§20.10) |
+| 18zzzc| POST     | `/api/documents/{document}/comments`         | bearer   | creator, step holder or `documents.view` (§20.10) |
+| 18zzzd| GET      | `/api/documents/{document}/attachments/{attachment}` | bearer   | creator, step holder or `documents.view` (§20.11) |
+| 18zzze| DELETE   | `/api/documents/{document}`                  | bearer   | creator or the system administrator (§20.12) |
+| 18zzzf| POST     | `/api/documents/{document}/close`            | bearer   | the system administrator alone (§20.14) |
+| 18zzzg| GET      | `/api/documents/attention`                   | bearer   | the system administrator alone (§20.14) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -2808,7 +2819,7 @@ redraw the screen from it, never from a cached copy.
 | `can_reassign` | the caller's `approvals.reassign` reaches this request, and it is pending |
 | `steps[].resolver` | how the approver was found: `1` المدير المباشر · `2` مدير وحدة محددة (`resolver_ref` is its code) · `3` موظف محدد |
 | `steps[].status` | `1` بانتظار القرار · `2` موافقة · `3` رفض · `4` لم تُطلب |
-| `steps[].skip_reason` | with status `4`: `1` the same approver as the step before · `2` the approver is the requester · `3` closed by a rejection · `4` closed by a withdrawal |
+| `steps[].skip_reason` | with status `4`: `1` the same approver as the step before · `2` the approver is the requester · `3` closed by a rejection · `4` closed by a withdrawal · `5` no manager above the requester (§15.7) · `6` «أُغلقت بقرار مدير النظام» — the administrator's closing of a document (§15.8) |
 | `steps[].acted_by` | the **account** that decided — `name` is its employee's name, or its email |
 
 ### 15.2 My inbox
@@ -2843,8 +2854,9 @@ notification). An account with no employee gets an empty list. Any other
 A row opens the request screen: `GET /api/approvals/{approval_id}`.
 
 ⚙️ **`details` — 2026-11-04 (app slice 5)**: what the subject adds for its
-approver, so a row reads without opening it. `null` for a subject with nothing
-to add (anything but leave). `subject.summary` is a display string that always
+approver, so a row reads without opening it. **Subject-specific**: leave's
+figures (below); a document's `{ "stamp_missing": bool, "document_status", "document_status_label" }` (§20.13); `null` for
+a subject with nothing to add. A document's row has `subject.type` `document`. `subject.summary` is a display string that always
 reads «N أيام»; a client wording the days itself reads `requested_days`.
 
 | `details` | |
@@ -2932,6 +2944,15 @@ later one.
 The employee picker reads `GET /api/hr/employees`, which needs
 `hr.employees.view` — grant it beside `approvals.reassign`.
 
+⚙️ **2026-11-23 — documents.** A document's approval is the one exception
+(§20.13): its decision is taken on the document's screen (§20.9), so the
+general approve/reject endpoints refuse its step with 422 «يُتَّخذ القرار في
+المستندات من شاشة المستند.»; reassigning it is the system administrator's alone
+(403 «إعادة إسناد خطوات المستندات لمدير النظام فقط.» for anyone else; a
+reassigner who cannot read the document gets the plain 403). Its 422s — which
+step may go to whom, المدير العام only ever the deciding one — are listed in
+§20.13.
+
 ### 15.6 Withdraw a request
 
 ```
@@ -2986,6 +3007,29 @@ reassigned (§15.5).
 above them, so the direct-manager step is skipped and the rest of the route
 decides (parity audit C-1). For leave, مدير الموارد decides alone — the mirror
 of the HR manager's own leave.
+
+⚙️ **2026-11-23 — documents are left out.** Document approvals never appear in
+this list, and `GET /api/approvals/{approval}` (§15.3) refuses one (403) to
+anyone who is neither its creator nor a step holder and lacks `documents.view`:
+`approvals.view` alone does not open a document's chain (the approvals module's
+`RestrictsApprovalVisibility` contract, which only documents implement).
+
+### 15.8 The administrator's cancellation — documents only
+
+⚙️ **New 2026-11-23** (the owner, documents design §7.8). The engine has one
+further operation, `ApprovalService::cancel()`. It is **not a route**: no
+`/api/approvals` endpoint calls it. Only the documents' administrator close
+(`POST /api/documents/{document}/close`, §20.14) does, and **leave requests and
+shift swaps never use it** — their own cancellation stays the requester's
+withdrawal (§15.6) and HR's.
+
+Unlike a withdrawal, it is allowed **after decisions**: every decided step stays
+exactly as recorded, the pending ones close, and the approval ends `4`
+(withdrawn/cancelled, `status` as §15.1) with those steps' `skip_reason` `6`
+«أُغلقت بقرار مدير النظام». It refuses an approval that is not pending with
+**422** «لا يمكن إغلاق طلب ليس قيد الاعتماد.» (the documents close checks the
+document first and answers in its own words, §20.14). Who may call is the
+caller's to check; the engine does not.
 
 ## 16. Leave — الإجازات
 
@@ -4596,3 +4640,377 @@ encrypted: a letterhead signs nothing.
 - `DELETE` → `200` `تم حذف الترويسة.`
 - `GET …/image`, and `DELETE` of a part never uploaded: `404`
   `لم تُرفع هذه الصورة بعد.`
+
+### 20.5 Documents between managers — overview
+
+⚙️ **New 2026-11-23** (documents piece 2, workflow 4 of the design's §1.4: a
+manager sends a PDF to managers, who sign **in order**, and المدير العام decides
+last). The upload is a PDF or a photo (§20.6); each signature prints a card on
+the last page (the unit's stamp, the manager's signature, name, date, note).
+No template, صادر number or employee signature yet (pieces 3–4).
+
+**The route.** The creator names **1–10 approvers**, in the order they sign.
+المدير العام (the manager of the root unit, read at sending) is added **after
+them, always, as the deciding step**: he is never named by the creator. There
+is no parallel route. A rejection by one manager does **not** end the document
+(advisory): only المدير العام's decision does — approved or rejected.
+
+**Who.**
+
+| Action | Who |
+|---|---|
+| Create | a unit's manager (the service refuses anyone else, 403) |
+| Incoming / outgoing box | any caller, for their own documents |
+| All box | `documents.view` |
+| Show, file, comments, attachments | the creator, anyone holding a step on it (decided or skipped included), or `documents.view`; anyone else 403 |
+| Decide | the caller's own pending step, at its turn |
+| Delete | the creator or the system administrator, before any signature |
+| Close «لم يُستكمل», the attention list | the system administrator alone (§20.14) |
+
+**Inactive units** (⚙️ 2026-11-23, the owner): a unit's manager means the
+manager of a non-deleted, **active** unit. A manager whose only unit is
+inactive cannot create a document, cannot be named an approver, and cannot sign
+(the §20.9 refusal «لا تدير وحدة تنظيمية حالياً…» applies); a step waiting on
+one is the administrator's to reassign or close (§20.14). المدير العام is the
+exception: the root unit's manager counts whatever the root's `is_active`. The
+**one-unit-per-manager rule** (§7, `departments:managers-of-several`) still
+counts every non-deleted unit, active or not.
+
+`documents.view` is the only permission the module reads here. An account with
+no employee has no boxes of its own (they are empty) and cannot create.
+
+**Statuses** (`status.value`): `1` قيد الاعتماد · `2` معتمد · `3` مرفوض ·
+`7` لم يُستكمل (⚙️ 2026-11-23: closed by the system administrator, §20.14). The
+others (`4` بانتظار التوقيع, `5` موقّع, `6` مرفوض من الموظف) belong to piece 4.
+
+**The general approvals screens leave documents out** — see §20.13 and §15.
+The approver's own inbox (§15.2) still lists the steps they hold, decided on
+the document screen (§20.9), never through the general approve endpoint.
+
+**Deploy.** `php artisan migrate` (three tables: `documents`,
+`document_marks`, `document_comments`); nothing else is new. The stamps (§20.3)
+must be uploaded before the managers sign; the server needs `qpdf` (§20).
+
+### 20.6 Create a document
+
+```
+POST /api/documents        multipart/form-data
+```
+
+| Field | Rules |
+|---|---|
+| `title` | required, ≤ 255 |
+| `description` | optional, ≤ 2000 |
+| `import_number` | optional integer 1–999999999 (وارد), unique in the creator's register (the إدارة; sections and offices share it) |
+| `file` | required — the document: PDF, JPG or PNG, up to **20 MB** (20480 KB), read by content. A PDF the printing cannot open is converted on the server, or refused |
+| `approvers[]` | required, 1–10 employee ids, in signing order |
+| `attachments[]` | optional, up to 10, each PDF, JPG, PNG, Word or Excel (`pdf,jpg,jpeg,png,doc,docx,xls,xlsx`) up to 20 MB |
+
+The creator is the caller's own employee, never an id in the body. Every
+approver must be a unit's manager, employed, not the creator, not المدير العام,
+and named once. Everything is checked before a byte is stored; a failure
+leaves no file behind.
+
+**201** → `{ data: <document §20.8>, message: "تم إرسال المستند للاعتماد." }`.
+The first approver is notified (§20.13).
+
+**403** «لا يُنشئ المستندات إلا مدير وحدة تنظيمية.»
+
+**422:**
+
+- the route: «لا يمكن اختيار «{name}» معتمداً لأنه لا يدير وحدة تنظيمية.» ·
+  «لا يمكن اختيار «{name}» معتمداً لأنه ليس على رأس عمله.» ·
+  «لا يمكنك اختيار نفسك معتمداً.» ·
+  «المدير العام يُضاف تلقائياً في آخر المسار، فلا تختره بين المعتمدين.» ·
+  «لا يمكن تكرار المعتمد نفسه.» · «المعتمد المحدد غير موجود.» ·
+  «لا يوجد مدير عام في الهيكل التنظيمي، فلا يمكن إرسال المستند.» ·
+  «رقم الوارد {n} مستخدم في سجل هذه الإدارة.» (a document deleted before its
+  first signature, or closed «لم يُستكمل» (§20.14), frees its number)
+- the fields: «عنوان المستند مطلوب.» · «الملف مطلوب.» ·
+  «يُرجى رفع الملف بصيغة PDF أو صورة لا يتجاوز حجمه 20 ميغابايت.» ·
+  «اختر معتمداً واحداً على الأقل.» · «لا يزيد عدد المعتمدين على 10.» ·
+  «لا تزيد المرفقات على 10.» ·
+  «المرفق يجب أن يكون PDF أو صورة أو ملف Word أو Excel لا يتجاوز 20 ميغابايت.» ·
+  «رقم الوارد يجب أن يكون رقماً صحيحاً.» · «رقم الوارد يجب أن يكون بين 1 و
+  999999999.» · «عنوان المستند لا يزيد على 255 حرفاً.» · «وصف المستند لا يزيد
+  على 2000 حرف.»
+- the file's content: «يُرجى رفع الملف بصيغة PDF أو صورة.» · «تعذّر تجهيز هذا
+  الملف للتوقيع. يُرجى حفظه من جديد بصيغة PDF (مثل Microsoft Print to PDF) ثم
+  رفعه.»
+
+### 20.7 The boxes
+
+```
+GET /api/documents?box=incoming|outgoing|all&status=&search=&page=&per_page=
+```
+
+| Query | Rules |
+|---|---|
+| `box` | required: `incoming` (documents the caller holds a step on, **the caller's turn first**), `outgoing` (the caller created), `all` (`documents.view`) |
+| `status` | optional, `1`–`7` (§20.5); `7` lists the documents closed «لم يُستكمل» |
+| `search` | optional, ≤ 200 — in the title; all digits also match the وارد number (`import_number`) exactly |
+
+Paginated like every list (newest first within each group), each row a
+`<document §20.8>`. A deleted document is never listed.
+
+**403** «لا تملك صلاحية عرض جميع المستندات.» (`box=all` without
+`documents.view`). **422** «صندوق المستندات مطلوب.» · «صندوق المستندات غير
+صالح.» · «حالة المستند غير صالحة.» · «نص البحث لا يزيد على 200 حرف.»
+
+### 20.8 Show a document, and its file
+
+```
+GET /api/documents/{document}
+GET /api/documents/{document}/file
+```
+
+Who: the creator, a step holder, or `documents.view`; anyone else gets the plain
+**403**. A deleted document answers **410** «حُذف هذا المستند.» to those who
+could see it.
+
+```json
+{
+  "id": 14, "kind": 1, "origin": 1,
+  "title": "طلب اعتماد", "description": null,
+  "status": { "value": 1, "label": "قيد الاعتماد" },
+  "import_number": 15,
+  "creator": { "id": 7, "full_name": "…" },
+  "creator_unit": { "id": 3, "name": "…" },
+  "created_at": "…+03:00", "decided_at": null,
+  "closed_reason": null,
+  "has_printed_copy": false,
+  "steps": [
+    { "id": 51, "order": 1, "approver": { "id": 4, "full_name": "…" },
+      "status": { "value": 1, "label": "…" }, "decisive": false,
+      "note": null, "acted_at": null, "skip_reason": null }
+  ],
+  "attachments": [ { "id": 9, "original_name": "…", "mime_type": "…", "size": 12345 } ],
+  "my_step_id": 51,
+  "can": { "decide": true, "delete": false }
+}
+```
+
+`steps` are the route in order; the last is المدير العام, `decisive: true`.
+`my_step_id` and `can.decide` are the caller's own **pending step at the
+approval's current order** — the buttons a client draws. `can.delete` is true
+for the creator (or the system administrator) while the document is pending
+and nobody has decided; a closed document (status `7`) is never deletable.
+`closed_reason` is the administrator's reason once the document is closed
+(§20.14), else `null`.
+
+`GET …/file` streams the **printed copy** (the original plus the cards) once a
+decision has made one, else the original; `Content-Type: application/pdf`,
+`Cache-Control: private, no-store`. `404` when the file is gone.
+
+### 20.9 Decide
+
+```
+POST /api/documents/{document}/decision
+```
+
+```json
+{ "decision": "approve", "note": "…", "confirmed_by": 2, "password": "…" }
+```
+
+| Field | Rules |
+|---|---|
+| `decision` | required: `approve` or `reject` |
+| `note` | optional on both, ≤ 500 |
+| `confirmed_by` | required: `1` biometric (as the app reports it, nothing sent) or `2` password |
+| `password` | required when `confirmed_by` is `2`; checked against the caller's account |
+
+Only the caller's **own pending step at its turn** is decided. **The checks run
+in this order**, so each refusal makes sense:
+
+1. it is the caller's turn;
+2. the caller manages a unit now;
+3. that unit has a current stamp (§20.3);
+4. the caller has a current signature (§20.1);
+5. the confirmation.
+
+Then, in one transaction: the engine records the decision, a card is added
+(stamp, signature, name, unit, note cut to 120 characters, date) and the
+printed copy is rebuilt. Anything failing rolls the decision back. A printed
+copy the disk cannot write is such a failure (500): the step stays pending and
+the previous copy is kept.
+
+**200** → `{ data: <document §20.8>, message: "تمت الموافقة." }` /
+`"تم الرفض."`. A manager's rejection that leaves the document in its route
+tells the creator now (§20.13).
+
+**428 — «لم ترسم توقيعك بعد. ارسمه ثم أعد المحاولة.»** The caller has **no
+signature drawn yet**. The client opens the pad, `POST /api/me/signature`
+(§20.1), then **sends the same decision again**. Nothing was recorded.
+
+**422:**
+
+- «ليس دورك في اعتماد هذا الطلب.» — not the caller's turn (the engine's words);
+  also a second tap once the decision is recorded, the final one included
+  (nothing more is recorded)
+- «لا تدير وحدة تنظيمية حالياً، فلا يمكنك التوقيع على المستندات. يُرجى مراجعة
+  مدير النظام لإعادة إسناد الخطوة.»
+- the **missing stamp** — «لم يُرفع الختم الرسمي لوحدتك «{unit}» بعد، ولا يمكن
+  التوقيع قبل رفعه. تم إبلاغ مدير النظام.» The step stays pending, and the
+  system administrators are notified **once per unit** until a stamp is
+  uploaded (§20.13)
+- «كلمة المرور غير صحيحة.»
+- the fields: «القرار يجب أن يكون موافقة أو رفضاً.» · «تأكيد الهوية مطلوب.» ·
+  «كلمة المرور مطلوبة للتأكيد.» · «الملاحظة لا تزيد على 500 حرف.»
+
+**403** to anyone off the document (before the body is read); **410** when
+deleted. Approving the last step approves the document; the creator is told.
+
+### 20.10 Comments
+
+```
+GET  /api/documents/{document}/comments
+POST /api/documents/{document}/comments     { "body": "…" }
+```
+
+Every party (§20.8's who) reads and writes the thread. `GET` is oldest first,
+not paged: `[{ "id", "body", "author": { "id", "full_name" } | null, "created_at" }]`.
+`POST` — `body` required, trimmed, ≤ 2000. **201** `{ data: <comment>,
+message: "تمت إضافة التعليق." }`. **422** «نص التعليق مطلوب.» · «التعليق لا يزيد
+على 2000 حرف.» **410** when deleted.
+
+### 20.11 A supporting file
+
+```
+GET /api/documents/{document}/attachments/{attachment}
+```
+
+Streams one attachment (§20.8's who; `Cache-Control: private, no-store`). An
+attachment of **another** document is **404**; **410** when the document is
+deleted.
+
+### 20.12 Delete
+
+```
+DELETE /api/documents/{document}
+```
+
+The creator or the system administrator, **before any approval or rejection**.
+It closes the document's approval through the engine's withdrawal; the document
+is hidden from every list, and its link answers **410** to its parties.
+
+- **200** `{ message: "تم حذف المستند." }`
+- **403** anyone else · **410** «حُذف هذا المستند.» when already deleted
+- **422** «لا يمكن حذف مستند بعد أول توقيع عليه.»
+
+A document closed «لم يُستكمل» (§20.14) is not offered for deletion
+(`can.delete` is `false`); it stays on record.
+
+### 20.13 Notifications, and the approvals screens
+
+**The document is not on the general approvals screens** (documents design
+§7.4). `GET /api/approvals` leaves document approvals out, and
+`GET /api/approvals/{approval}` refuses one (403) for anyone who is neither the
+creator nor a step holder and lacks `documents.view`: `approvals.view` alone
+does not open it. The general `approve` / `reject` endpoints refuse a document
+step with **422** «يُتَّخذ القرار في المستندات من شاشة المستند.» (§15.4);
+reassigning one is the system administrator's alone (§15.5). Leave and shift
+swaps are unchanged. The approver's **own inbox** `GET /api/me/approvals`
+(§15.2) still lists document steps, with `subject.type` `document` and
+`details: { "stamp_missing": bool, "document_status": int,
+"document_status_label": string }` (`stamp_missing` is true on a pending row
+while the viewer's own unit has no current stamp; the other two are the
+document's own status, §20.8). For a `document` subject show
+`document_status_label` rather than `approval_status_label`, since a closed
+document's approval reads «مسحوب» (§20.14). The decision is taken on the document screen
+(§20.9), and the general approve endpoint refuses it (§15.4).
+
+**Notifications** (title / body), through the push and in-app inbox:
+
+| Type | To | Title / body |
+|---|---|---|
+| `approval.step_pending` | the first approvers, on sending | «مستند جديد بانتظار موافقتك» / «يرجى مراجعة: {title}» |
+| `approval.step_pending` | each next approver | «دورك للمراجعة» / «يرجى مراجعة: {title}» |
+| `approval.step_pending` | المدير العام, his turn | «جميع المدراء وافقوا — قرارك مطلوب» / «يرجى مراجعة: {title}» |
+| `approval.step_assigned` | a reassigned approver, current step | «تم إسنادك لاعتماد مستند» / «المستند «{title}» بانتظار مراجعتك الآن.» |
+| `approval.step_assigned` | a reassigned approver, later step | «تم إسنادك لاعتماد مستند» / «أصبحت ضمن مسار اعتماد المستند «{title}».» |
+| `document.approved` «تمت الموافقة على المستند» | the creator | «تمت الموافقة على مستندك» / «{title}» |
+| `document.rejected` «تم رفض المستند» | the creator | «تم رفض مستندك» / «{title}» |
+| `document.rejected_by_manager` «رفض مدير المستند» | the creator, when a manager rejects and the document stays in its route | «تم رفض المستند من مدير» / «رفض {name} المستند «{title}»، وما زال المستند في مساره.» |
+| `document.stamp_missing` «ختم وحدة غير مرفوع» | the system administrators, once per unit | «ختم وحدة غير مرفوع» / «حاول {name} التوقيع باسم «{unit}» ولا ختم لها بعد.» |
+| `document.not_completed` «لم يُستكمل المستند» | the creator, when the administrator closes it (§20.14) | «لم يُستكمل مستندك» / «أغلق مدير النظام المستند «{title}»: {reason}. يمكنك إرساله من جديد.» |
+
+**Reassigning a document step** (§15.5, with `approvals.reassign`): the system
+administrator only — anyone else **403** «إعادة إسناد خطوات المستندات لمدير
+النظام فقط.»; **422** «لا يمكن الإسناد إلا إلى مدير وحدة تنظيمية.» · «خطوة
+القرار الأخير لا تُسند إلا إلى المدير العام الحالي.» · «المدير العام لا يُسند
+إليه إلا خطوة القرار الأخير.» (an approver's step to the current المدير العام:
+holding it, he could never be given the deciding one). A reassigner who cannot
+read the document gets the plain 403.
+
+### 20.14 A stuck document — the attention list, reassigning, closing
+
+⚙️ **New 2026-11-23** (the owner's ruling after piece 2's final review; design
+§7.8). The engine freezes a route when the document is sent, so a change of
+المدير العام (or a deactivated unit) while documents are pending needs **the
+system administrator**. Both routes below are his alone: the Gate ability
+`documents.close`, defined false and passed only by the super-admin bypass. It
+is **not a permission row**, so no role can hold it and a role editor can never
+give it to HR; anyone else gets **403**.
+
+```
+GET  /api/documents/attention        ?page=&per_page=
+POST /api/documents/{document}/close { "reason": "…" }
+```
+
+**The attention list.** The pending documents no one can move as they stand,
+newest first, paged like every list. Each row is the `<document §20.8>` plus:
+
+```json
+"attention": {
+  "reason": "former_general_manager",
+  "step_id": 52,
+  "approver": { "id": 4, "full_name": "…" }
+}
+```
+
+| `reason` | Means | `step_id` / `approver` |
+|---|---|---|
+| `former_general_manager` | the decisive step is held by someone who is no longer المدير العام (while the post is vacant, by anyone; a deleted المدير العام reads as a vacant post) | that decisive step and its holder |
+| `approver_manages_no_unit` | the step now asked is held by someone who manages no active unit, or whose employee record was deleted, so he cannot sign | that step and its holder |
+
+A document matching both is listed once, as `former_general_manager`. A healthy
+pending document, and any decided or closed one, is absent. `approver` is
+`null` only if the step names no employee. The step id is what §15.5's
+reassign takes.
+
+**The procedure** (the administrator's, by the situation):
+
+1. **The new المدير العام is not on the document:** reassign the decisive step
+   to him (§15.5, `PATCH /api/approvals/{approval}/steps/{step}/assignee`).
+2. **He holds a named step not yet signed:** first reassign that step to his
+   former unit's new manager, then give him the decisive step.
+3. **He already signed a named step, or created the document:** the engine
+   cannot give him the decisive step (§15.5's 422: «هذا الموظف يحمل خطوة أخرى
+   في مسار اعتماد هذا الطلب.» if he holds a named step, «لا يمكن إسناد الاعتماد
+   إلى مُقدِّم الطلب نفسه.» if he created the document). **Close the document**
+   (below).
+4. **A waiting step whose approver's unit was deactivated:** reassign it to the
+   manager of an active unit, or close the document.
+
+**Close.** The administrator may close **any pending document**, with a reason.
+`reason` is required, trimmed, 3 to 500 characters. In one transaction the
+document becomes status `7` «لم يُستكمل» (`decided_at` set, `closed_reason` kept,
+who closed it recorded), the engine's `cancel()` (§15.8) ends the approval
+`4` and closes the pending steps (`skip_reason` `6`), and the creator is told
+(`document.not_completed`, §20.13).
+
+- **200** → `{ data: <document §20.8>, message: "أُغلق المستند: لم يُستكمل." }`
+  with `data.status` `{ "value": 7, "label": "لم يُستكمل" }`, `data.closed_reason`
+  and `data.can.delete` `false`.
+- **403** anyone but the system administrator · **404** unknown document ·
+  **410** «حُذف هذا المستند.»
+- **422** «لا يُغلق إلا مستند قيد الاعتماد.» (approved, rejected or already
+  closed) · «سبب الإغلاق مطلوب، من 3 إلى 500 حرف.» (`errors.reason`, also for a
+  non-string)
+
+**What stays.** The closed document keeps its signatures, cards and **printed
+copy** (nothing new is signed, so it is not rebuilt), and stays in every list
+for its parties, filterable as `status=7` (§20.7). Its **وارد number is free
+again**: the creator sends a new document with the same وارد (§20.6). Its
+**صادر number is not reused**. Deleting a closed document is not offered. The
+creator is told and **sends it again**; the old one is never reopened.
