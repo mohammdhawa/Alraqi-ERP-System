@@ -412,7 +412,9 @@ step whose approval's subject is a `document`:
   on the old one.
 - Closing steps as skipped (the engine's `close()`) is not a decision and passes.
 
-No file of the Approvals module changes. A test pins the engine's saving of steps
+Piece 1 changed no file of the Approvals module; the 2026-11-23 addendum does
+(`ApprovalService` for the cancel, `SkipReason` for case 6), by the owner's ruling
+(§7.8). A test pins the engine's saving of steps
 through the model, which the observer relies on.
 
 ### 7.4 The Approvable side
@@ -422,7 +424,8 @@ through the model, which the observer relies on.
 - `onApprovalDecided()`: Approved means Approved; Rejected means Rejected.
   Only documents between managers have an approval. Cancelled means the creator withdrew through the general
   `/withdraw`, which is only possible before any decision, the same condition as
-  deleting, so it **is** a deletion (§7.6).
+  deleting, so it **is** a deletion (§7.6). The administrator's close (§7.8) is the other
+  Cancelled, and it is not a deletion: the document is status 7, kept on record.
 - `approvalSummary()` / `approverRowDetails()`: the title, the kind, the creator
   and their unit; the row says when the approver's unit has no stamp, so the
   manager knows before tapping.
@@ -493,6 +496,35 @@ Every list paginates and searches by title, number and reference.
 - **مستنداتي**: documents sent to me (§9).
 - **All documents** (`documents.view`): filter by kind, status, unit, creator,
   date and template.
+
+### 7.8 Closing a stuck document: «لم يُستكمل» (the owner, 2026-11-23)
+
+The engine freezes a route when the document is sent, so a change of المدير
+العام while documents are pending needs the system administrator.
+
+- **When the new المدير العام is not on the document:** the administrator
+  reassigns the decisive step to him (§7.3).
+- **When he holds a named step not yet signed:** the administrator first
+  moves that step to his former unit's new manager, then gives him the
+  decisive step.
+- **When he already signed a named step, or created the document:** the
+  engine cannot give him the decisive step. The administrator **closes the
+  document as «لم يُستكمل»** (not completed), with a reason. The closed
+  document keeps its signatures, cards, printed copy and numbers on record
+  and stays in every list; its approval ends Cancelled; its creator is told,
+  and sends a new document. A closed document's وارد number is free again
+  for the document sent in its place. Its صادر number is not (D31.3).
+- The administrator may close any pending document this way. It is the
+  engine's one further addition for documents: an administrator's
+  cancellation that, unlike the requester's withdrawal, is allowed after
+  decisions. Leave and shift swaps never call it.
+
+**Documents needing attention:** a list for the administrator of the pending
+documents no one can move as they stand: the decisive step held by someone
+who is no longer المدير العام, or the current step held by someone who
+manages no active unit or whose employee record was deleted. A deleted
+المدير العام reads as a vacant post. Each row says which, so the administrator applies
+the fix above or closes the document.
 
 ---
 
@@ -764,7 +796,7 @@ of §11.1 catches it, and **the server converts it** (§19 Q4, 2026-11-22):
 ## 13. One unit per manager (D27.1, D27.2)
 
 - **Departments**: saving a unit with a manager who already manages another
-  active unit is refused, naming that unit, on every write path. It is a model
+  unit, active or not, is refused, naming that unit, on every write path. It is a model
   guard, like `DepartmentHierarchyGuard`.
 - **The employee import** does not name unit managers today. It keeps
   «المدير المباشر بداية التعيين» as free text (`legacy_manager_name`) and never
@@ -961,6 +993,9 @@ awaited, and they are not a decision.
 | Q5 | The HR manager sending a document that needs a stamp | **No such case: the owner's clarification of four workflows** (§1.4). A document HR sends to an employee never goes through approvals, needs no approver, and **carries only the employee's signature**. HR's managers keep sending (D29). This revises D19.1, D25 and D30.1 (§9) |
 | Q6 | Filed contracts and decisions behind the salary permission | **Yes**: عقد العمل, قرار تعيين and قرار ترقية, beside Sham Cash, behind `hr.employees.viewSalary` (§9.4) |
 | — | Raised by the clarification: managers in parallel | **In order only.** The managers sign one after another, then المدير العام. This revises I.1 (§7.1) |
+| — | Raised by piece 2's final review (2026-11-23): a document stuck after a promotion to المدير العام | **The administrator closes it as «لم يُستكمل»**, the creator sends it again, and a list shows the documents needing attention (§7.8). This adds one administrator's cancellation to the approvals engine, used only by documents |
+| — | Raised by piece 2's final review (2026-11-23): inactive units | **Documents ignore them:** a manager whose only unit is inactive does not create, is not named and does not sign; a waiting step whose approver's unit is deactivated is reassigned by the administrator. The one-unit-per-manager rule still counts inactive units (§4, §13) |
+| — | Raised by piece 2's final review (2026-11-23): an approver whose employee record was deleted | **Flagged on the attention list:** HR's delete is soft and leaves him as his unit's manager, so he cannot sign; the document is listed as `approver_manages_no_unit` for the administrator to reassign or close (§7.8) |
 
 ## 20. Left to the builder
 

@@ -2452,3 +2452,78 @@ branch `documents-foundations` (not yet committed or merged), backend only.
 Documented in `API_DOCUMENTATION.md` §20 and the Postman collection's
 "Documents - foundations" folder. **Next:** piece 2's plan, documents between
 managers.
+
+### 2026-11-23 — documents piece 2 (documents between managers) built
+
+Plan `docs/superpowers/plans/2026-11-22-documents-between-managers.md`, built on
+branch `documents-between-managers` (not committed), backend only.
+
+- **Sending** (`POST /api/documents`): a unit's manager uploads a PDF or photo
+  (20 MB) with up to 10 supporting files and names 1–10 approvers in signing
+  order; المدير العام is added last as the deciding step. Optional وارد number,
+  unique in the creator's إدارة register.
+- **Deciding** (`POST /api/documents/{document}/decision`): approve or reject
+  with a note and a confirmation (biometric, or the account's password). Checks
+  in order: the turn, the unit managed now, the unit's stamp, the signature,
+  the confirmation. **428** means no signature is drawn yet: the app opens the
+  pad, posts it, and retries. A missing stamp is a 422 and tells the system
+  administrators once per unit. Each decision prints a card (stamp, signature,
+  name, date, note) on the last page and rebuilds the printed copy.
+- **The boxes** (incoming with the caller's turn first, outgoing, all with
+  `documents.view`), show, file, comments, supporting files, and deleting
+  (creator or system administrator, before any signature; 410 afterwards).
+- **The one approvals-module change**: an optional visibility contract
+  (`RestrictsApprovalVisibility`, with `ApprovalPolicy` and
+  `ApprovalListController`) that only documents implement: document chains are
+  out of `GET /api/approvals` and of `approvals.view` alone. Leave and swaps
+  are untouched, and how the engine submits, decides, withdraws and reassigns
+  is unchanged.
+- **The guard** (`DocumentStepGuard`): a document step cannot be decided
+  through the general approve/reject endpoints (422), and reassigning one is
+  the system administrator's alone, to a unit's manager (the deciding step: to
+  المدير العام only).
+- **Notifications**: `document.approved`, `document.rejected`,
+  `document.rejected_by_manager`, `document.stamp_missing`; approvers keep the
+  engine's `approval.step_pending` / `approval.step_assigned`.
+
+**Deploy:** `php artisan migrate` (three tables); nothing else is new.
+Stamps must be uploaded before managers sign (piece 1's list).
+
+Documented in `API_DOCUMENTATION.md` §20.5–§20.13 and the Postman collection's
+"Documents - between managers" folder. **Next:** piece 3, templates and
+numbers.
+
+**Two owner rulings after piece 2's final review (2026-11-23), built before it
+closes** (documents design §7.8 and the two 2026-11-23 rows of §19):
+
+- **Documents ignore inactive units.** A manager counts only for a non-deleted,
+  **active** unit (`UnitManagers::unitOf`), except المدير العام, who counts
+  whatever the root's flag. So a manager of an inactive unit cannot create a
+  document, be named an approver or sign; a waiting step whose approver's unit
+  was deactivated is the administrator's to reassign. The one-unit-per-manager
+  rule still counts inactive units.
+- **The system administrator closes a stuck document as «لم يُستكمل»**
+  (status `7`). The engine freezes a route when the document is sent, so a
+  promotion to المدير العام can leave one nobody can move (he already signed a
+  named step, or created it). `POST /api/documents/{document}/close` takes a
+  reason (3 to 500 characters), cancels the approval, and tells the creator
+  (`document.not_completed`), who sends it again. The closed document keeps its
+  cards, printed copy and numbers; its وارد is free again, its صادر is not
+  reused; deleting it is not offered. `GET /api/documents/attention` lists the
+  pending documents no one can move (`former_general_manager`,
+  `approver_manages_no_unit`), each with its step and holder, for reassigning or
+  closing. Both are behind the Gate ability `documents.close`, defined false and
+  passed only by the super-admin bypass: never a permission row.
+- **A deleted approver is flagged.** An approver whose employee record was
+  deleted (HR's soft delete leaves him as his unit's manager) manages no unit
+  (`UnitManagers::unitOf`), so a document waiting on him is listed on the
+  attention list as `approver_manages_no_unit`; a deleted المدير العام reads as a
+  vacant post (owner, 2026-11-23).
+- **The approvals engine's one further addition**:
+  `ApprovalService::cancel()` and `SkipReason::ClosedByAdministrator = 6`. Not a
+  route, called only by the documents' close; leave and shift swaps never use
+  it, and nothing else in the engine changed.
+
+No new migration (the same three tables). Documented in `API_DOCUMENTATION.md`
+§15.8 and §20.14 (and §20.5–§20.13 where they touch it), and in two requests in
+the Postman folder "Documents - between managers".

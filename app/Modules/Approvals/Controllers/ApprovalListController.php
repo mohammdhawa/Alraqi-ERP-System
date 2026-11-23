@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace App\Modules\Approvals\Controllers;
 
+use App\Modules\Approvals\Contracts\RestrictsApprovalVisibility;
 use App\Modules\Approvals\Models\Approval;
 use App\Modules\Approvals\Requests\ApprovalsIndexRequest;
 use App\Modules\Approvals\Resources\ApprovalListResource;
 use App\Modules\Approvals\Support\ApprovalFilters;
 use App\Modules\Approvals\Support\ApprovalRelations;
+use App\Modules\Auth\Models\User;
 use App\Modules\HR\Models\Employee;
 use App\Shared\Support\RequestRowScopes;
 use App\Shared\Traits\ApiRespond;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 
@@ -39,6 +42,11 @@ class ApprovalListController extends Controller
             $approvals->whereIn('requested_by', $scope->applyTo(Employee::withTrashed()->select('id')));
         }
 
+        $hidden = $this->hiddenSubjectTypes($request->user());
+        if ($hidden !== []) {
+            $approvals->whereNotIn('approvable_type', $hidden);
+        }
+
         $statuses = $request->statuses();
         if ($statuses !== []) {
             $approvals->whereIn('status', $statuses);
@@ -50,6 +58,24 @@ class ApprovalListController extends Controller
         return $this->paginated(ApprovalListResource::collection(
             $approvals->with(ApprovalRelations::list())->paginate($this->perPage($request)),
         ));
+    }
+
+    /**
+     * The morph aliases whose chains this user may not read from HR's list
+     * (RestrictsApprovalVisibility). A party reads their own on the subject's
+     * screens, not here.
+     *
+     * @return array<int, string>
+     */
+    private function hiddenSubjectTypes(User $user): array
+    {
+        return collect(Relation::morphMap())
+            ->filter(static fn (string $class): bool => is_a($class, RestrictsApprovalVisibility::class, true)
+                && ! $class::mayReadApprovalsWithoutBeingParty($user))
+            ->keys()
+            ->map(static fn (int|string $alias): string => (string) $alias)
+            ->values()
+            ->all();
     }
 
     /**

@@ -10,24 +10,28 @@ namespace App\Modules\Approvals\Enums;
  * rejection (legacy's rule) or a withdrawal (§9 Q1). TopOfTree is the
  * owner's answer of 2026-10-20 (parity audit C-1): the head of the tree has
  * no direct manager, so that step is skipped rather than the submission
- * refused.
+ * refused. ClosedByAdministrator closes the steps behind the system
+ * administrator's cancellation of a stuck document (documents design §7.8,
+ * the owner's ruling of 2026-11-23); leave and swaps never use it.
  */
 enum SkipReason: int
 {
-    case SameApprover         = 1;
-    case Requester            = 2;
-    case ClosedByRejection    = 3;
-    case ClosedByCancellation = 4;
-    case TopOfTree            = 5;
+    case SameApprover          = 1;
+    case Requester             = 2;
+    case ClosedByRejection     = 3;
+    case ClosedByCancellation  = 4;
+    case TopOfTree             = 5;
+    case ClosedByAdministrator = 6;
 
     public function label(): string
     {
         return match ($this) {
-            self::SameApprover         => 'المعتمد نفسه في الخطوة السابقة',
-            self::Requester            => 'المعتمد هو مقدِّم الطلب',
-            self::ClosedByRejection    => 'أُغلقت برفض الطلب',
-            self::ClosedByCancellation => 'أُغلقت بسحب الطلب',
-            self::TopOfTree            => 'لا يوجد مدير أعلى من مقدِّم الطلب',
+            self::SameApprover          => 'المعتمد نفسه في الخطوة السابقة',
+            self::Requester             => 'المعتمد هو مقدِّم الطلب',
+            self::ClosedByRejection     => 'أُغلقت برفض الطلب',
+            self::ClosedByCancellation  => 'أُغلقت بسحب الطلب',
+            self::TopOfTree             => 'لا يوجد مدير أعلى من مقدِّم الطلب',
+            self::ClosedByAdministrator => 'أُغلقت بقرار مدير النظام',
         };
     }
 }

@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace App\Modules\Approvals\Policies;
 
+use App\Modules\Approvals\Contracts\RestrictsApprovalVisibility;
 use App\Modules\Approvals\Models\Approval;
 use App\Modules\Auth\Models\User;
 use App\Shared\Support\OutOfScope;
 use App\Shared\Support\RequestRowScopes;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 /**
  * "May this user see — or hand on — THIS approval?" (design §7, §9 Q4, Q5).
  *
  * VIEW: the requester, anyone holding a step on the chain, or `approvals.view`
  * reaching the requester's CURRENT unit — the same reading attendance gives
- * D6: a transfer takes the person's requests with them. Every action on an
+ * D6: a transfer takes the person's requests with them. A subject that
+ * implements RestrictsApprovalVisibility (a document) is read by its parties
+ * and by those it names, not by `approvals.view`. Every action on an
  * approval sits behind this ability, so someone who may not even read it is
  * refused (403) before their body is read, and someone who may read it but
  * whose turn it is not gets the engine's 422 «ليس دورك…». Approving itself is
@@ -39,6 +43,10 @@ class ApprovalPolicy
             return Response::allow();
         }
 
+        if ($this->keepsChainFrom($user, $approval)) {
+            return Response::deny();
+        }
+
         if ($this->reaches($user, $approval, 'approvals.view')) {
             return Response::allow();
         }
@@ -50,9 +58,26 @@ class ApprovalPolicy
 
     public function reassign(User $user, Approval $approval): Response
     {
+        // Reassigning must not probe a chain the subject keeps from this user:
+        // the engine's own refusals would describe it (documents design §7.4).
+        if (! $this->isParty($user, $approval) && $this->keepsChainFrom($user, $approval)) {
+            return Response::deny();
+        }
+
         return $this->reaches($user, $approval, 'approvals.reassign')
             ? Response::allow()
             : OutOfScope::deny(self::OUT_OF_REACH);
+    }
+
+    /**
+     * A subject may keep its chain from HR's reading (documents design §7.4).
+     */
+    private function keepsChainFrom(User $user, Approval $approval): bool
+    {
+        $subject = Relation::getMorphedModel($approval->approvable_type) ?? $approval->approvable_type;
+
+        return is_a($subject, RestrictsApprovalVisibility::class, true)
+            && ! $subject::mayReadApprovalsWithoutBeingParty($user);
     }
 
     /**

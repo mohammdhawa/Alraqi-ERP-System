@@ -82,6 +82,20 @@ final class NotificationEventCatalogue
 
     public const SHIFT_SWAP_CANCELLED = 'shift_swap.cancelled';
 
+    // Documents between managers — to the creator, and to the system
+    // administrators when a unit has no stamp.
+    public const DOCUMENT_APPROVED = 'document.approved';
+
+    public const DOCUMENT_REJECTED = 'document.rejected';
+
+    public const DOCUMENT_REJECTED_BY_MANAGER = 'document.rejected_by_manager';
+
+    public const DOCUMENT_STAMP_MISSING = 'document.stamp_missing';
+
+    // Documents — to the creator, when the system administrator closes a
+    // stuck document «لم يُستكمل» (documents design §7.8).
+    public const DOCUMENT_NOT_COMPLETED = 'document.not_completed';
+
     /**
      * Arabic display labels — the `type_label` a client shows verbatim (C20).
      *
@@ -109,6 +123,11 @@ final class NotificationEventCatalogue
         self::SHIFT_SWAP_APPROVED          => 'تمت الموافقة على تبديل المناوبة',
         self::SHIFT_SWAP_REJECTED          => 'تم رفض تبديل المناوبة',
         self::SHIFT_SWAP_CANCELLED         => 'تم إلغاء تبديل المناوبة',
+        self::DOCUMENT_APPROVED            => 'تمت الموافقة على المستند',
+        self::DOCUMENT_REJECTED            => 'تم رفض المستند',
+        self::DOCUMENT_REJECTED_BY_MANAGER => 'رفض مدير المستند',
+        self::DOCUMENT_STAMP_MISSING       => 'ختم وحدة غير مرفوع',
+        self::DOCUMENT_NOT_COMPLETED       => 'لم يُستكمل المستند',
     ];
 
     /**

@@ -171,6 +171,9 @@ class AuditLogDetailResource extends AuditLogResource
         // The letterhead: two image file names and who changed them, no
         // personal data. As leave_type: reading the trail is enough.
         'document_letterhead'    => ['auth.audit.view'],
+        'document'               => ['documents.view'],
+        'document_mark'          => ['documents.view'],
+        'document_comment'       => ['documents.view'],
     ];
 
     /**

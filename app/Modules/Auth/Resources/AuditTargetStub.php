@@ -88,6 +88,9 @@ final class AuditTargetStub
         'employee_signature'     => 'توقيع موظف',
         'unit_stamp'             => 'ختم وحدة',
         'document_letterhead'    => 'ترويسة المستندات',
+        'document'               => 'مستند',
+        'document_mark'          => 'توقيع على مستند',
+        'document_comment'       => 'تعليق على مستند',
     ];
 
     /**
