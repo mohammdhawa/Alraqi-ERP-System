@@ -174,6 +174,8 @@ class AuditLogDetailResource extends AuditLogResource
         'document'               => ['documents.view'],
         'document_mark'          => ['documents.view'],
         'document_comment'       => ['documents.view'],
+        'document_template'      => ['documents.view'],
+        'document_template_category' => ['documents.view'],
     ];
 
     /**

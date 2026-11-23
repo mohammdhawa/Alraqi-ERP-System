@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Documents\Pdf;
 
+use Mpdf\Container\ContainerInterface;
 use Mpdf\Mpdf;
 
 /**
@@ -22,8 +23,10 @@ final class PdfSession
 
     /**
      * @param  array<string, mixed>  $config  overrides of the defaults below
+     * @param  ContainerInterface|null  $services  mPDF's own services to replace
+     *                                             (a template print's fetcher)
      */
-    public function mpdf(array $config = []): Mpdf
+    public function mpdf(array $config = [], ?ContainerInterface $services = null): Mpdf
     {
         return new Mpdf([
             'mode'             => 'utf-8',
@@ -33,7 +36,7 @@ final class PdfSession
             'autoLangToFont'   => true,
             ...$config,
             'tempDir'          => $this->directory,
-        ]);
+        ], $services);
     }
 
     /**

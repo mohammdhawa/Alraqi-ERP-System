@@ -16,6 +16,8 @@ use App\Modules\Documents\Models\Document;
 use App\Modules\Documents\Models\DocumentComment;
 use App\Modules\Documents\Models\DocumentLetterhead;
 use App\Modules\Documents\Models\DocumentMark;
+use App\Modules\Documents\Models\DocumentTemplate;
+use App\Modules\Documents\Models\DocumentTemplateCategory;
 use App\Modules\Documents\Models\EmployeeSignature;
 use App\Modules\Documents\Models\UnitStamp;
 use App\Modules\Documents\Observers\DocumentStepGuard;
@@ -211,6 +213,8 @@ class AppServiceProvider extends ServiceProvider
             'document'               => Document::class,
             'document_mark'          => DocumentMark::class,
             'document_comment'       => DocumentComment::class,
+            'document_template'      => DocumentTemplate::class,
+            'document_template_category' => DocumentTemplateCategory::class,
         ]);
 
         // Super-admin bypass: a super admin passes EVERY Gate/policy check
