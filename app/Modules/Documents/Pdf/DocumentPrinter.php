@@ -61,12 +61,22 @@ class DocumentPrinter
         $this->workspace->run(function (PdfSession $session) use ($document, $marks, $target, $disk): void {
             $mpdf = $session->mpdf();
             $mpdf->SetDirectionality('rtl');
-            // The cards sit in the bottom margin by design (6 mm from the edge).
+            // The cards sit in the bottom margin by design (6 mm from the
+            // edge, or above a template's letterhead footer).
             $mpdf->SetAutoPageBreak(false);
 
             [$width, $height] = $this->importOriginal($mpdf, $disk->path((string) $document->original_path));
 
-            $placement = $this->layout->place($marks->count(), $width, $height);
+            // The floor and where the page's text ends (a template's; null
+            // for an upload) are stored with the document, so every rebuild
+            // draws the cards where the first print did.
+            $placement = $this->layout->place(
+                $marks->count(),
+                $width,
+                $height,
+                $document->card_floor ?? CardLayout::BOTTOM_MARGIN,
+                $document->content_bottom,
+            );
 
             if ($placement->newPage) {
                 $mpdf->AddPageByArray(['orientation' => $width > $height ? 'L' : 'P', 'sheet-size' => [$width, $height]]);

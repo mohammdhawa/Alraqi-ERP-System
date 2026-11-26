@@ -1390,10 +1390,15 @@ as work shifts did:
   committed as `6ae8347`, merged by PR #10): signatures, units' stamps, the letterhead,
   the one-unit rule, mPDF and the upload check. **The server needs `qpdf`.**
   **Piece 2 (documents between managers) is built too** (2026-11-23, branch
-  `documents-between-managers`, not committed): sending, ordered signing with
+  `documents-between-managers`, committed as `04fa3b5`, merged by PR #12): sending, ordered signing with
   stamps and cards, the boxes, comments, deleting, and the visibility rule that
-  keeps documents off the general approvals screens. Next: piece 3, templates
-  and numbers.
+  keeps documents off the general approvals screens.
+  **Piece 3 (templates and numbers) is built too** (2026-11-26, branch
+  `documents-templates`, not committed): templates and categories with a cleaned
+  page and typed fields, creating a document from a template, the صادر number
+  per إدارة and its register, and the reference. Deploy: `composer install`
+  (adds `symfony/html-sanitizer`), `migrate`; see work order §8, 2026-11-26.
+  Next: piece 4, documents sent to employees.
 - **Employee performance evaluation** (تقييم الأداء). In neither system; it is
   what sets `employees.distinction_grade` (§11 question 3), and payroll reads
   it (`EMPLOYEE_APP_REQUIREMENTS.md` §5.1). The owner will describe how it

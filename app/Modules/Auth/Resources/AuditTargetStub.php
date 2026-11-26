@@ -91,6 +91,10 @@ final class AuditTargetStub
         'document'               => 'مستند',
         'document_mark'          => 'توقيع على مستند',
         'document_comment'       => 'تعليق على مستند',
+        'document_template'      => 'قالب مستند',
+        'document_template_category' => 'تصنيف قوالب المستندات',
+        'document_counter'       => 'عدّاد سجل الصادر',
+        'document_reference_sequence' => 'تسلسل مراجع المستندات',
     ];
 
     /**

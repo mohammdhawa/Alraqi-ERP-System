@@ -11,11 +11,14 @@ use App\Modules\Documents\Enums\Confirmation;
 use App\Modules\Documents\Enums\DocumentStatus;
 use App\Modules\Documents\Enums\SignatureSource;
 use App\Modules\Documents\Models\Document;
+use App\Modules\Documents\Models\DocumentTemplate;
+use App\Modules\Documents\Models\DocumentTemplateCategory;
 use App\Modules\Documents\Services\Signatures;
 use App\Modules\Documents\Services\UnitStamps;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
@@ -188,6 +191,87 @@ class DocumentListsTest extends TestCase
         $this->assertSame([$titled->id, $numbered->id], $this->listed('c', 'box=outgoing&search=4242'));
         $this->assertSame([$titled->id], $this->listed('c', 'box=outgoing&search=424'));
         $this->assertSame([$circular->id], $this->listed('c', 'box=outgoing&search='.urlencode('تعميم')));
+    }
+
+    public function test_search_finds_by_export_number_and_reference(): void
+    {
+        $category = DocumentTemplateCategory::create(['name' => 'تعاميم', 'sort' => 1]);
+        $template = DocumentTemplate::create([
+            'category_id'      => $category->id,
+            'name'             => 'تعميم',
+            'reference_prefix' => 'CIR',
+            'fields'           => [],
+            'body'             => '<p>نص التعميم</p>',
+        ]);
+
+        $fromTemplate = function (string $title, ?int $exportNumber = null) use ($template): Document {
+            Sanctum::actingAs($this->accounts['c']);
+
+            $this->post('/api/documents', array_filter([
+                'title'         => $title,
+                'template_id'   => $template->id,
+                'approvers'     => [$this->people['a1']->id],
+                'export_number' => $exportNumber,
+            ], static fn (mixed $value): bool => $value !== null), ['Accept' => 'application/json'])->assertCreated();
+
+            return Document::query()->latest('id')->firstOrFail();
+        };
+
+        $year = now()->year;
+        $first = $fromTemplate('تعميم الدوام', 500);
+        $second = $fromTemplate('تعميم الإجازات');
+        $titled = $this->send('محضر الجلسة 501', ['a1']);
+        $imported = $this->send('كتاب وارد', ['a1'], importNumber: 501);
+
+        $this->assertSame(500, $first->export_number);
+        $this->assertSame("CIR-{$year}-0001", $first->reference);
+        $this->assertSame("CIR-{$year}-0002", $second->reference);
+
+        // Digits match the صادر or the وارد number exactly, or the title or the reference in part.
+        $this->assertSame([$imported->id, $titled->id, $second->id], $this->listed('c', 'box=outgoing&search=501'));
+        $this->assertSame([$first->id], $this->listed('c', 'box=outgoing&search=500'));
+        $this->assertSame([$first->id], $this->listed('c', 'box=outgoing&search=0001'));
+        $this->assertSame([$second->id, $first->id], $this->listed('c', 'box=outgoing&search='.urlencode("CIR-{$year}")));
+        $this->assertSame([$second->id], $this->listed('c', 'box=outgoing&search='.urlencode("CIR-{$year}-0002")));
+        $this->assertSame([], $this->listed('c', 'box=outgoing&search='.urlencode('CIR_')));
+    }
+
+    /**
+     * Minor M4: a list prints a document's template as `{id, name}`, so it
+     * loads those columns only, never a page of up to 200 KB.
+     */
+    public function test_the_lists_load_only_the_templates_id_and_name(): void
+    {
+        $category = DocumentTemplateCategory::create(['name' => 'تعاميم', 'sort' => 1]);
+        $template = DocumentTemplate::create([
+            'category_id'      => $category->id,
+            'name'             => 'تعميم',
+            'reference_prefix' => 'CIR',
+            'fields'           => [],
+            'body'             => '<p>'.str_repeat('نص التعميم ', 500).'</p>',
+        ]);
+        Sanctum::actingAs($this->accounts['c']);
+        $this->post('/api/documents', [
+            'title'         => 'تعميم الدوام',
+            'template_id'   => $template->id,
+            'approvers'     => [$this->people['a1']->id],
+            'export_number' => 500,
+        ], ['Accept' => 'application/json'])->assertCreated();
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->getJson('/api/documents?box=outgoing')->assertOk()
+            ->assertJsonPath('data.0.template', ['id' => $template->id, 'name' => 'تعميم', 'version' => 1]);
+
+        $loads = array_values(array_filter(
+            array_column(DB::getQueryLog(), 'query'),
+            static fn (string $sql): bool => str_contains($sql, 'from "document_templates"'),
+        ));
+        DB::disableQueryLog();
+
+        $this->assertCount(1, $loads);
+        $this->assertStringStartsWith('select "id", "name" from "document_templates"', $loads[0]);
     }
 
     public function test_show_and_file_for_a_party(): void

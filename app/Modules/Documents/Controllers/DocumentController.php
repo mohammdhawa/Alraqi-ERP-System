@@ -62,15 +62,7 @@ class DocumentController extends Controller
         }
 
         if (($search = $request->search()) !== null) {
-            $documents->where(static function (Builder $match) use ($search): void {
-                // `!` escapes the wildcards, on every database alike.
-                $match->whereRaw("documents.title like ? escape '!'", ['%'.strtr($search, ['!' => '!!', '%' => '!%', '_' => '!_']).'%']);
-
-                // Digits are also the وارد number, exactly (§7.7).
-                if (ctype_digit($search)) {
-                    $match->orWhere('documents.import_number', (int) $search);
-                }
-            });
+            $documents->matching($search);
         }
 
         if ($box === 'incoming' && $employeeId !== null) {

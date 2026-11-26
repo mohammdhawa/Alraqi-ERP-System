@@ -156,6 +156,40 @@ class CreateDocumentTest extends TestCase
             ->assertJsonPath('data.can.delete', true);
     }
 
+    /** Only template documents are numbered (D3.3); an upload carries none of a template's columns. */
+    public function test_an_upload_has_no_template_numbers(): void
+    {
+        $data = $this->send('c', $this->payload())->assertCreated()->json('data');
+
+        foreach (['export_number', 'reference', 'template', 'field_values'] as $key) {
+            $this->assertArrayHasKey($key, $data);
+            $this->assertNull($data[$key], $key);
+        }
+
+        $document = Document::query()->firstOrFail();
+        $this->assertArrayHasKey('card_floor', $document->getAttributes());
+        $this->assertNull($document->template_id);
+        $this->assertNull($document->template_version);
+        $this->assertNull($document->export_number);
+        $this->assertNull($document->reference);
+        $this->assertNull($document->card_floor);
+        $this->assertSame(0, DB::table('document_counters')->count());
+        $this->assertSame(0, DB::table('document_reference_sequences')->count());
+    }
+
+    /**
+     * Ruling R17: an upload's text end is unknown, so it records none and
+     * its cards keep piece 2's placement.
+     */
+    public function test_an_upload_records_no_content_bottom(): void
+    {
+        $this->send('c', $this->payload())->assertCreated();
+
+        $document = Document::query()->firstOrFail();
+        $this->assertArrayHasKey('content_bottom', $document->getAttributes());
+        $this->assertNull($document->content_bottom);
+    }
+
     public function test_only_a_unit_manager_creates(): void
     {
         $this->send('plain', $this->payload())

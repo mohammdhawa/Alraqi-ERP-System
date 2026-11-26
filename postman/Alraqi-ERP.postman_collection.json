@@ -92,6 +92,16 @@
 			"key": "documentId",
 			"value": "1",
 			"type": "string"
+		},
+		{
+			"key": "templateId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "templateCategoryId",
+			"value": "1",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -2357,6 +2367,520 @@
 							]
 						},
 						"description": "§20.14 — the system administrator alone. Pending documents no one can move as they stand, each with attention.reason (former_general_manager or approver_manages_no_unit), step_id and approver. Paged (page, per_page)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Documents - templates and numbers",
+			"description": "API_DOCUMENTATION.md §20.15-§20.16 (2026-11-26). Templates and their categories, the صادر number and the register, and creating a document from a template. Set `templateId`, `templateCategoryId` and `departmentId` (an إدارة) to ids.",
+			"item": [
+				{
+					"name": "List template categories",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/template-categories?for_employees=0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"template-categories"
+							],
+							"query": [
+								{
+									"key": "for_employees",
+									"value": "0"
+								}
+							]
+						},
+						"description": "§20.15 — any signed-in account. Every live category with templates_count (active templates), by sort then name. for_employees (0/1) counts only that kind, as the template list filters: the managers' picker sends 0, HR's send screen (piece 4) 1."
+					},
+					"response": []
+				},
+				{
+					"name": "Create template category",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/template-categories",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"template-categories"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. name required, ≤ 100, unique; sort optional 0-65535. 201.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"مالية\",\n    \"sort\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update template category",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/template-categories/{{templateCategoryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"template-categories",
+								"{{templateCategoryId}}"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"مالية\",\n    \"sort\": 2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete template category",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/template-categories/{{templateCategoryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"template-categories",
+								"{{templateCategoryId}}"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. 422 «لا يُحذف تصنيف فيه قوالب.» while any template (active or not) is filed under it."
+					},
+					"response": []
+				},
+				{
+					"name": "List templates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates?search=&for_employees=0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "for_employees",
+									"value": "0"
+								}
+							]
+						},
+						"description": "§20.15 — any signed-in account (active templates, no page). A template manager also gets body, layout_key, show_letterhead, reference_prefix, in_use, and may filter status=active|inactive|all and category_id."
+					},
+					"response": []
+				},
+				{
+					"name": "Show template",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates/{{templateId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates",
+								"{{templateId}}"
+							]
+						},
+						"description": "§20.15 — any signed-in account; an inactive template is a 404 to anyone but a template manager."
+					},
+					"response": []
+				},
+				{
+					"name": "Create template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. Exactly one of body (HTML, ≤ 200 KB, cleaned on save) and layout_key (purchase_request). Chips: <span data-placeholder=\"field.KEY\">label</span>, system.export_number, system.import_number, system.reference, system.date, system.creator_name, system.creator_unit (recipient.* only when for_employees). 201 تم إنشاء القالب. with version 1.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"طلب صرف\",\n    \"category_id\": {{templateCategoryId}},\n    \"description\": null,\n    \"is_active\": true,\n    \"for_employees\": false,\n    \"show_letterhead\": true,\n    \"reference_prefix\": \"RE\",\n    \"fields\": [\n        {\n            \"key\": \"subject\",\n            \"label\": \"الموضوع\",\n            \"type\": \"text\",\n            \"required\": true\n        },\n        {\n            \"key\": \"amount\",\n            \"label\": \"المبلغ\",\n            \"type\": \"number\",\n            \"required\": false\n        },\n        {\n            \"key\": \"due\",\n            \"label\": \"تاريخ الاستحقاق\",\n            \"type\": \"date\",\n            \"required\": false\n        },\n        {\n            \"key\": \"kind\",\n            \"label\": \"النوع\",\n            \"type\": \"select\",\n            \"required\": false,\n            \"options\": [\n                \"عاجل\",\n                \"عادي\"\n            ]\n        },\n        {\n            \"key\": \"items\",\n            \"label\": \"البنود\",\n            \"type\": \"table\",\n            \"required\": false,\n            \"columns\": [\n                {\n                    \"key\": \"name\",\n                    \"label\": \"البند\"\n                },\n                {\n                    \"key\": \"qty\",\n                    \"label\": \"الكمية\"\n                }\n            ]\n        }\n    ],\n    \"body\": \"<p style=\\\"text-align:center\\\"><strong>طلب صرف</strong></p><p>رقم الصادر: <span data-placeholder=\\\"system.export_number\\\">رقم الصادر</span> — المرجع: <span data-placeholder=\\\"system.reference\\\">المرجع</span></p><p>الموضوع: <span data-placeholder=\\\"field.subject\\\">الموضوع</span></p><p><span data-placeholder=\\\"field.items\\\">البنود</span></p>\",\n    \"layout_key\": null\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Preview template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates/preview",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates",
+								"preview"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. The body of a save (name required, not unique; category optional); nothing is saved. Answers application/pdf inline with sample values. Send and save the response as a file.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"طلب صرف\",\n    \"for_employees\": false,\n    \"show_letterhead\": true,\n    \"reference_prefix\": \"RE\",\n    \"fields\": [\n        {\n            \"key\": \"subject\",\n            \"label\": \"الموضوع\",\n            \"type\": \"text\",\n            \"required\": true\n        },\n        {\n            \"key\": \"amount\",\n            \"label\": \"المبلغ\",\n            \"type\": \"number\",\n            \"required\": false\n        },\n        {\n            \"key\": \"due\",\n            \"label\": \"تاريخ الاستحقاق\",\n            \"type\": \"date\",\n            \"required\": false\n        },\n        {\n            \"key\": \"kind\",\n            \"label\": \"النوع\",\n            \"type\": \"select\",\n            \"required\": false,\n            \"options\": [\n                \"عاجل\",\n                \"عادي\"\n            ]\n        },\n        {\n            \"key\": \"items\",\n            \"label\": \"البنود\",\n            \"type\": \"table\",\n            \"required\": false,\n            \"columns\": [\n                {\n                    \"key\": \"name\",\n                    \"label\": \"البند\"\n                },\n                {\n                    \"key\": \"qty\",\n                    \"label\": \"الكمية\"\n                }\n            ]\n        }\n    ],\n    \"body\": \"<p style=\\\"text-align:center\\\"><strong>طلب صرف</strong></p><p>رقم الصادر: <span data-placeholder=\\\"system.export_number\\\">رقم الصادر</span> — المرجع: <span data-placeholder=\\\"system.reference\\\">المرجع</span></p><p>الموضوع: <span data-placeholder=\\\"field.subject\\\">الموضوع</span></p><p><span data-placeholder=\\\"field.items\\\">البنود</span></p>\",\n    \"layout_key\": null\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update template",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates/{{templateId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates",
+								"{{templateId}}"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. Replaces the whole template; every update (activating and deactivating included) bumps version. 200 تم تحديث القالب.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"طلب صرف\",\n    \"category_id\": {{templateCategoryId}},\n    \"description\": null,\n    \"is_active\": true,\n    \"for_employees\": false,\n    \"show_letterhead\": true,\n    \"reference_prefix\": \"RE\",\n    \"fields\": [\n        {\n            \"key\": \"subject\",\n            \"label\": \"الموضوع\",\n            \"type\": \"text\",\n            \"required\": true\n        },\n        {\n            \"key\": \"amount\",\n            \"label\": \"المبلغ\",\n            \"type\": \"number\",\n            \"required\": false\n        },\n        {\n            \"key\": \"due\",\n            \"label\": \"تاريخ الاستحقاق\",\n            \"type\": \"date\",\n            \"required\": false\n        },\n        {\n            \"key\": \"kind\",\n            \"label\": \"النوع\",\n            \"type\": \"select\",\n            \"required\": false,\n            \"options\": [\n                \"عاجل\",\n                \"عادي\"\n            ]\n        },\n        {\n            \"key\": \"items\",\n            \"label\": \"البنود\",\n            \"type\": \"table\",\n            \"required\": false,\n            \"columns\": [\n                {\n                    \"key\": \"name\",\n                    \"label\": \"البند\"\n                },\n                {\n                    \"key\": \"qty\",\n                    \"label\": \"الكمية\"\n                }\n            ]\n        }\n    ],\n    \"body\": \"<p style=\\\"text-align:center\\\"><strong>طلب صرف</strong></p><p>رقم الصادر: <span data-placeholder=\\\"system.export_number\\\">رقم الصادر</span> — المرجع: <span data-placeholder=\\\"system.reference\\\">المرجع</span></p><p>الموضوع: <span data-placeholder=\\\"field.subject\\\">الموضوع</span></p><p><span data-placeholder=\\\"field.items\\\">البنود</span></p>\",\n    \"layout_key\": null\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete template",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/templates/{{templateId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"templates",
+								"{{templateId}}"
+							]
+						},
+						"description": "§20.15 — documents.templates.manage. 422 «استُخدم هذا القالب في مستندات، فلا يُحذف. يمكنك إيقافه بدلاً من ذلك.» once any document was made from it: deactivate it instead."
+					},
+					"response": []
+				},
+				{
+					"name": "Next export number",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/numbers/next",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"numbers",
+								"next"
+							]
+						},
+						"description": "§20.16 — a unit's manager, for his own إدارة's register. next is a suggestion only (null and first_required true when the register is cold); send export_number on create only if the creator typed one. 403 for a non-manager, and for an account with no employee."
+					},
+					"response": []
+				},
+				{
+					"name": "Export register",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/registers/{{departmentId}}?search=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"registers",
+								"{{departmentId}}"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": ""
+								}
+							]
+						},
+						"description": "§20.16 — that إدارة's own manager, or documents.view. Every صادر number of the register, newest first, deleted documents marked (deleted, deleted_label «محذوف»). 403 before 422 «هذه الوحدة لا تملك سجل صادر.» (a section or an office); a deleted unit is a 404."
+					},
+					"response": []
+				},
+				{
+					"name": "Create document from template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							]
+						},
+						"description": "§20.6 — a unit's manager. template_id instead of file (never both). field_values[key] fields fill the template's fields (a table as field_values[items][0][name]). export_number only when the creator typed one: omit it to take the register's next (a cold register needs it). approvers[] 1-10 employee ids in signing order. A for_employees template is refused. See the JSON variant for the object form.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "طلب صرف",
+									"type": "text"
+								},
+								{
+									"key": "template_id",
+									"value": "{{templateId}}",
+									"type": "text"
+								},
+								{
+									"key": "field_values[subject]",
+									"value": "صرف مستحقات الموردين",
+									"type": "text"
+								},
+								{
+									"key": "field_values[amount]",
+									"value": "1250.50",
+									"type": "text"
+								},
+								{
+									"key": "field_values[items][0][name]",
+									"value": "ورق",
+									"type": "text"
+								},
+								{
+									"key": "field_values[items][0][qty]",
+									"value": "10",
+									"type": "text"
+								},
+								{
+									"key": "export_number",
+									"value": "",
+									"type": "text",
+									"disabled": true
+								},
+								{
+									"key": "import_number",
+									"value": "",
+									"type": "text",
+									"disabled": true
+								},
+								{
+									"key": "approvers[]",
+									"value": "{{employeeId}}",
+									"type": "text"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create document from template - JSON",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							]
+						},
+						"description": "§20.6 — the same as JSON, when there are no attachments. 201 with export_number, reference, template {id, name, version} and the normalised field_values. 422 «بيانات المستند غير صالحة.» when field_values is not an object; per-field errors under errors.field_values.{key}.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"طلب صرف\",\n    \"template_id\": {{templateId}},\n    \"field_values\": {\n        \"subject\": \"صرف مستحقات الموردين\",\n        \"amount\": \"1250.50\",\n        \"items\": [\n            {\n                \"name\": \"ورق\",\n                \"qty\": \"10\"\n            }\n        ]\n    },\n    \"approvers\": [\n        {{employeeId}}\n    ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
 					},
 					"response": []
 				}

@@ -26,6 +26,7 @@ use App\Shared\Models\Attachment;
 use App\Shared\Support\NotificationEventCatalogue;
 use App\Shared\Traits\HasAuditLog;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -49,7 +50,12 @@ use Illuminate\Support\Collection;
  * @property int $creator_unit_id
  * @property int $register_unit_id
  * @property int|null $created_by
+ * @property int|null $template_id
+ * @property int|null $template_version
+ * @property array<string, mixed>|null $field_values
+ * @property int|null $export_number
  * @property int|null $import_number
+ * @property string|null $reference
  * @property DocumentStatus $status
  * @property Carbon|null $decided_at
  * @property int|null $closed_by
@@ -58,6 +64,8 @@ use Illuminate\Support\Collection;
  * @property string|null $original_path
  * @property string|null $uploaded_path
  * @property string|null $printed_path
+ * @property int|null $card_floor where the cards stop above the footer, in mm; null is piece 2's 6 mm
+ * @property float|null $content_bottom where the original's last page's text ends, in mm from its top; null for an upload
  * @property int|null $deleted_by
  */
 #[UsePolicy(DocumentPolicy::class)]
@@ -95,6 +103,8 @@ class Document extends Model implements Approvable, RestrictsApprovalVisibility
         'original_path',
         'uploaded_path',
         'printed_path',
+        'card_floor',
+        'content_bottom',
         'deleted_by',
         'legacy_id',
         'legacy',
@@ -103,16 +113,42 @@ class Document extends Model implements Approvable, RestrictsApprovalVisibility
     protected function casts(): array
     {
         return [
-            'kind'         => DocumentKind::class,
-            'origin'       => DocumentOrigin::class,
-            'status'       => DocumentStatus::class,
-            'field_values' => 'array',
+            'kind'             => DocumentKind::class,
+            'origin'           => DocumentOrigin::class,
+            'status'           => DocumentStatus::class,
+            'template_version' => 'integer',
+            'export_number'    => 'integer',
+            'card_floor'       => 'integer',
+            'content_bottom'   => 'float',
+            'field_values'     => 'array',
             'legacy'       => 'array',
             'sent_at'      => 'datetime',
             'signed_at'    => 'datetime',
             'refused_at'   => 'datetime',
             'decided_at'   => 'datetime',
         ];
+    }
+
+    /**
+     * The lists' search: the title or reference in part; digits are also the
+     * وارد or the صادر number, exactly (§7.7, §8.4).
+     *
+     * @param  Builder<Document>  $query
+     */
+    public function scopeMatching(Builder $query, string $search): void
+    {
+        $query->where(static function (Builder $match) use ($search): void {
+            // `!` escapes the wildcards, on every database alike.
+            $like = '%'.strtr($search, ['!' => '!!', '%' => '!%', '_' => '!_']).'%';
+
+            $match->whereRaw("documents.title like ? escape '!'", [$like])
+                ->orWhereRaw("documents.reference like ? escape '!'", [$like]);
+
+            if (ctype_digit($search)) {
+                $match->orWhere('documents.import_number', (int) $search)
+                    ->orWhere('documents.export_number', (int) $search);
+            }
+        });
     }
 
     public function creator(): BelongsTo
@@ -133,6 +169,12 @@ class Document extends Model implements Approvable, RestrictsApprovalVisibility
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** The template it was made from; a deleted template still shows. */
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(DocumentTemplate::class, 'template_id')->withTrashed();
     }
 
     public function approval(): MorphOne
