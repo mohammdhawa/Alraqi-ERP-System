@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use App\Modules\Documents\Controllers\DocumentCommentController;
 use App\Modules\Documents\Controllers\DocumentController;
+use App\Modules\Documents\Controllers\DocumentTemplateController;
+use App\Modules\Documents\Controllers\ExportRegisterController;
 use App\Modules\Documents\Controllers\LetterheadController;
+use App\Modules\Documents\Controllers\TemplateCategoryController;
 use App\Modules\Documents\Controllers\UnitStampController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +41,38 @@ Route::middleware(['auth:sanctum', 'audit'])
         Route::get('/attention', [DocumentController::class, 'attention'])
             ->middleware('can:documents.close')
             ->name('attention');
+
+        // رقم الصادر التالي — a unit's manager, for their own إدارة's register.
+        Route::get('/numbers/next', [ExportRegisterController::class, 'next'])->name('numbers.next');
+
+        // سجل الصادر — the إدارة's own manager or `documents.view` (the
+        // controller decides). A deleted unit is a 404 at binding.
+        Route::get('/registers/{department}', [ExportRegisterController::class, 'index'])
+            ->whereNumber('department')->name('registers.index');
+
+        // القوالب وتصنيفاتها — reading is for any signed-in account (the
+        // controller shows a manager more); writing needs the templates'
+        // permission. Declared before `/{document}`, with their own prefixes.
+        Route::get('/template-categories', [TemplateCategoryController::class, 'index'])->name('template-categories.index');
+        Route::get('/templates', [DocumentTemplateController::class, 'index'])->name('templates.index');
+        Route::get('/templates/{template}', [DocumentTemplateController::class, 'show'])
+            ->whereNumber('template')->name('templates.show');
+
+        Route::middleware('permission:documents.templates.manage')->group(function () {
+            Route::post('/template-categories', [TemplateCategoryController::class, 'store'])->name('template-categories.store');
+            Route::put('/template-categories/{category}', [TemplateCategoryController::class, 'update'])
+                ->whereNumber('category')->name('template-categories.update');
+            Route::delete('/template-categories/{category}', [TemplateCategoryController::class, 'destroy'])
+                ->whereNumber('category')->name('template-categories.destroy');
+
+            Route::post('/templates', [DocumentTemplateController::class, 'store'])->name('templates.store');
+            // المعاينة — the page printed with sample values; nothing is saved.
+            Route::post('/templates/preview', [DocumentTemplateController::class, 'preview'])->name('templates.preview');
+            Route::put('/templates/{template}', [DocumentTemplateController::class, 'update'])
+                ->whereNumber('template')->name('templates.update');
+            Route::delete('/templates/{template}', [DocumentTemplateController::class, 'destroy'])
+                ->whereNumber('template')->name('templates.destroy');
+        });
 
         // العرض — the creator, a step holder or `documents.view`; a deleted
         // document still binds, to answer 410 to those who may see it.

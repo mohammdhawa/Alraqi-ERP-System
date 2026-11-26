@@ -2527,3 +2527,97 @@ closes** (documents design §7.8 and the two 2026-11-23 rows of §19):
 No new migration (the same three tables). Documented in `API_DOCUMENTATION.md`
 §15.8 and §20.14 (and §20.5–§20.13 where they touch it), and in two requests in
 the Postman folder "Documents - between managers".
+
+### 2026-11-26 — documents piece 3 (templates and numbers) built
+
+Plan `docs/superpowers/plans/2026-11-23-documents-templates-numbers.md`, built on
+branch `documents-templates` (not committed), backend only.
+
+- **Templates and categories** (`/api/documents/templates`, `…/template-categories`):
+  a template is a page with placeholders (chips) and a list of fields. Any
+  signed-in account reads the active ones (they are forms, not records); writing
+  and the preview need `documents.templates.manage`. A template needs a
+  category; template names and category names are each unique. **Every edit
+  bumps the version, activating and deactivating included**; a template ever
+  used by a document is not deleted, only deactivated.
+- **The page is cleaned on save** by a maintained library
+  (`symfony/html-sanitizer`) against a whitelist: text, lists, tables, chips,
+  page breaks, and only two style properties (alignment, size 8–36 pt). Images,
+  links, scripts and anything that could make the printer read a file are
+  removed. Typed markup in a **value** prints literally. The page is at most
+  200 KB.
+- **Fields keep legacy's keys** (`text`, `textarea`, `number`, `date`, `select`,
+  `table`), so legacy's 20 templates move one to one (piece 8); a table's rows
+  are stored keyed by column, not by position. Empty optional values print
+  nothing; numbers print as typed; dates print `Y/m/d`.
+- **Printing**: A4, right to left, **template pages in DejaVu Sans** (as
+  legacy's template pages, not Amiri; with mPDF's automatic Arabic font some
+  letters copied out of the PDF came out garbled), the letterhead on every page
+  when the template shows it. **Only the pages:** piece 2's cards keep mPDF's
+  automatic Arabic font (XB Riyaz; `PdfSession`'s `autoLangToFont` is on for
+  them), so the cards' Arabic loses some letters when copied or searched.
+  **The cards' font is a follow-up for the owner** (moving them to DejaVu Sans
+  is a change to piece 2's printer, not made here). The printer **fetches
+  nothing** (no file, no URL), so no page or value can make it read one.
+  **On a template document printed with a footer image the cards sit 32 mm
+  from the page's foot** (not piece 2's 6 mm), so they do not cover the
+  company's footer; the value is stored with the document so a rebuilt copy is
+  identical. **Nor do they cover the page's own text** (ruling R17): the
+  document also stores where its last page's text ends, and cards that would
+  come within 5 mm of it go on a new page. Uploads keep legacy's placement
+  (their text end is unknown).
+- **Creating from a template** (`POST /api/documents` with `template_id`
+  instead of `file`): the values are checked against the template **as it is at
+  sending**, and the document records the version whose page was printed. A
+  `field_values` that is not an object is refused («بيانات المستند غير صالحة.»,
+  also on an upload), so a malformed request cannot burn a number. Empty values
+  are served as `{}`. **A `for_employees` template is not offered between
+  managers and creating from it is refused**: its flag puts it on HR's send
+  screen (piece 4) and allows the recipient placeholders, which would print empty
+  here. A refused request writes nothing and takes no number.
+- **صادر**: one counter per إدارة (its sections and offices share it), legacy's
+  rules: the first number of a cold register is typed; a typed number already on
+  any document of the register (deleted ones included) is refused; a typed
+  number above the counter moves it, below is taken as is; nothing typed gives
+  the next. Claimed in the creation transaction under a lock, so two managers
+  never get the same number; the unique index is the last guard and answers the
+  same words. **`GET /api/documents/numbers/next` is a suggestion only**: the
+  form sends `export_number` only when the creator typed one; a number taken
+  meanwhile answers «مستخدم». An account with no employee gets «لا يوجد موظف
+  مرتبط بهذا الحساب.».
+- **The reference** `PREFIX-year-0001`, from a sequence per prefix and year in
+  Damascus time (the year turning starts again at `0001`), claimed after the
+  صادر number. Only template documents get a number or a reference; uploads keep
+  both empty.
+- **سجل الصادر** (`GET /api/documents/registers/{department}`): the إدارة's own
+  manager or `documents.view`; deleted documents are listed and marked «محذوف».
+  The caller is refused (403) **before** the unit is judged (422 for a section),
+  so a unit's level is not told to someone who may not read registers. The list
+  search now also matches the reference and the صادر number.
+- **Endpoint paths** sit under `/api/documents/…` beside the stamps and the
+  letterhead, not at the design's `/api/document-templates`.
+- **Audit**: the four new records are logged and readable with `documents.view`
+  (the audit gate admits read permissions only).
+
+**Calls made in the plan, for the owner to check:** the ten listed in the plan's
+last section — the `for_employees` rule, the 32 mm floor, the sanitising
+library, every edit bumping the version, the category and unique-name rules,
+legacy's field keys, empty values printing nothing, DejaVu Sans, the endpoint
+paths, and who reads templates.
+
+**Deploy:** `composer install` (adds `symfony/html-sanitizer`) and
+`php artisan migrate`. Then:
+
+- **PHP 8.4 or later on the production server:** the sanitiser's parser changes
+  there, and it was tested on 8.2. Re-run
+  `tests/Unit/Documents/TemplateBodyTest.php` on the production PHP.
+- **MySQL 8.0.20 or later:** Laravel's `upsert`, which the counters use, writes
+  `values()`, deprecated there (a warning, not a failure). The connection option
+  `use_upsert_alias` removes it where MySQL supports it (MariaDB does not).
+- **Open, the owner's wording:** an unreadable letterhead image (a corrupt file
+  already stored) answers a **500** with an English message, for the preview and
+  for creating a document from a template. It needs Arabic copy.
+
+Documented in `API_DOCUMENTATION.md` §20.15–§20.16 (and §20.5–§20.8 where they
+touch it), and in the Postman collection's folder "Documents - templates and
+numbers". **Next:** piece 4, documents sent to employees and their signatures.

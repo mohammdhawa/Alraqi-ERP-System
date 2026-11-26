@@ -26,10 +26,14 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class DocumentResource extends JsonResource
 {
-    /** What a document must have loaded to be rendered. */
+    /**
+     * What a document must have loaded to be rendered. The template's id and
+     * name only: its page and fields are not printed here.
+     */
     public const RELATIONS = [
         'creator',
         'creatorUnit',
+        'template:id,name',
         'approval.steps.approver',
         'attachments',
     ];
@@ -63,6 +67,19 @@ class DocumentResource extends JsonResource
             'description'      => $this->description,
             'status'           => ['value' => $this->status->value, 'label' => $this->status->label()],
             'import_number'    => $this->import_number,
+            // A template document's (§8.4); an upload's are null.
+            'export_number'    => $this->export_number,
+            'reference'        => $this->reference,
+            // The template it was made from, a deleted one included, and the
+            // version whose page was printed (not the template's current one).
+            'template'         => $this->template === null ? null : [
+                'id'      => $this->template->id,
+                'name'    => $this->template->name,
+                'version' => $this->template_version,
+            ],
+            // An object keyed by field key, `{}` when the template has no
+            // fields (an empty PHP array would be served as `[]`).
+            'field_values'     => $this->field_values === null ? null : (object) $this->field_values,
             'creator'          => $this->creator === null ? null : ['id' => $this->creator->id, 'full_name' => $this->creator->full_name],
             'creator_unit'     => $this->creatorUnit === null ? null : ['id' => $this->creatorUnit->id, 'name' => $this->creatorUnit->name],
             'created_at'       => $this->created_at?->toIso8601String(),

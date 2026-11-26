@@ -2080,6 +2080,18 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zzze| DELETE   | `/api/documents/{document}`                  | bearer   | creator or the system administrator (§20.12) |
 | 18zzzf| POST     | `/api/documents/{document}/close`            | bearer   | the system administrator alone (§20.14) |
 | 18zzzg| GET      | `/api/documents/attention`                   | bearer   | the system administrator alone (§20.14) |
+| 18zzzh| GET      | `/api/documents/template-categories`         | bearer   | any signed-in account (§20.15) |
+| 18zzzi| POST     | `/api/documents/template-categories`         | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzj| PUT      | `/api/documents/template-categories/{category}` | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzk| DELETE   | `/api/documents/template-categories/{category}` | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzl| GET      | `/api/documents/templates`                   | bearer   | any signed-in account; inactive ones and the page for `documents.templates.manage` (§20.15) |
+| 18zzzm| GET      | `/api/documents/templates/{template}`        | bearer   | any signed-in account; inactive ones and the page for `documents.templates.manage` (§20.15) |
+| 18zzzn| POST     | `/api/documents/templates`                   | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzo| POST     | `/api/documents/templates/preview`           | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzp| PUT      | `/api/documents/templates/{template}`        | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzq| DELETE   | `/api/documents/templates/{template}`        | bearer   | `documents.templates.manage` (§20.15) |
+| 18zzzr| GET      | `/api/documents/numbers/next`                | bearer   | a unit's manager (§20.16) |
+| 18zzzs| GET      | `/api/documents/registers/{department}`      | bearer   | the إدارة's own manager or `documents.view` (§20.16) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -4647,7 +4659,9 @@ encrypted: a letterhead signs nothing.
 manager sends a PDF to managers, who sign **in order**, and المدير العام decides
 last). The upload is a PDF or a photo (§20.6); each signature prints a card on
 the last page (the unit's stamp, the manager's signature, name, date, note).
-No template, صادر number or employee signature yet (pieces 3–4).
+⚙️ **2026-11-26** (piece 3): the document may instead be **made from a
+template** (§20.15), with an صادر number and a reference (§20.16). Sending to
+employees and their signatures are piece 4.
 
 **The route.** The creator names **1–10 approvers**, in the order they sign.
 المدير العام (the manager of the root unit, read at sending) is added **after
@@ -4690,6 +4704,7 @@ the document screen (§20.9), never through the general approve endpoint.
 **Deploy.** `php artisan migrate` (three tables: `documents`,
 `document_marks`, `document_comments`); nothing else is new. The stamps (§20.3)
 must be uploaded before the managers sign; the server needs `qpdf` (§20).
+Piece 3's deploy notes are at the end of §20.16.
 
 ### 20.6 Create a document
 
@@ -4702,9 +4717,38 @@ POST /api/documents        multipart/form-data
 | `title` | required, ≤ 255 |
 | `description` | optional, ≤ 2000 |
 | `import_number` | optional integer 1–999999999 (وارد), unique in the creator's register (the إدارة; sections and offices share it) |
-| `file` | required — the document: PDF, JPG or PNG, up to **20 MB** (20480 KB), read by content. A PDF the printing cannot open is converted on the server, or refused |
+| `file` | required **unless `template_id` is sent** — the document: PDF, JPG or PNG, up to **20 MB** (20480 KB), read by content. A PDF the printing cannot open is converted on the server, or refused |
+| `template_id` | ⚙️ 2026-11-26 — instead of `file`: an active template to make the document from (§20.15). Never together with `file` |
+| `field_values` | with `template_id`: an object keyed by the template's field keys (below) |
+| `export_number` | with `template_id` only: integer 1–999999999. Send it **only if the creator typed one** (§20.16); omitted, the register gives the next |
 | `approvers[]` | required, 1–10 employee ids, in signing order |
 | `attachments[]` | optional, up to 10, each PDF, JPG, PNG, Word or Excel (`pdf,jpg,jpeg,png,doc,docx,xls,xlsx`) up to 20 MB |
+
+**From a template** (⚙️ 2026-11-26, piece 3). Send `template_id` (and
+`field_values`) as multipart fields, or the same as JSON when there is no
+attachment. The template is read **at the moment of sending**, not when the
+creator opened the form: the values are checked against its fields as they are
+now, the page printed is its current page, and the document records that
+version (`template.version`, §20.8). In one transaction the service re-reads
+the template, claims the صادر number and then the reference (§20.16), prints
+the page as the document's original (§20.15, «Printing»), then goes on exactly
+as an upload does — the route, the approval, the notification. A failure at
+any point rolls the counter and the sequence back with it.
+
+- `field_values` is **one object**: `{ "subject": "…", "items": [ { "name": "…" } ] }`.
+  A JSON `string`, number or list is refused (below). Absent, `null` and `{}`
+  are «no values»; the fields then answer for themselves (a required one is
+  «مطلوب»). An unknown key is dropped. Each value is checked by its field's
+  type (§20.15, «Field values»); an optional empty value is stored `null`; the
+  response serves the values normalised (trimmed, a table's rows keyed by
+  column, a missing cell `''`), and `{}` when the template has no fields.
+- Values and the page print **literally**: `<b>`, `&`, `{{ … }}` typed in a
+  value appear on the paper as typed, never as markup.
+- A **`for_employees` template cannot be used between managers**: it is for
+  HR's sending to employees (piece 4), and its recipient placeholders would
+  print empty.
+- Only a template document has an صادر number and a reference; an upload keeps
+  both `null`, and `export_number` with a file is refused.
 
 The creator is the caller's own employee, never an id in the body. Every
 approver must be a unit's manager, employed, not the creator, not المدير العام,
@@ -4737,6 +4781,28 @@ The first approver is notified (§20.13).
 - the file's content: «يُرجى رفع الملف بصيغة PDF أو صورة.» · «تعذّر تجهيز هذا
   الملف للتوقيع. يُرجى حفظه من جديد بصيغة PDF (مثل Microsoft Print to PDF) ثم
   رفعه.»
+- **from a template** (⚙️ 2026-11-26). Each refusal writes nothing: no row, no
+  file, no number (the counter and the sequence are not touched):
+  - the template: «القالب المختار غير موجود أو غير مفعّل.» (unknown, deleted,
+    deactivated — also when it is deactivated between the form and the
+    sending) · «هذا القالب للمستندات المرسلة إلى الموظفين.» (`for_employees`).
+    These two answer `422` with `message`, not `errors`.
+  - the choice: `errors.template_id` «أرفق ملفاً أو اختر قالباً، لا كليهما.»
+    (a file and a template) · `errors.file` «الملف مطلوب.» (neither) ·
+    `errors.export_number` «رقم الصادر للمستندات المنشأة من قالب فقط.» (with a
+    file) · «رقم الصادر يجب أن يكون بين 1 و 999999999.» ·
+    `errors.field_values` «بيانات المستند غير صالحة.» (not an object — also on
+    an upload, which ignores the values)
+  - the values, under `errors.field_values.{key}` (one message per field): «حقل
+    «{label}» مطلوب.» · «حقل «{label}» يجب أن يكون رقماً.» · «حقل «{label}»
+    يجب أن يكون تاريخاً بصيغة سنة-شهر-يوم.» · «القيمة المختارة في «{label}»
+    غير صالحة.» · «حقل «{label}» يجب أن يكون جدولاً.» · «حقل «{label}» لا يزيد
+    على {max} حرف.» · «جدول «{label}» لا يزيد على 100 صف.»
+  - the number, `422` with `message`: «هذا أول مستند صادر في الإدارة، يرجى إدخال
+    رقم الصادر لتحديد نقطة البداية.» (a cold register, none typed) · «رقم
+    الصادر {n} مستخدم في سجل هذه الإدارة.» (§20.16; also when another document
+    takes it between the check and the insert — the database's unique index
+    answers the same words)
 
 ### 20.7 The boxes
 
@@ -4748,7 +4814,7 @@ GET /api/documents?box=incoming|outgoing|all&status=&search=&page=&per_page=
 |---|---|
 | `box` | required: `incoming` (documents the caller holds a step on, **the caller's turn first**), `outgoing` (the caller created), `all` (`documents.view`) |
 | `status` | optional, `1`–`7` (§20.5); `7` lists the documents closed «لم يُستكمل» |
-| `search` | optional, ≤ 200 — in the title; all digits also match the وارد number (`import_number`) exactly |
+| `search` | optional, ≤ 200 — in the title or the reference (§20.16); all digits also match the وارد number (`import_number`) or the صادر number (`export_number`) exactly |
 
 Paginated like every list (newest first within each group), each row a
 `<document §20.8>`. A deleted document is never listed.
@@ -4774,6 +4840,8 @@ could see it.
   "title": "طلب اعتماد", "description": null,
   "status": { "value": 1, "label": "قيد الاعتماد" },
   "import_number": 15,
+  "export_number": null, "reference": null,
+  "template": null, "field_values": null,
   "creator": { "id": 7, "full_name": "…" },
   "creator_unit": { "id": 3, "name": "…" },
   "created_at": "…+03:00", "decided_at": null,
@@ -4789,6 +4857,20 @@ could see it.
   "can": { "decide": true, "delete": false }
 }
 ```
+
+⚙️ **2026-11-26** — a template document (`origin` `2`) carries, where an upload
+has `null`:
+
+```json
+"export_number": 186, "reference": "RE-2026-0001",
+"template": { "id": 4, "name": "طلب صرف", "version": 3 },
+"field_values": { "subject": "…", "amount": null, "items": [ { "name": "…", "qty": "" } ] }
+```
+
+`template` names the template **even if it was deleted since**, and `version` is
+the version **the document was printed from**, not the template's current one.
+`field_values` is always an object (`{}` when empty), never `[]`. `origin`:
+`1` uploaded, `2` template (`3` is legacy's, piece 8).
 
 `steps` are the route in order; the last is المدير العام, `decisive: true`.
 `my_step_id` and `can.decide` are the caller's own **pending step at the
@@ -5014,3 +5096,343 @@ for its parties, filterable as `status=7` (§20.7). Its **وارد number is fre
 again**: the creator sends a new document with the same وارد (§20.6). Its
 **صادر number is not reused**. Deleting a closed document is not offered. The
 creator is told and **sends it again**; the old one is never reopened.
+
+### 20.15 Templates and categories
+
+⚙️ **New 2026-11-26** (documents piece 3: templates and numbers;
+`docs/superpowers/specs/2026-11-22-documents-design.md` §6, §8, §11.2). A
+template is a form: a page with placeholders and a list of fields the creator
+fills in. A document made from one (§20.6) is printed from it as a PDF.
+Paths sit under `/api/documents/…`, beside the stamps and the letterhead.
+
+```
+GET    /api/documents/template-categories?for_employees=
+POST   /api/documents/template-categories           { name, sort? }
+PUT    /api/documents/template-categories/{category}
+DELETE /api/documents/template-categories/{category}
+
+GET    /api/documents/templates?category_id=&search=&for_employees=&status=&page=&per_page=
+GET    /api/documents/templates/{template}
+POST   /api/documents/templates
+PUT    /api/documents/templates/{template}
+DELETE /api/documents/templates/{template}
+POST   /api/documents/templates/preview
+```
+
+**Who.** **Reading** (the two lists and one template) is for **any signed-in
+account**: these are forms, not records. **Writing and the preview** need
+`documents.templates.manage` (**403** without it). The others see only **active**
+templates, without the page and its settings (below); an inactive template's
+`show` is a **404** to them. A deleted template or category is a 404 to all.
+
+**A category** `{ "id", "name", "sort", "templates_count" }`, listed by `sort`,
+then name. `templates_count` counts the **active** templates in it; with
+`for_employees` (`0`/`1`, the template list's own filter) only those of that
+kind (**422** «نوع القالب غير صالح.»). `name` is required, ≤ 100, **unique**
+among live categories; `sort` optional, 0–65535.
+
+**The pickers.** Both lists return `for_employees` templates to everyone (HR's
+send screen needs them), so a picker filters them itself: **the managers'
+picker** (a document between managers, §20.6) sends **`for_employees=0`** to
+both lists, and **HR's send screen** (piece 4) sends **`for_employees=1`**.
+Each category's count then matches the list it opens.
+
+- **201** `تم إنشاء التصنيف.` · **200** `تم تحديث التصنيف.` · **200**
+  `تم حذف التصنيف.`
+- **422** `errors.name`: «اسم التصنيف مطلوب.» · «اسم التصنيف لا يزيد على 100
+  حرف.» · «يوجد تصنيف بهذا الاسم.» · `errors.sort` «ترتيب التصنيف غير صالح.»
+- `DELETE` of a category with any template filed under it, active or not:
+  **422** «لا يُحذف تصنيف فيه قوالب.» (the message, not `errors`)
+
+#### The template
+
+```json
+{
+  "id": 4, "name": "طلب صرف", "description": null,
+  "category": { "id": 2, "name": "مالية" },
+  "is_active": true, "for_employees": false, "version": 3,
+  "fields": [ { "key": "subject", "label": "الموضوع", "type": "text", "required": true } ],
+
+  "body": "<p>…</p>", "layout_key": null, "show_letterhead": true,
+  "reference_prefix": "RE", "in_use": true
+}
+```
+
+The first block is what everyone reads (a picker draws the form from `fields`).
+**The second block** — `body`, `layout_key`, `show_letterhead`,
+`reference_prefix`, `in_use` — only for `documents.templates.manage`. `in_use`
+is true when any document, deleted ones included, was made from it. The list is
+paginated like every list (`per_page` default 15), ordered by name.
+
+**The list's query.** `category_id`; `search` (≤ 200, in the name, `%` and `_`
+match themselves); `for_employees` (`0`/`1`); `status` — `active`, `inactive`
+or `all`, **read only for a template manager** (default `all`; everyone else
+always gets active). **422** «حالة القالب غير صالحة.» · «نوع القالب غير
+صالح.» · «التصنيف المختار غير صالح.» · «نص البحث لا يزيد على 200 حرف.»
+
+#### Saving: `POST` and `PUT`
+
+| Field | Rules |
+|---|---|
+| `name` | required, ≤ 150, **unique** among live templates (a `PUT` ignores its own) |
+| `category_id` | required, an existing live category |
+| `description` | optional, ≤ 1000 |
+| `is_active` | optional boolean, default `true` |
+| `for_employees` | optional boolean, default `false`. **Puts the template on HR's send screen** (piece 4) and allows the `recipient.*` placeholders. **Creating a document between managers from it is refused** (§20.6); the server still lists it to everyone, and **the managers' picker filters it out** by sending `for_employees=0` (the pickers, above) |
+| `show_letterhead` | optional boolean, default `true` |
+| `reference_prefix` | required, 2–10 capital English letters (`^[A-Z]{2,10}$`), the start of the reference (§20.16) |
+| `fields` | optional, 0–50 fields (below) |
+| `body` | the page: HTML, ≤ **200 KB** (204800 bytes, counted before cleaning) |
+| `layout_key` | a ready-made layout instead of a page. Exactly one of `body` and `layout_key`. The one layout so far: `purchase_request` «طلب شراء» (legacy's purchase request, filled from the template's fields; its keys below) |
+
+**The `purchase_request` layout reads fixed field keys.** Saving accepts any
+fields, so define these in `fields` to fill it. The meta block (صادر, وارد when
+typed, the reference, the date), the template's name and the creator's unit always print;
+each block below prints only when its value is given, captioned with the
+field's own `label`. A field with any other key is not printed.
+
+| Key | Type | Prints |
+|---|---|---|
+| `vendor_name` | `text` | the supplier's box |
+| `total_amount` | `number` | the amount's box, with `currency` after it |
+| `currency` | `select` (or `text`) | after the amount; nothing without `total_amount` |
+| `delivery_date` | `date` | the delivery date's box, `Y/m/d` (beside the amount) |
+| `items` | `table` | the items table: a `#` column, then the columns' labels as headers. **Only a `table` field prints here** |
+| `justification` | `textarea` | the justification's box, line breaks kept |
+
+**Every save bumps `version`**: a `POST` creates version 1, every `PUT` adds 1,
+**activating and deactivating included**. A `PUT` replaces the whole template
+(send everything). A document records the version it was printed from.
+
+**201** `تم إنشاء القالب.` · **200** `تم تحديث القالب.` — `data` is the
+template as above, with the cleaned page.
+
+**422**, each under `errors.{field}`:
+
+- name: «اسم القالب مطلوب.» · «اسم القالب لا يزيد على 150 حرفاً.» · «يوجد قالب
+  بهذا الاسم.»
+- category: «التصنيف مطلوب.» · «التصنيف المختار غير موجود.»
+- prefix: «بادئة المرجع من 2 إلى 10 أحرف إنجليزية كبيرة.»
+- the page (`errors.body`): «اكتب صفحة القالب أو اختر تخطيطاً جاهزاً.»
+  (neither) · «اكتب صفحة القالب أو اختر تخطيطاً جاهزاً، لا كليهما.» ·
+  «صفحة القالب لا تزيد على 200 كيلوبايت.» · «صفحة القالب تحتوي على أحرف غير
+  صالحة.» (a byte that is not UTF-8, which a form or multipart save can carry;
+  the stored page is kept) · «العنصر «{key}» في صفحة القالب غير معرّف.» (one
+  message per unknown chip). `errors.layout_key`: «التخطيط المختار غير
+  موجود.»
+- the fields (`errors.fields`, one entry per problem): «لا تزيد حقول القالب على
+  50.» · «مفتاح الحقل يبدأ بحرف إنجليزي صغير ويتكوّن من أحرف إنجليزية صغيرة
+  وأرقام و _ فقط.» · «مفتاح الحقل «{key}» مكرر.» · «تسمية الحقل مطلوبة.» ·
+  «نوع الحقل غير مدعوم.» · «حقل القائمة «{label}» يحتاج إلى خيار واحد على
+  الأقل.» · «حقل الجدول «{label}» يحتاج إلى عمود واحد على الأقل.»
+- also «وصف القالب لا يزيد على 1000 حرف.» · «حالة القالب غير صالحة.» ·
+  «نوع القالب غير صالح.» · «خيار الترويسة غير صالح.»
+
+`DELETE` → **200** `تم حذف القالب.` A template **ever used** by a document is
+not deleted: **422** «استُخدم هذا القالب في مستندات، فلا يُحذف. يمكنك إيقافه
+بدلاً من ذلك.» (the message) — deactivate it with a `PUT` (`is_active: false`).
+Deactivating removes it from the pickers and refuses new documents from it;
+the documents already made are untouched.
+
+#### The field schema
+
+A field is `{ key, label, type, required, options?, columns? }`.
+
+| `type` | Value accepted | Notes |
+|---|---|---|
+| `text` | string, ≤ 500 | |
+| `textarea` | string, ≤ 5000 | line breaks are kept |
+| `number` | numeric | kept as the trimmed string typed (`"1250.50"`) |
+| `date` | `Y-m-d` | printed `Y/m/d` |
+| `select` | one of `options` | `options`: 1–50 strings, each ≤ 100 |
+| `table` | 0–100 rows | `columns`: 1–10 `{ key, label }`; a row is an object keyed by column key, each cell a string ≤ 500 |
+
+- `key` matches `^[a-z][a-z0-9_]{0,49}$` and is unique in the template (a
+  table's column keys are unique inside it); `label` is 1–100 characters.
+- The type keys are legacy's, so its templates map one to one. **A table's rows
+  are objects keyed by column, not arrays by position** as legacy had them.
+- A **required** table needs at least one row. An optional empty value prints
+  nothing.
+
+**Field values** (what `field_values` of §20.6 is checked by, field by field):
+a value is trimmed; an empty one is «مطلوب» when the field is required, else
+stored `null`. Beyond the type column above: a table's unknown column keys are
+dropped, a missing one is `''`, a row not an object is «يجب أن يكون جدولاً».
+
+#### The page and its chips
+
+`body` is HTML written in the editor. It is **cleaned on save** and the cleaned
+page is what is stored and returned: anything outside the whitelist is
+**removed, its text kept** (not escaped), so what is saved may differ from what
+was sent.
+
+- **Elements:** `p`, `h1`–`h4`, `strong`, `b`, `em`, `i`, `u`, `br`, `hr`; `ul`,
+  `ol`, `li`; `table`, `thead`, `tbody`, `tr`, `th`, `td`; `span` (for chips);
+  `div` (for page breaks).
+- **Attributes:** `style` and `dir` (`rtl` or `ltr`) on `p`, `h1`–`h4`, `li`,
+  `table`, `th`, `td`, `span`, `div`; `colspan` and `rowspan` (1–20) on
+  `th`/`td`; `data-placeholder` on `span`; `class` on `div`, kept only when it
+  is exactly `page-break`, and printed as a page break.
+- **`style` keeps two properties only:** `text-align` (`right`, `left`,
+  `center`, `justify`) and `font-size` from `8pt` to `36pt`.
+- **Never kept:** `img`, links, `script`, `style` and `link` elements, any
+  `url(`, mPDF's own tags. A page cannot make the printer read a file or a
+  URL.
+- **Typed markup in a value prints literally** (a value never becomes markup);
+  only the page is cleaned.
+
+**A chip** is stored as `<span data-placeholder="KEY">label</span>`; the text
+inside is the editor's label and is ignored when printing. A key must be known,
+or the save is refused («العنصر «{key}» في صفحة القالب غير معرّف.»):
+
+| Key | Prints |
+|---|---|
+| `field.<key>` | the value of one of the template's fields |
+| `system.export_number` | the صادر number (§20.16) |
+| `system.import_number` | the وارد number the creator typed, else nothing |
+| `system.reference` | the reference (§20.16) |
+| `system.date` | the creation day, `Y/m/d`, Asia/Damascus |
+| `system.creator_name` · `system.creator_unit` | the creator and his unit |
+| `recipient.name` · `.job_title` · `.unit` · `.employee_number` | **only when `for_employees`** (piece 4 fills them) |
+
+Every value is escaped. A **table** field prints as a table (a header row of
+the column labels, then the rows); it **replaces its `<p>`** when the chip is
+that paragraph's only content, otherwise it goes right after the paragraph.
+
+**Printing** (what the PDF is): A4, right to left, DejaVu Sans 11 pt, line
+height 1.6, margins 18 mm at the sides. Tables are full width with a 0.3 mm
+`#555555` border, 1.5 × 2 mm cell padding and `#F0F0F0` header cells. With
+`show_letterhead` on and the image uploaded (§20.4) the letterhead frames every
+page: the **header** image (≤ 174 × 30 mm, 8 mm from the top) takes the top
+margin from 20 to 45 mm; the **footer** image (≤ 174 × 18 mm, 6 mm from the
+foot) takes the bottom margin from 20 to 30 mm. **Cards on a template document
+printed with a footer sit 32 mm from the page's foot** (not piece 2's 6 mm), so
+they never cover the company's footer; the value is stored with the document, so
+a rebuilt copy draws the same. **The cards never cover the page's own text
+either**: a template document also stores where its last page's text ends, and
+when the card block would come within 5 mm of it the cards go on a new page of
+the same size, placed as usual (stored too, so a rebuild is the same). Other
+documents (uploads, whose text end is unknown) keep piece 2's placement.
+
+#### Preview
+
+```
+POST /api/documents/templates/preview      the body of a save; nothing is saved
+```
+
+`documents.templates.manage`. Takes the same body and **the same checks** as a
+save (page cleaned, chips known), except that the name need not be unique (an
+edit previews under its own name) and the category is optional (an unsaved
+template has none). Answers **200** `application/pdf`, `inline;
+filename="preview.pdf"`, `Cache-Control: private, no-store`: the page printed
+with **sample values** — a short text, `1250`, today's date, the first option,
+two rows — and sample numbers (صادر 123, وارد 45, a reference ending `-0001`);
+the creator is the caller when he is an employee. A `for_employees` template is
+shown with sample recipient values. **422** as a save's. An unreadable
+letterhead image answers a **500** (see the deploy notes, §20.16).
+
+### 20.16 Numbers — صادر, the reference, سجل الصادر
+
+⚙️ **New 2026-11-26** (documents piece 3, `…documents-design.md` §8.4). Only a
+**template document** gets an صادر number and a reference; an upload keeps
+both `null`.
+
+**صادر.** One counter per **إدارة** (the register), shared by its sections and
+offices: a section's manager draws from the division above, and the general
+administration is its own register. The rules are legacy's:
+
+- a register with **no counter**, or a counter at `0`, is **cold**: the first
+  number **must be typed** (it sets the starting point), else **422** «هذا أول
+  مستند صادر في الإدارة، يرجى إدخال رقم الصادر لتحديد نقطة البداية.»;
+- a typed number **already on any document of that register, deleted ones
+  included, is refused**: «رقم الصادر {n} مستخدم في سجل هذه الإدارة.»;
+- a typed number **above** the counter moves the counter to it; **below** it is
+  taken as it is, and the counter stays;
+- with nothing typed, the number is the counter + 1;
+- range **1–999999999** («رقم الصادر يجب أن يكون بين 1 و 999999999.»).
+
+The number is claimed inside the creation transaction under a lock, so two
+managers of one إدارة never get the same one; if another document takes a typed
+number between the check and the insert, the database's unique index
+(`register_unit_id`, `export_number`) answers the same «used» words. **A closed
+or deleted document's صادر number is not reused** (§20.14).
+
+**The reference** is `{prefix}-{year}-{sequence}`, e.g. `RE-2026-0001`: the
+template's `reference_prefix`, the year in Asia/Damascus time, and a sequence of
+four digits (more past 9999) counted **per prefix and year** — a new year starts
+again at `0001`. It is claimed after the صادر number, in the same transaction.
+
+#### The next number
+
+```
+GET /api/documents/numbers/next
+```
+
+A unit's manager, for **his own إدارة's** register (a section's manager sees the
+division's). **200**:
+
+```json
+{ "data": { "register": { "id": 3, "name": "إدارة المالية" }, "next": 187, "first_required": false } }
+```
+
+A cold register: `"next": null, "first_required": true`. **`next` is a
+suggestion only.** It is not reserved, and another manager may take it before
+the creator sends. So the form shows it, and **sends `export_number` only when
+the creator typed or changed one**; left alone, the field is omitted and the
+register gives whatever is next at sending. A number taken meanwhile answers the
+«used» copy (§20.6) and the creator picks another. (At the top of the range,
+`next` can read 1000000000, which sending refuses.)
+
+**403** «لا يُنشئ المستندات إلا مدير وحدة تنظيمية.» · an account **with no
+employee** (the system administrator's, say): **403** «لا يوجد موظف مرتبط بهذا
+الحساب.», as `POST /api/documents` answers.
+
+#### سجل الصادر
+
+```
+GET /api/documents/registers/{department}?search=&page=&per_page=
+```
+
+Every صادر number of one register, **newest number first**, **deleted documents
+included and marked**. **Who:** that إدارة's own manager (the unit he manages is
+the one in the path), or anyone with `documents.view`. `{department}` is the
+register's unit — a **division** or the **general administration**; a deleted
+unit is a **404**. `search` (≤ 200): in the title or the reference; all digits also
+match the صادر or the وارد number exactly. Paginated like every list. Each row:
+
+```json
+{ "export_number": 3, "reference": "FIN-2026-0003", "title": "…",
+  "created_at": "…+03:00", "creator": { "id": 7, "full_name": "…" },
+  "status": { "value": 2, "label": "معتمد" },
+  "deleted": false, "deleted_label": null }
+```
+
+A deleted document has `"deleted": true, "deleted_label": "محذوف"`; a closed
+one reads status `7` «لم يُستكمل». **The order of refusals:** the caller is
+checked **first** — **403** «لا يطّلع على سجل الصادر إلا مدير الإدارة أو من
+يملك صلاحية عرض المستندات.» (a section's manager, someone else's unit, an
+account with no employee) — and only then the unit: **422** «هذه الوحدة لا تملك
+سجل صادر.» (a section or an office). So a caller who may not read registers is
+never told what a unit's level is.
+
+**Deploy notes (piece 3).**
+
+- `composer install` — adds `symfony/html-sanitizer`, which cleans the pages —
+  and `php artisan migrate` (the templates, categories, counters and reference
+  sequences; the documents table gains the template columns). Nothing else is
+  new on the server.
+- The sanitiser's parser depends on the PHP version (Masterminds below 8.4,
+  PHP's native one from 8.4). Tested on 8.2: **if production PHP is 8.4 or
+  later, re-run `php artisan test tests/Unit/Documents/TemplateBodyTest.php`**
+  there before relying on it.
+- On **MySQL 8.0.20 or later** Laravel's `upsert` writes `values()`, which MySQL
+  now deprecates (a warning, not a failure) — the counters use it. Laravel's
+  `use_upsert_alias` connection option removes it (MariaDB lacks the alias);
+  set it only if wanted.
+- **An unreadable letterhead image** (a corrupt file already stored) currently
+  answers a **500** with an English message, for the preview and for creating a
+  document from a template. The Arabic wording is the owner's to give.
+- The audit log knows the four new records (`document_template`,
+  `document_template_category`, `document_counter`,
+  `document_reference_sequence`); their details are readable with
+  `documents.view`.

@@ -25,4 +25,10 @@ return [
             'timeout' => (int) env('DOCUMENTS_PDF_REPAIR_TIMEOUT', 60),
         ],
     ],
+
+    // The ready-made page layouts a template may choose instead of writing a
+    // page: key => Arabic name. Each key has a view (piece 3, task 4).
+    'layouts' => [
+        'purchase_request' => 'طلب شراء',
+    ],
 ];
