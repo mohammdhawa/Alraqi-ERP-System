@@ -48,11 +48,12 @@ class DocumentPrinter
 
     public function print(Document $document): string
     {
-        // An employee's signature mark (piece 4) is not drawn here: this
-        // printer prints approval and rejection cards only.
+        // A document carries cards (between managers) or the employee's one
+        // signature block (sent to an employee), never both; each is drawn
+        // by its own view, and both are placed by the same layout.
         $marks = $document->marks()
             ->with(['stamp', 'signature'])
-            ->whereIn('kind', [MarkKind::ApprovalCard->value, MarkKind::RejectionCard->value])
+            ->whereIn('kind', [MarkKind::ApprovalCard->value, MarkKind::RejectionCard->value, MarkKind::EmployeeSignature->value])
             ->get();
 
         $target = "documents/{$document->folder}/printed/".Str::uuid().'.pdf';
@@ -140,6 +141,10 @@ class DocumentPrinter
 
     private function cardHtml(Mpdf $mpdf, DocumentMark $mark): string
     {
+        if ($mark->kind === MarkKind::EmployeeSignature) {
+            return $this->signatureBlockHtml($mpdf, $mark);
+        }
+
         $colours = match (true) {
             $mark->kind === MarkKind::RejectionCard => self::REJECTION,
             $mark->decisive                         => self::DECIDER,
@@ -168,6 +173,21 @@ class DocumentPrinter
             'date'         => $mark->marked_at->copy()->timezone(self::TIMEZONE)->format('Y-m-d H:i'),
             'note'         => $mark->note === null ? null : Str::limit($mark->note, self::NOTE_LIMIT),
             'stampKey'     => $stampKey,
+            'signatureKey' => $signatureKey,
+        ])->render();
+    }
+
+    /** «قرأت ووافقت», the employee's signature, name and date, in the normal colours; no stamp. */
+    private function signatureBlockHtml(Mpdf $mpdf, DocumentMark $mark): string
+    {
+        $signatureKey = 'signature'.$mark->id;
+        $mpdf->imageVars[$signatureKey] = $this->signatures->bytes($mark->signature);
+
+        return view('documents.employee-signature', [
+            'fill'         => self::NORMAL['fill'],
+            'border'       => self::NORMAL['border'],
+            'name'         => $mark->employee_name,
+            'date'         => $mark->marked_at->copy()->timezone(self::TIMEZONE)->format('Y-m-d H:i'),
             'signatureKey' => $signatureKey,
         ])->render();
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Documents;
 
 use App\Modules\Auth\Models\Permission;
+use App\Modules\Auth\Models\Role;
 use App\Modules\Auth\Models\User;
 use App\Modules\Departments\Models\Department;
 use App\Modules\Documents\Enums\Confirmation;
@@ -100,6 +101,39 @@ class DocumentListsTest extends TestCase
         $response = $this->getJson("/api/documents?{$query}")->assertOk();
 
         return array_map('intval', array_column($response->json('data'), 'id'));
+    }
+
+    public function test_the_lists_cost_the_same_queries_however_many_rows(): void
+    {
+        $this->seedRbac();
+        $role = Role::create(['name' => 'documents-reader']);
+        $role->permissions()->sync(Permission::where('name', 'documents.view')->pluck('id'));
+        $this->accounts['a1']->roles()->attach($role->id);
+
+        // a2 holds a step (not the creator); a1 reads everything and holds none.
+        $queries = function (string $as, string $box): int {
+            Sanctum::actingAs($this->accounts[$as]);
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson("/api/documents?box={$box}")->assertOk();
+            $count = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $count;
+        };
+
+        $this->send('الأول', ['a2']);
+        $this->send('الثاني', ['a2']);
+        $queries('a2', 'incoming');
+        $queries('a1', 'all');
+        $few = ['incoming' => $queries('a2', 'incoming'), 'all' => $queries('a1', 'all')];
+
+        foreach (range(1, 4) as $i) {
+            $this->send("مستند {$i}", ['a2']);
+        }
+
+        $this->assertSame($few['incoming'], $queries('a2', 'incoming'));
+        $this->assertSame($few['all'], $queries('a1', 'all'));
     }
 
     public function test_incoming_lists_what_i_sign_my_turn_first(): void

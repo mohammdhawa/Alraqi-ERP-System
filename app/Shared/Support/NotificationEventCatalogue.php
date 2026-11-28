@@ -96,6 +96,16 @@ final class NotificationEventCatalogue
     // stuck document «لم يُستكمل» (documents design §7.8).
     public const DOCUMENT_NOT_COMPLETED = 'document.not_completed';
 
+    // Documents to employees — to the recipient, when one of HR's managers
+    // sends them a document to sign (documents to employees, piece 4).
+    public const DOCUMENT_AWAITING_SIGNATURE = 'document.awaiting_signature';
+
+    // Documents to employees — to the sender, when the employee signs
+    // «قرأت ووافقت» or refuses with a reason.
+    public const DOCUMENT_SIGNED = 'document.signed';
+
+    public const DOCUMENT_REFUSED = 'document.refused';
+
     /**
      * Arabic display labels — the `type_label` a client shows verbatim (C20).
      *
@@ -128,6 +138,9 @@ final class NotificationEventCatalogue
         self::DOCUMENT_REJECTED_BY_MANAGER => 'رفض مدير المستند',
         self::DOCUMENT_STAMP_MISSING       => 'ختم وحدة غير مرفوع',
         self::DOCUMENT_NOT_COMPLETED       => 'لم يُستكمل المستند',
+        self::DOCUMENT_AWAITING_SIGNATURE  => 'مستند بانتظار توقيع موظف',
+        self::DOCUMENT_SIGNED              => 'وقّع موظف على مستند',
+        self::DOCUMENT_REFUSED             => 'رفض موظف مستنداً',
     ];
 
     /**

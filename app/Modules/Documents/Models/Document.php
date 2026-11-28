@@ -21,7 +21,9 @@ use App\Modules\Documents\Enums\DocumentStatus;
 use App\Modules\Documents\Policies\DocumentPolicy;
 use App\Modules\Documents\Services\UnitManagers;
 use App\Modules\Documents\Services\UnitStamps;
+use App\Modules\HR\Enums\EmployeeDocumentType;
 use App\Modules\HR\Models\Employee;
+use App\Modules\HR\Models\EmployeeDocument;
 use App\Shared\Models\Attachment;
 use App\Shared\Support\NotificationEventCatalogue;
 use App\Shared\Traits\HasAuditLog;
@@ -30,6 +32,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -66,6 +69,12 @@ use Illuminate\Support\Collection;
  * @property string|null $printed_path
  * @property int|null $card_floor where the cards stop above the footer, in mm; null is piece 2's 6 mm
  * @property float|null $content_bottom where the original's last page's text ends, in mm from its top; null for an upload
+ * @property int|null $recipient_id
+ * @property EmployeeDocumentType|null $filing_type
+ * @property Carbon|null $sent_at
+ * @property Carbon|null $signed_at
+ * @property Carbon|null $refused_at
+ * @property string|null $refusal_reason
  * @property int|null $deleted_by
  */
 #[UsePolicy(DocumentPolicy::class)]
@@ -119,6 +128,7 @@ class Document extends Model implements Approvable, RestrictsApprovalVisibility
             'template_version' => 'integer',
             'export_number'    => 'integer',
             'card_floor'       => 'integer',
+            'filing_type'      => EmployeeDocumentType::class,
             'content_bottom'   => 'float',
             'field_values'     => 'array',
             'legacy'       => 'array',
@@ -175,6 +185,27 @@ class Document extends Model implements Approvable, RestrictsApprovalVisibility
     public function template(): BelongsTo
     {
         return $this->belongsTo(DocumentTemplate::class, 'template_id')->withTrashed();
+    }
+
+    /** The employee a sent document is addressed to; a deleted one still shows. */
+    public function recipient(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'recipient_id')->withTrashed();
+    }
+
+    /** Whether the account is the employee a sent document is addressed to: the one rule, kept in one place. */
+    public function isRecipient(User $user): bool
+    {
+        return $user->employee_id !== null
+            && $this->kind === DocumentKind::ToEmployee
+            && $this->recipient_id !== null
+            && (int) $user->employee_id === (int) $this->recipient_id;
+    }
+
+    /** The row it files on the recipient's record once answered. */
+    public function filedRecord(): HasOne
+    {
+        return $this->hasOne(EmployeeDocument::class);
     }
 
     public function approval(): MorphOne

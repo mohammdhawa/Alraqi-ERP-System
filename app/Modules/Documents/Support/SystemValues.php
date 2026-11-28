@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Documents\Support;
 
 use Carbon\CarbonImmutable;
+use LogicException;
 
 /**
  * The values the system gives a template's `system.*` chips (documents design
@@ -22,6 +23,44 @@ final readonly class SystemValues
         public string $creatorName,
         public string $creatorUnit,
     ) {}
+
+    /**
+     * The creator's values for a page not yet numbered: no صادر number and no
+     * reference, dated now until `numbered()` dates it at print.
+     */
+    public static function unnumbered(string $creatorName, string $creatorUnit, ?int $importNumber = null): self
+    {
+        return new self(
+            exportNumber: null,
+            importNumber: $importNumber,
+            reference: null,
+            date: CarbonImmutable::now(),
+            creatorName: $creatorName,
+            creatorUnit: $creatorUnit,
+        );
+    }
+
+    /**
+     * These values as printed on their page, numbered once: the صادر number
+     * and the reference claimed for it, and the moment it is printed.
+     *
+     * @throws LogicException when the values carry numbers already
+     */
+    public function numbered(int $exportNumber, string $reference, CarbonImmutable $printedAt): self
+    {
+        if ($this->exportNumber !== null || $this->reference !== null) {
+            throw new LogicException('A page is numbered once; these values carry numbers already.');
+        }
+
+        return new self(
+            exportNumber: $exportNumber,
+            importNumber: $this->importNumber,
+            reference: $reference,
+            date: $printedAt,
+            creatorName: $this->creatorName,
+            creatorUnit: $this->creatorUnit,
+        );
+    }
 
     /**
      * Keyed by the `system.*` chip keys; the date as `Y/m/d` in Damascus, a

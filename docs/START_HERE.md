@@ -1398,7 +1398,17 @@ as work shifts did:
   page and typed fields, creating a document from a template, the صادر number
   per إدارة and its register, and the reference. Deploy: `composer install`
   (adds `symfony/html-sanitizer`), `migrate`; see work order §8, 2026-11-26.
-  Next: piece 4, documents sent to employees.
+  **Piece 4 (documents to employees) is built too** (2026-11-26, branch
+  `documents-employees`, not committed): HR's managers (the HR unit and every
+  unit under it) send an upload or a `for_employees` template to one employee
+  with no approval; the employee signs «قرأت ووافقت» (no drawn signature gives
+  428, then draw and resend) or refuses with a reason; each answer is filed on
+  their record, and the filed list gates the contract, appointment, promotion
+  and Sham Cash rows behind `hr.employees.viewSalary`. The recipient never
+  reads the comments; the administrator may delete before an answer but never
+  answers. Deploy: `migrate` (one column). See work order §8, 2026-11-26, and
+  `API_DOCUMENTATION.md` §20.17 and §8.6. Next: piece 5,
+  announcements.
 - **Employee performance evaluation** (تقييم الأداء). In neither system; it is
   what sets `employees.distinction_grade` (§11 question 3), and payroll reads
   it (`EMPLOYEE_APP_REQUIREMENTS.md` §5.1). The owner will describe how it
