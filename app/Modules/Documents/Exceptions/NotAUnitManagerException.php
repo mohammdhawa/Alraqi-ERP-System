@@ -8,7 +8,9 @@ use App\Shared\Exceptions\DomainException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Only a unit's manager creates documents (documents design §5).
+ * Only a unit's manager creates documents (documents design §5). It also
+ * carries the refusal of a sender who is not one of HR's managers, with
+ * `DocumentSending`'s copy (documents to employees).
  */
 class NotAUnitManagerException extends \RuntimeException implements DomainException
 {

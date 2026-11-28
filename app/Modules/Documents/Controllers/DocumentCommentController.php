@@ -11,12 +11,16 @@ use App\Modules\Documents\Requests\DocumentCommentRequest;
 use App\Modules\HR\Models\Employee;
 use App\Modules\Me\Services\SelfEmployee;
 use App\Shared\Traits\ApiRespond;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
- * The thread on a document (documents design §7.5): any party may read it and
- * add to it. Who is a party is the route's `can:view,document`.
+ * The thread on a document (documents design §7.5): any party but the
+ * recipient of a sent document may read it and add to it. Who is a party is
+ * the route's `can:comment,document`; the recipient is also refused here, so
+ * not even the administrator's bypass lets them in (§5, call 5).
  */
 class DocumentCommentController extends Controller
 {
@@ -26,8 +30,9 @@ class DocumentCommentController extends Controller
      * GET /api/documents/{document}/comments — oldest first, not paged (a
      * document's thread is short).
      */
-    public function index(Document $document): JsonResponse
+    public function index(Request $request, Document $document): JsonResponse
     {
+        $this->refuseTheRecipient($request, $document);
         $this->refuseIfDeleted($document);
 
         $comments = $document->comments()
@@ -43,6 +48,7 @@ class DocumentCommentController extends Controller
      */
     public function store(DocumentCommentRequest $request, Document $document, SelfEmployee $self): JsonResponse
     {
+        $this->refuseTheRecipient($request, $document);
         $this->refuseIfDeleted($document);
 
         $employee = $self->of($request->user());
@@ -72,6 +78,13 @@ class DocumentCommentController extends Controller
             'author'     => $author instanceof Employee ? ['id' => $author->id, 'full_name' => $author->full_name] : null,
             'created_at' => $comment->created_at?->toIso8601String(),
         ];
+    }
+
+    private function refuseTheRecipient(Request $request, Document $document): void
+    {
+        if ($document->isRecipient($request->user())) {
+            throw new AuthorizationException('ليس لديك صلاحية لتنفيذ هذا الإجراء.');
+        }
     }
 
     private function refuseIfDeleted(Document $document): void

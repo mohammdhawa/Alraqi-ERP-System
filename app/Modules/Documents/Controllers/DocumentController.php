@@ -7,6 +7,7 @@ namespace App\Modules\Documents\Controllers;
 use App\Modules\Approvals\Enums\Decision;
 use App\Modules\Approvals\Enums\StepStatus;
 use App\Modules\Approvals\Models\ApprovalStep;
+use App\Modules\Documents\Enums\DocumentKind;
 use App\Modules\Documents\Exceptions\DocumentDeletedException;
 use App\Modules\Documents\Exceptions\ViewAllDocumentsForbiddenException;
 use App\Modules\Documents\Models\Document;
@@ -14,11 +15,16 @@ use App\Modules\Documents\Requests\CloseDocumentRequest;
 use App\Modules\Documents\Requests\CreateDocumentRequest;
 use App\Modules\Documents\Requests\DecideDocumentRequest;
 use App\Modules\Documents\Requests\DocumentsIndexRequest;
+use App\Modules\Documents\Requests\RefuseDocumentRequest;
+use App\Modules\Documents\Requests\SendDocumentRequest;
+use App\Modules\Documents\Requests\SignDocumentRequest;
 use App\Modules\Documents\Resources\DocumentResource;
+use App\Modules\Documents\Services\DocumentAnswers;
 use App\Modules\Documents\Services\DocumentClosing;
 use App\Modules\Documents\Services\DocumentCreation;
 use App\Modules\Documents\Services\DocumentDecisions;
 use App\Modules\Documents\Services\DocumentDeletion;
+use App\Modules\Documents\Services\DocumentSending;
 use App\Modules\Documents\Services\DocumentsNeedingAttention;
 use App\Modules\Me\Services\SelfEmployee;
 use App\Shared\Models\Attachment;
@@ -40,8 +46,9 @@ class DocumentController extends Controller
     use ApiRespond;
 
     /**
-     * GET /api/documents?box=incoming|outgoing|all — the incoming box leads
-     * with the documents whose turn is the caller's (§7.7).
+     * GET /api/documents?box=incoming|outgoing|mine|all — «mine» is what was
+     * sent to the caller as an employee; the incoming box leads with the
+     * documents whose turn is the caller's (§7.7).
      */
     public function index(DocumentsIndexRequest $request): JsonResponse
     {
@@ -54,6 +61,8 @@ class DocumentController extends Controller
         match ($box) {
             'incoming' => $documents->whereHas('approval.steps', static fn (Builder $steps) => $steps->where('approver_id', $employeeId ?? 0)),
             'outgoing' => $documents->where('documents.creator_id', $employeeId ?? 0),
+            'mine'     => $documents->where('documents.kind', DocumentKind::ToEmployee->value)
+                ->where('documents.recipient_id', $employeeId ?? 0),
             default    => $user->hasPermission('documents.view') ? null : throw new ViewAllDocumentsForbiddenException,
         };
 
@@ -141,6 +150,23 @@ class DocumentController extends Controller
     }
 
     /**
+     * POST /api/documents/to-employee — one of HR's managers sends a document
+     * to one employee, with no approval. The sender is the caller's own
+     * employee, never an id in the request.
+     */
+    public function send(SendDocumentRequest $request, SelfEmployee $self, DocumentSending $sending): JsonResponse
+    {
+        $user = $request->user();
+
+        $document = $sending->send($self->of($user), $user, $request->toInput());
+
+        return $this->created(
+            data: DocumentResource::make($this->withRelations($document))->resolve($request),
+            message: 'تم إرسال المستند إلى الموظف.',
+        );
+    }
+
+    /**
      * POST /api/documents/{document}/decision — approve or reject the
      * caller's current step, with its card and the rebuilt printed copy.
      */
@@ -162,6 +188,38 @@ class DocumentController extends Controller
         return $this->success(
             data: DocumentResource::make($this->withRelations($document))->resolve($request),
             message: $decision === Decision::Approve ? 'تمت الموافقة.' : 'تم الرفض.',
+        );
+    }
+
+    /**
+     * POST /api/documents/{document}/sign — the recipient signs «قرأت ووافقت»:
+     * their signature block on a new printed copy, filed on their record.
+     */
+    public function sign(SignDocumentRequest $request, Document $document, DocumentAnswers $answers): JsonResponse
+    {
+        $this->refuseIfDeleted($document);
+
+        $document = $answers->sign($document, $request->user(), $request->confirmation(), $request->password());
+
+        return $this->success(
+            data: DocumentResource::make($this->withRelations($document))->resolve($request),
+            message: 'تم التوقيع على المستند.',
+        );
+    }
+
+    /**
+     * POST /api/documents/{document}/refuse — the recipient refuses, with a
+     * reason the sender is told; the copy as sent is filed on their record.
+     */
+    public function refuse(RefuseDocumentRequest $request, Document $document, DocumentAnswers $answers): JsonResponse
+    {
+        $this->refuseIfDeleted($document);
+
+        $document = $answers->refuse($document, $request->user(), $request->reason(), $request->confirmation(), $request->password());
+
+        return $this->success(
+            data: DocumentResource::make($this->withRelations($document))->resolve($request),
+            message: 'تم رفض المستند.',
         );
     }
 

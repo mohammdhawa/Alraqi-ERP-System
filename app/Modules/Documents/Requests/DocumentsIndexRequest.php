@@ -14,7 +14,7 @@ use Illuminate\Validation\Rule;
  */
 class DocumentsIndexRequest extends FormRequest
 {
-    public const BOXES = ['incoming', 'outgoing', 'all'];
+    public const BOXES = ['incoming', 'outgoing', 'mine', 'all'];
 
     public function authorize(): bool
     {

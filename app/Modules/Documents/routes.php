@@ -31,8 +31,13 @@ Route::middleware(['auth:sanctum', 'audit'])
         // `/letterhead` stay theirs.
         Route::post('/', [DocumentController::class, 'store'])->name('store');
 
-        // الصناديق — incoming, outgoing, and all (`documents.view`, which the
-        // controller checks so its refusal has its own words).
+        // إرسال مستند إلى موظف — one of HR's managers (the service decides),
+        // with no approval. Declared before the `/{document}` routes.
+        Route::post('/to-employee', [DocumentController::class, 'send'])->name('send-to-employee');
+
+        // الصناديق — incoming, outgoing, mine (what was sent to the caller as an
+        // employee) and all (`documents.view`, which the controller checks so
+        // its refusal has its own words).
         Route::get('/', [DocumentController::class, 'index'])->name('index');
 
         // مستندات تحتاج إلى تدخل — the pending documents no one can move as
@@ -74,8 +79,9 @@ Route::middleware(['auth:sanctum', 'audit'])
                 ->whereNumber('template')->name('templates.destroy');
         });
 
-        // العرض — the creator, a step holder or `documents.view`; a deleted
-        // document still binds, to answer 410 to those who may see it.
+        // العرض — the creator, a step holder, the recipient of a sent document
+        // or `documents.view`; a deleted document still binds, to answer 410
+        // to those who may see it.
         Route::get('/{document}', [DocumentController::class, 'show'])
             ->whereNumber('document')
             ->withTrashed()
@@ -94,18 +100,18 @@ Route::middleware(['auth:sanctum', 'audit'])
             ->middleware('can:view,document')
             ->name('file');
 
-        // التعليقات والمرفقات — any party reads and writes the thread; a deleted
-        // document answers 410 to them. A file is bound scoped to its document,
-        // so another document's is a 404.
+        // التعليقات والمرفقات — any party but the recipient reads and writes the
+        // thread; a deleted document answers 410 to them. A file is bound
+        // scoped to its document, so another document's is a 404.
         Route::get('/{document}/comments', [DocumentCommentController::class, 'index'])
             ->whereNumber('document')
             ->withTrashed()
-            ->middleware('can:view,document')
+            ->middleware('can:comment,document')
             ->name('comments.index');
         Route::post('/{document}/comments', [DocumentCommentController::class, 'store'])
             ->whereNumber('document')
             ->withTrashed()
-            ->middleware('can:view,document')
+            ->middleware('can:comment,document')
             ->name('comments.store');
         Route::get('/{document}/attachments/{attachment}', [DocumentController::class, 'attachment'])
             ->whereNumber(['document', 'attachment'])
@@ -122,6 +128,21 @@ Route::middleware(['auth:sanctum', 'audit'])
             ->withTrashed()
             ->middleware('can:view,document')
             ->name('decision');
+
+        // «قرأت ووافقت» والرفض — the recipient of a sent document alone; that it
+        // still awaits the answer is the service's, which also refuses the
+        // administrator the gate's bypass lets through. A deleted document
+        // still binds, to answer 410.
+        Route::post('/{document}/sign', [DocumentController::class, 'sign'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:answer,document')
+            ->name('sign');
+        Route::post('/{document}/refuse', [DocumentController::class, 'refuse'])
+            ->whereNumber('document')
+            ->withTrashed()
+            ->middleware('can:answer,document')
+            ->name('refuse');
 
         // «لم يُستكمل» — the system administrator closes a pending document
         // (spec §7.8); a deleted one still binds, to answer 410.

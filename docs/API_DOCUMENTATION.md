@@ -1031,7 +1031,7 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 
 - `reference` is `null` when the notification isn't linked to a record; otherwise a `{ type, id }` pair you can use to deep‑link.
 - `type` / `body` may be `null`.
-- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`; ⚙️ since 2026-11-10 (work shifts piece 2, §19.6–§19.8) `shift.change_recorded`, `shift.change_removed`, `shift_swap.submitted`, `shift_swap.requested`, `shift_swap.approved`, `shift_swap.rejected`, `shift_swap.withdrawn`, `shift_swap.cancelled`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
+- `type_label` (added 2026-10-10) is the Arabic name of `type`, to show verbatim. It is **`null` for a type the server does not catalogue** — show the raw `type` then, never guess. The v1 types are `leave.submitted`, `leave.approved`, `leave.rejected`, `leave.cancelled`, `leave.excuse_filed`, `leave.excuse_cancelled`, `approval.step_pending`, `approval.step_assigned`, `leave.returned_to_work`, `attendance.checkout_reminder`, `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected`; ⚙️ since 2026-11-10 (work shifts piece 2, §19.6–§19.8) `shift.change_recorded`, `shift.change_removed`, `shift_swap.submitted`, `shift_swap.requested`, `shift_swap.approved`, `shift_swap.rejected`, `shift_swap.withdrawn`, `shift_swap.cancelled`; ⚙️ since 2026-11-22 the documents' (§20.13) `document.approved`, `document.rejected`, `document.rejected_by_manager`, `document.stamp_missing`, `document.not_completed`, and since 2026-11-26 (§20.17) `document.awaiting_signature`, `document.signed`, `document.refused`. Route a tap by the prefix (`leave.*` → the leave screen) and open the `reference`.
 - **Push.** Every notification is also pushed to each device the recipient registered (§6.5), after the action that caused it commits. The push's data payload carries `type`, `reference_type` and `reference_id` as strings. ⚙️ **Since 2026-11-21 Android gets a data-only push:** no FCM `notification`, `title` and `body` in the data, `android.priority` `high`; **the app draws it** (in its own group, under its own summary). iOS gets the same data with an APNs `alert`, which the system draws. A client that shows only a push's `notification` shows nothing on Android.
 
 **What a tap opens** (decided 2026-10-14). A notification opens **where its recipient acts on it**, chosen by `type` first and `reference` second. The server never sends a URL: each client maps the pair to its own screen. When a type has no destination, the client shows the notification's full text instead.
@@ -1046,6 +1046,10 @@ Base path `/api/auth/notifications`. **Protected** (auth only — no permission 
 | `attendance.missing_checkout`, `attendance.record_rejected`, `attendance.record_unrejected` | the employee | the attendance record | the full text | that day in the attendance history |
 | `shift.change_recorded`, `shift.change_removed` (2026-11-10) | the employee whose shift HR changed, for today or later | the change (`shift_change`) / the employee | the full text | "my days" on that date — ⚙️ the app (2026-11-14) opens its دوامي on the current month: the date is only in the text, and the reference leads to none |
 | `shift_swap.*` (2026-11-10) | the requester and the partner (§19.7, who is told what) | the exchange (`shift_swap`) | the exchange, read-only | the exchange (`GET /api/me/shift-swaps/{swap}`) |
+| `document.awaiting_signature` (2026-11-26) | the employee a document was sent to (§20.17) | the document | the document | the document, in the `mine` box, with its sign and refuse buttons |
+| `document.signed`, `document.refused` (2026-11-26) | the sender (§20.17) | the document | the document | the document, in the outgoing box |
+| `document.approved`, `document.rejected`, `document.rejected_by_manager`, `document.not_completed` (§20.13) | the creator | the document | the document | the document, in the outgoing box |
+| `document.stamp_missing` (§20.13) | the system administrators | **the unit** (`department`), not a document | the full text | the full text |
 
 ⚙️ **Sent today (2026-10-16):** `attendance.checkout_reminder` (⚙️ since
 2026-11-09 at each check-in's shift end, once — the shift clock, §12; it was
@@ -1738,6 +1742,60 @@ the ranks in the order listed above (the server's options list is in that
 order), and never compare them with `>` / `<`. 9 is never reused — an old audit
 row holding it reads as unknown.
 
+### 8.6 Filed documents — وثائق الموظف
+
+⚙️ **New 2026-11-26** (documents piece 4). The files on an employee's record:
+what the intake form and the import put there, **and** every document sent to
+the employee once they answer (§20.17) — a signed one files its **printed
+copy**, a refused one the **copy as sent**. Read-only.
+
+```
+GET /api/hr/employees/{employee}/filed-documents?page=&per_page=
+GET /api/hr/employees/{employee}/filed-documents/{document}/file
+```
+
+Both need `hr.employees.view` and the caller's row scope over the employee
+(`can:view,employee`): outside it **403** «هذا الموظف خارج نطاق صلاحياتك.» The
+list is **newest first** (`issued_at`, then id), paginated like every list,
+and shows **every row of the record**, imported intake files included.
+
+```json
+{
+  "id": 88,
+  "type": { "value": 12, "label": "إنذار" },
+  "title": "إنذار أول", "issued_at": "2026-11-25",
+  "original_name": "إنذار أول.pdf", "mime_type": "application/pdf", "size_bytes": 48211,
+  "document": {
+    "id": 14, "status": { "value": 6, "label": "مرفوض من الموظف" },
+    "refused": true, "refusal_reason": "بيانات غير صحيحة"
+  },
+  "refused_label": "مرفوض"
+}
+```
+
+`document` is `null` for a row that did not come from a sent document (an
+imported ID image, say); `refused_label` is «مرفوض» on a refused row, else
+`null`. `refusal_reason` is shown only on a refused row. The path on disk is
+never shown. **200** message «تم جلب وثائق الموظف.»
+
+**The salary rule.** Four types read only for a caller whose
+`hr.employees.viewSalary` grant **reaches that employee's unit** (the rule that
+shows the pay block, §8.1): `4` صورة حساب الشام كاش, `7` عقد العمل, `9` قرار
+تعيين, `10` قرار ترقية. For anyone else **the list leaves those rows out**
+(before paging, so totals do not leak them) and their file answers **403**
+«لا تملك صلاحية الاطلاع على هذه الوثيقة.», whatever id is guessed. The system
+administrator reads all. Another employee's row, or a deleted one, is **404**.
+The other types (`1`–`3`, `5`, `6`, `8`, `11`, `12`) need no salary reach.
+
+`GET …/file` streams the file **inline**, `Content-Type` from the row,
+`Cache-Control: private, no-store`; **404** when the file is gone.
+
+**Types** (`type.value`): `1` صورة الهوية - الوجه · `2` صورة الهوية - الظهر ·
+`3` الشهادة العلمية · `4` صورة حساب الشام كاش · `5` الصورة الشخصية · `6`
+السيرة الذاتية · `7` عقد العمل · `8` أخرى · `9` قرار تعيين · `10` قرار ترقية ·
+`11` شهادة عمل · `12` إنذار (`9`–`12` new). A document is filed, when sent, as
+`7`, `8` or `9`–`12` only (§20.17).
+
 ---
 
 ## 9. Audit log — سجل التدقيق
@@ -2092,6 +2150,11 @@ columns and carry no offset at all (§1). Read those as Damascus local.
 | 18zzzq| DELETE   | `/api/documents/templates/{template}`        | bearer   | `documents.templates.manage` (§20.15) |
 | 18zzzr| GET      | `/api/documents/numbers/next`                | bearer   | a unit's manager (§20.16) |
 | 18zzzs| GET      | `/api/documents/registers/{department}`      | bearer   | the إدارة's own manager or `documents.view` (§20.16) |
+| 18zzzt| POST     | `/api/documents/to-employee`                 | bearer   | the manager of HR or a unit under it (§20.17) |
+| 18zzzu| POST     | `/api/documents/{document}/sign`             | bearer   | the recipient alone (§20.17) |
+| 18zzzv| POST     | `/api/documents/{document}/refuse`           | bearer   | the recipient alone (§20.17) |
+| 18zzzw| GET      | `/api/hr/employees/{employee}/filed-documents` | bearer | `hr.employees.view` + row scope; salary types need `hr.employees.viewSalary` (§8.6) |
+| 18zzzx| GET      | `/api/hr/employees/{employee}/filed-documents/{document}/file` | bearer | the same (§8.6) |
 | 19| GET         | `/api/auth/audit-logs`                       | bearer   | `auth.audit.view`      |
 | 20| GET         | `/api/auth/audit-logs/{auditLog}`            | bearer   | `auth.audit.view`      |
 | 21| GET         | `/api/departments`                           | bearer   | `departments.view`     |
@@ -4661,7 +4724,7 @@ last). The upload is a PDF or a photo (§20.6); each signature prints a card on
 the last page (the unit's stamp, the manager's signature, name, date, note).
 ⚙️ **2026-11-26** (piece 3): the document may instead be **made from a
 template** (§20.15), with an صادر number and a reference (§20.16). Sending to
-employees and their signatures are piece 4.
+employees and their signatures are piece 4 (§20.17).
 
 **The route.** The creator names **1–10 approvers**, in the order they sign.
 المدير العام (the manager of the root unit, read at sending) is added **after
@@ -4695,7 +4758,8 @@ no employee has no boxes of its own (they are empty) and cannot create.
 
 **Statuses** (`status.value`): `1` قيد الاعتماد · `2` معتمد · `3` مرفوض ·
 `7` لم يُستكمل (⚙️ 2026-11-23: closed by the system administrator, §20.14). The
-others (`4` بانتظار التوقيع, `5` موقّع, `6` مرفوض من الموظف) belong to piece 4.
+others (`4` بانتظار التوقيع, `5` موقّع, `6` مرفوض من الموظف) belong to documents
+sent to employees (§20.17).
 
 **The general approvals screens leave documents out** — see §20.13 and §15.
 The approver's own inbox (§15.2) still lists the steps they hold, decided on
@@ -4807,13 +4871,13 @@ The first approver is notified (§20.13).
 ### 20.7 The boxes
 
 ```
-GET /api/documents?box=incoming|outgoing|all&status=&search=&page=&per_page=
+GET /api/documents?box=incoming|outgoing|mine|all&status=&search=&page=&per_page=
 ```
 
 | Query | Rules |
 |---|---|
-| `box` | required: `incoming` (documents the caller holds a step on, **the caller's turn first**), `outgoing` (the caller created), `all` (`documents.view`) |
-| `status` | optional, `1`–`7` (§20.5); `7` lists the documents closed «لم يُستكمل» |
+| `box` | required: `incoming` (documents the caller holds a step on, **the caller's turn first**), `outgoing` (the caller created), ⚙️ 2026-11-26 `mine` (what was sent **to the caller as an employee**, §20.17), `all` (`documents.view`) |
+| `status` | optional, `1`–`7` (§20.5; `4`–`6` are a document to an employee's, §20.17); `7` lists the documents closed «لم يُستكمل» |
 | `search` | optional, ≤ 200 — in the title or the reference (§20.16); all digits also match the وارد number (`import_number`) or the صادر number (`export_number`) exactly |
 
 Paginated like every list (newest first within each group), each row a
@@ -4830,7 +4894,8 @@ GET /api/documents/{document}
 GET /api/documents/{document}/file
 ```
 
-Who: the creator, a step holder, or `documents.view`; anyone else gets the plain
+Who: the creator, a step holder, ⚙️ 2026-11-26 the **recipient** of a document
+sent to them (§20.17), or `documents.view`; anyone else gets the plain
 **403**. A deleted document answers **410** «حُذف هذا المستند.» to those who
 could see it.
 
@@ -4871,6 +4936,26 @@ has `null`:
 the version **the document was printed from**, not the template's current one.
 `field_values` is always an object (`{}` when empty), never `[]`. `origin`:
 `1` uploaded, `2` template (`3` is legacy's, piece 8).
+
+⚙️ **2026-11-26** (piece 4) — every document also carries the fields of a
+**document to an employee** (§20.17), all `null` between managers except `kind`
+and `can.answer`:
+
+```json
+"kind": 2,
+"recipient": { "id": 31, "full_name": "…" },
+"filing_type": { "value": 9, "label": "قرار تعيين" },
+"sent_at": "…+03:00", "signed_at": null, "refused_at": null, "refusal_reason": null,
+"steps": [], "my_step_id": null,
+"can": { "decide": false, "delete": true, "comment": true, "answer": false }
+```
+
+`kind` is `1` between managers, `2` to an employee. `status` is `4`
+بانتظار التوقيع, `5` موقّع or `6` مرفوض من الموظف. **`can.answer`** is true for
+the recipient alone, while the signature is awaited — **never** for the
+system administrator. **`can.comment`** is false for the recipient. **`can.delete`**
+is true for the sender or the administrator while the document awaits the
+signature.
 
 `steps` are the route in order; the last is المدير العام, `decisive: true`.
 `my_step_id` and `can.decide` are the caller's own **pending step at the
@@ -4949,8 +5034,9 @@ GET  /api/documents/{document}/comments
 POST /api/documents/{document}/comments     { "body": "…" }
 ```
 
-Every party (§20.8's who) reads and writes the thread. `GET` is oldest first,
-not paged: `[{ "id", "body", "author": { "id", "full_name" } | null, "created_at" }]`.
+Every party (§20.8's who) reads and writes the thread — ⚙️ 2026-11-26 **except
+the recipient of a document sent to them**, who gets **403** on both (§20.17).
+`GET` is oldest first, not paged: `[{ "id", "body", "author": { "id", "full_name" } | null, "created_at" }]`.
 `POST` — `body` required, trimmed, ≤ 2000. **201** `{ data: <comment>,
 message: "تمت إضافة التعليق." }`. **422** «نص التعليق مطلوب.» · «التعليق لا يزيد
 على 2000 حرف.» **410** when deleted.
@@ -4971,7 +5057,8 @@ deleted.
 DELETE /api/documents/{document}
 ```
 
-The creator or the system administrator, **before any approval or rejection**.
+The creator or the system administrator, **before any approval or rejection**
+(a document sent to an employee: before the employee answers, §20.17).
 It closes the document's approval through the engine's withdrawal; the document
 is hidden from every list, and its link answers **410** to its parties.
 
@@ -5015,6 +5102,9 @@ document's approval reads «مسحوب» (§20.14). The decision is taken on the
 | `document.rejected_by_manager` «رفض مدير المستند» | the creator, when a manager rejects and the document stays in its route | «تم رفض المستند من مدير» / «رفض {name} المستند «{title}»، وما زال المستند في مساره.» |
 | `document.stamp_missing` «ختم وحدة غير مرفوع» | the system administrators, once per unit | «ختم وحدة غير مرفوع» / «حاول {name} التوقيع باسم «{unit}» ولا ختم لها بعد.» |
 | `document.not_completed` «لم يُستكمل المستند» | the creator, when the administrator closes it (§20.14) | «لم يُستكمل مستندك» / «أغلق مدير النظام المستند «{title}»: {reason}. يمكنك إرساله من جديد.» |
+| `document.awaiting_signature` «مستند بانتظار توقيع موظف» | ⚙️ 2026-11-26 the recipient, on sending (§20.17) | «مستند جديد بانتظار توقيعك» / «أرسل إليك {sender} المستند «{title}».» |
+| `document.signed` «وقّع موظف على مستند» | the sender, when the employee signs (§20.17) | «وقّع {name} على المستند» / «وقّع {name} على المستند «{title}».» |
+| `document.refused` «رفض موظف مستنداً» | the sender, when the employee refuses (§20.17) | «رفض {name} المستند» / «رفض {name} المستند «{title}»: {reason}» |
 
 **Reassigning a document step** (§15.5, with `approvals.reassign`): the system
 administrator only — anyone else **403** «إعادة إسناد خطوات المستندات لمدير
@@ -5436,3 +5526,212 @@ never told what a unit's level is.
   `document_template_category`, `document_counter`,
   `document_reference_sequence`); their details are readable with
   `documents.view`.
+
+### 20.17 Documents to employees
+
+⚙️ **New 2026-11-26** (documents piece 4, workflow 1 of the design's §1.4: one
+of HR's managers sends a PDF, a photo or a `for_employees` template to **one
+employee**, who answers «قرأت ووافقت» with their drawn signature, or refuses
+with a reason). There is **no approval and no route**: the approvals engine is
+never involved, so `steps` is `[]`, `my_step_id` is `null` and the document is
+never on the approvals screens (§20.13). Between-managers documents (§20.5–§20.12)
+are unchanged.
+
+**Who.**
+
+| Action | Who |
+|---|---|
+| Send | the manager of **HR** or of **any unit under it**; with no HR unit, nobody (**403**) |
+| See it, its file | the sender, **the recipient** (from sending on) or `documents.view` |
+| Comments | everyone who sees it **except the recipient** |
+| Delete | the sender or the system administrator, **while it awaits the signature** |
+| Sign, refuse | **the recipient alone**, while it awaits the signature |
+
+- **HR** is the unit whose `code` is `config('leave.hr_unit_code')` (default
+  `HR`) and **every unit under it**, at any depth. An **inactive** unit in the
+  middle of the chain still counts; the **sender's own unit** must be active (a
+  manager of an inactive unit is not a manager, §20.5). The check follows the
+  unit tree as stored.
+- **The recipient** is one employee: **Active** (على رأس عمله), with an
+  **active account**, and **not the sender**. Nothing takes a sent document
+  back: a recipient who stops being Active afterwards can still answer while
+  they can sign in.
+- **The system administrator never answers for the employee.** The route's gate
+  lets the administrator through, and the service then refuses anyone who is not
+  the recipient with **403** «ليس لديك صلاحية لتنفيذ هذا الإجراء.». The
+  administrator may **delete** a document before it is answered, never sign or
+  refuse it.
+
+**Statuses** (`status.value`): `4` بانتظار التوقيع (on sending, `sent_at`) →
+`5` موقّع (`signed_at`) or `6` مرفوض من الموظف (`refused_at`,
+`refusal_reason`). **Both answers are final**; a deleted document is hidden from
+every list.
+
+#### Send
+
+```
+POST /api/documents/to-employee        multipart/form-data (or JSON for a template)
+```
+
+| Field | Rules |
+|---|---|
+| `title` | required, ≤ 255 |
+| `description` | optional, ≤ 2000 |
+| `recipient_id` | required, an employee id |
+| `filing_type` | required, **one of the types the document is filed as on the employee's record**: `7` عقد العمل · `8` أخرى · `9` قرار تعيين · `10` قرار ترقية · `11` شهادة عمل · `12` إنذار |
+| `file` | required **unless `template_id` is sent** — a PDF, JPG or PNG up to 20 MB, exactly as §20.6 |
+| `template_id` | instead of `file`: an active template **for employees** (`for_employees`, §20.15) |
+| `field_values`, `export_number` | with `template_id`, exactly as §20.6 and §20.16 |
+
+The ID images, certificate, Sham Cash photo, personal photo and CV (types
+`1`–`6`) are intake files of the record, not documents an employee signs: they
+are never offered here. A **template** document prints the recipient's chips
+(`recipient.name`, `.job_title`, `.unit`, `.employee_number`); a missing job
+title or unit prints empty and the document still goes. It claims its صادر
+number and reference from **the sender's إدارة** (§20.16), as §20.6 does. A
+document to an employee carries **no وارد number, no approvers and no
+supporting attachments**; each is refused if sent. The sender is the caller's
+own employee, never an id in the body. Everything is checked before a byte is
+stored; a failure leaves no file and no number behind.
+
+**201** → `{ data: <document §20.8>, message: "تم إرسال المستند إلى الموظف." }`.
+The recipient is notified (§20.17, «Notifications»).
+
+**403** «لا يرسل المستندات إلى الموظفين إلا مديرو الموارد البشرية.» (also an
+account with no employee: «لا يوجد موظف مرتبط بهذا الحساب.»)
+
+**422**, in the order they are checked: the request's **fields first** (before
+the sender is looked at, so a caller who is not an HR manager and sends a bad
+body hears 422, not 403), then the **recipient**, then the **template**:
+
+- the fields: «الموظف المستلم مطلوب.» · «نوع الحفظ في ملف الموظف مطلوب.» ·
+  «نوع الحفظ غير صالح.» · «لا يُحدَّد معتمدون لمستند يُرسل إلى موظف.» · «لا
+  يُحدَّد رقم وارد لمستند يُرسل إلى موظف.» · «لا تُرفق ملفات داعمة بمستند يُرسل
+  إلى موظف.» · and §20.6's title, file, template, صادر and `field_values` copy,
+  unchanged. Then **403** when the caller is not an HR manager.
+- the recipient: «الموظف المحدد غير موجود.» · «لا يمكن إرسال مستند إلى
+  «{name}» لأنه ليس على رأس عمله.» · «لا يمكن إرسال مستند إلى «{name}» لأنه لا
+  يملك حساباً فعّالاً.» · «لا يمكنك إرسال مستند إلى نفسك.»
+- the template: «القالب المختار غير موجود أو غير مفعّل.» · «هذا القالب ليس
+  للمستندات المرسلة إلى الموظفين.» (a template **not** marked for employees)
+
+#### The `mine` box
+
+```
+GET /api/documents?box=mine&status=&search=&page=&per_page=
+```
+
+What was sent **to the caller as an employee**, newest first, any status
+(`status` and `search` as §20.7). An account with no employee gets an empty
+page. The sender finds the same document in `box=outgoing`, where `status`,
+`recipient`, `signed_at`, `refused_at` and `refusal_reason` show who answered. A
+`box=incoming` is still the approvers' alone. The recipient also opens
+`GET /api/documents/{document}` and `…/file` (§20.8): the file is the **original
+as sent** while it awaits, the **printed copy** once signed, and the original
+again once refused.
+
+#### Sign — «قرأت ووافقت»
+
+```
+POST /api/documents/{document}/sign
+```
+
+```json
+{ "confirmed_by": 2, "password": "…" }
+```
+
+`confirmed_by` is `1` (biometric, as the app reports it, nothing more sent) or
+`2` (the account's password, required then), as §20.9. **The checks run in this
+order**: the route admits the recipient alone (**403** to anyone else, before
+the body is read; the system administrator passes it) → the body is validated
+(**422**: `confirmed_by` is required, and `password` too when it is `2`, **on
+the first try as well as the resend**) → the service refuses a caller who is
+not the recipient (**403**, the administrator's case) → the document still
+awaits the signature (**422**) → the caller has drawn a signature (**428**) →
+the password's match (**422**).
+
+**The flow when there is no signature yet — 428.** A recipient with **no drawn
+signature** gets **428** «لم ترسم توقيعك بعد. ارسمه ثم أعد المحاولة.» and
+**nothing is recorded** (it is answered before the password is read). The
+client opens the pad, `POST /api/me/signature` (§20.1), then **sends the same
+sign request again**.
+
+Then, in one transaction (the document's row locked first, and its status read
+again): one **signature block** is added — a frame of the cards' size at the
+foot of the last page (on a new page when it would cover the text, and above the
+letterhead's footer) with «قرأت ووافقت», the signature image, the name and the
+date and time, and «رقم المستند: {id}» under it — a new **printed copy** is
+built, the status becomes `5`, and **one row is filed on the employee's record**
+(§8.6): the printed copy. A failure rolls everything back and deletes the new
+copy. The sender is told once it has committed.
+
+**200** → `{ data: <document §20.8>, message: "تم التوقيع على المستند." }`
+
+#### Refuse
+
+```
+POST /api/documents/{document}/refuse
+```
+
+```json
+{ "reason": "بيانات غير صحيحة", "confirmed_by": 1 }
+```
+
+`reason` is required, trimmed, **3–500 characters**; the confirmation is as
+above. Nothing is printed: the status becomes `6`, `refusal_reason` is stored,
+and **the copy as sent is filed** on the employee's record, marked «مرفوض»
+(§8.6). The sender is told, with the reason. **200** →
+`{ data: <document §20.8>, message: "تم رفض المستند." }`
+
+**Both answers — 422:** «هذا المستند ليس بانتظار توقيعك.» (already signed or
+refused, or a second tap: the first answer wins and
+**one mark, one printed copy, one filed row and one notification** result — also
+from two phones at once) · «كلمة المرور غير صحيحة.» · «تأكيد الهوية مطلوب.» ·
+«كلمة المرور مطلوبة للتأكيد.» · refuse only: «سبب الرفض مطلوب، من 3 إلى 500
+حرف.» **403** anyone but the recipient (the sender, `documents.view`, another
+employee, the administrator). **410** «حُذف هذا المستند.» to its recipient when
+the document was deleted.
+
+#### Comments
+
+`GET` and `POST /api/documents/{document}/comments` (§20.10) are for **everyone
+who sees the document except its recipient**: the sender and `documents.view`
+keep the thread. The recipient gets **403** «ليس لديك صلاحية لتنفيذ هذا
+الإجراء.» on both — **also when the recipient holds `documents.view` or is the
+system administrator** — and `can.comment` is `false` for them.
+
+#### Delete
+
+`DELETE /api/documents/{document}` (§20.12): the sender or the system
+administrator, **while it awaits the signature**. **200** «تم حذف المستند.»;
+the recipient then gets **410** on the document and its file, and it leaves
+every list. **422** «لا يمكن حذف مستند بعد أن أجاب عنه الموظف.» once signed or
+refused (`can.delete` is `false`). The recipient and other readers get **403**.
+Deleting and signing lock the same row, so **exactly one wins**: a signed
+document is never deleted, and a deleted one is never signed or filed (the
+loser of the race hears «هذا المستند ليس بانتظار توقيعك.»).
+
+#### The document's new fields
+
+See §20.8: `recipient`, `filing_type`, `sent_at`, `signed_at`, `refused_at`,
+`refusal_reason` and `can.answer`. `kind` is `2` for a document to an employee.
+
+#### Notifications
+
+The inbox row is written in its action's transaction and commits with it, so
+an action that fails tells no one; the push follows once it has committed. Each
+is in the inbox (§6) with its `type_label`.
+
+| Type | To | Title / body |
+|---|---|---|
+| `document.awaiting_signature` «مستند بانتظار توقيع موظف» | the recipient, on sending | «مستند جديد بانتظار توقيعك» / «أرسل إليك {sender} المستند «{title}».» |
+| `document.signed` «وقّع موظف على مستند» | the sender | «وقّع {name} على المستند» / «وقّع {name} على المستند «{title}».» |
+| `document.refused` «رفض موظف مستنداً» | the sender | «رفض {name} المستند» / «رفض {name} المستند «{title}»: {reason}» |
+
+The sender is the account that sent it (`created_by`).
+
+**Deploy notes (piece 4).** `php artisan migrate` (one column,
+`employee_documents.document_id`, unique, restricting the document's deletion
+while a filed row points at it). The HR unit is the one whose code is
+`config('leave.hr_unit_code')`; no unit with that code means nobody can send.
+The filing types `9`–`12` are new values of the record's type (§8.6).

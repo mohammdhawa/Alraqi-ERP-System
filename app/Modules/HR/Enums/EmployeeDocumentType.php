@@ -27,6 +27,10 @@ enum EmployeeDocumentType: int
     case Cv                    = 6;   // السيرة الذاتية
     case Contract              = 7;   // عقد العمل
     case Other                 = 8;   // أخرى
+    case AppointmentDecision   = 9;   // قرار تعيين
+    case PromotionDecision     = 10;  // قرار ترقية
+    case WorkCertificate       = 11;  // شهادة عمل
+    case Warning               = 12;  // إنذار
 
     /**
      * Arabic display name.
@@ -42,6 +46,10 @@ enum EmployeeDocumentType: int
             self::Cv                    => 'السيرة الذاتية',
             self::Contract              => 'عقد العمل',
             self::Other                 => 'أخرى',
+            self::AppointmentDecision   => 'قرار تعيين',
+            self::PromotionDecision     => 'قرار ترقية',
+            self::WorkCertificate       => 'شهادة عمل',
+            self::Warning               => 'إنذار',
         };
     }
 
@@ -52,6 +60,36 @@ enum EmployeeDocumentType: int
     public function isPaymentInstrument(): bool
     {
         return $this === self::ShamCash;
+    }
+
+    /**
+     * Whether this kind of document reads only for a caller whose
+     * hr.employees.viewSalary grant reaches the employee: a payment account,
+     * and the papers that state pay (contract, appointment, promotion).
+     */
+    public function readsThroughSalary(): bool
+    {
+        return match ($this) {
+            self::ShamCash, self::Contract, self::AppointmentDecision, self::PromotionDecision => true,
+            default => false,
+        };
+    }
+
+    /**
+     * The types a document sent to an employee may be filed as.
+     *
+     * @return array<int, self>
+     */
+    public static function forSentDocuments(): array
+    {
+        return [
+            self::Contract,
+            self::Other,
+            self::AppointmentDecision,
+            self::PromotionDecision,
+            self::WorkCertificate,
+            self::Warning,
+        ];
     }
 
     public static function isDefined(int $value): bool

@@ -6,6 +6,8 @@ namespace App\Modules\Documents\Resources;
 
 use App\Modules\Approvals\Models\ApprovalStep;
 use App\Modules\Auth\Models\User;
+use App\Modules\Documents\Enums\DocumentKind;
+use App\Modules\Documents\Enums\DocumentStatus;
 use App\Modules\Documents\Models\Document;
 use App\Shared\Models\Attachment;
 use Illuminate\Http\Request;
@@ -20,7 +22,10 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * - `my_step_id` / `can.decide` — the caller's own pending step at the
  *   approval's current order: their turn, as the engine reads it.
  * - `can.delete` — the creator (or the system administrator), while the
- *   document is pending and no approver has decided.
+ *   document is pending and no approver has decided, or, sent to an
+ *   employee, while it awaits their signature.
+ * - `can.comment` — whoever reads it but its recipient.
+ * - `can.answer` — the recipient, while the signature is awaited.
  *
  * @mixin Document
  */
@@ -33,6 +38,7 @@ class DocumentResource extends JsonResource
     public const RELATIONS = [
         'creator',
         'creatorUnit',
+        'recipient',
         'template:id,name',
         'approval.steps.approver',
         'attachments',
@@ -57,7 +63,14 @@ class DocumentResource extends JsonResource
                 && (int) $step->approver_id === $employeeId,
         );
 
-        $undecided = $this->status->value === 1 && ! $steps->contains(static fn (ApprovalStep $step): bool => $step->status->isDecision());
+        $sent = $this->kind === DocumentKind::ToEmployee;
+        $awaiting = $this->status === DocumentStatus::AwaitingSignature;
+
+        // Deletable while nothing has answered: between managers, no step has
+        // decided; to an employee, the signature is still awaited (D31).
+        $undecided = $sent
+            ? $awaiting
+            : $this->status->value === 1 && ! $steps->contains(static fn (ApprovalStep $step): bool => $step->status->isDecision());
 
         return [
             'id'               => $this->id,
@@ -88,6 +101,15 @@ class DocumentResource extends JsonResource
             'closed_reason'    => $this->closed_reason,
             'has_printed_copy' => $this->printed_path !== null,
 
+            // A document sent to an employee (workflow 1); all null between
+            // managers.
+            'recipient'        => $this->recipient === null ? null : ['id' => $this->recipient->id, 'full_name' => $this->recipient->full_name],
+            'filing_type'      => $this->filing_type === null ? null : ['value' => $this->filing_type->value, 'label' => $this->filing_type->label()],
+            'sent_at'          => $this->sent_at?->toIso8601String(),
+            'signed_at'        => $this->signed_at?->toIso8601String(),
+            'refused_at'       => $this->refused_at?->toIso8601String(),
+            'refusal_reason'   => $this->refusal_reason,
+
             'steps' => $steps->map(static fn (ApprovalStep $step): array => [
                 'id'        => $step->id,
                 'order'     => $step->step_order,
@@ -108,8 +130,14 @@ class DocumentResource extends JsonResource
 
             'my_step_id' => $mine?->id,
             'can'        => [
-                'decide' => $mine !== null,
-                'delete' => $undecided && $user !== null && $user->can('delete', $this->resource),
+                'decide'  => $mine !== null,
+                'delete'  => $undecided && $user !== null && $user->can('delete', $this->resource),
+                // Never the recipient, even the administrator (the gate's bypass would pass them).
+                'comment' => $user !== null && ! $this->isRecipient($user) && $user->can('comment', $this->resource),
+                // The recipient alone, and only while the signature is awaited
+                // (computed here, not through the gate: the administrator's
+                // bypass would pass it).
+                'answer'  => $user !== null && $awaiting && $this->isRecipient($user),
             ],
         ];
     }

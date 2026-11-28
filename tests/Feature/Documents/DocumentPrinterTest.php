@@ -23,10 +23,13 @@ use App\Modules\Documents\Services\UnitStamps;
 use App\Modules\HR\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Normalizer;
 use Tests\Support\Pdfs;
 use Tests\TestCase;
+use Throwable;
 
 /**
  * The printed copy (documents design §11.4): the original's pages, then the
@@ -160,6 +163,110 @@ class DocumentPrinterTest extends TestCase
 
         $this->print();
 
+        $this->assertSame([], Storage::disk('local')->allFiles('pdf-work'));
+    }
+
+    /** The employee's answer to a sent document: no stamp, no unit, no approval step. */
+    private function employeeMark(): void
+    {
+        $this->document->marks()->create([
+            'position'      => 1,
+            'kind'          => MarkKind::EmployeeSignature,
+            'employee_id'   => $this->employee->id,
+            'employee_name' => 'سامر الخطيب',
+            'signature_id'  => $this->signature->id,
+            'decisive'      => false,
+            'confirmed_by'  => Confirmation::Password,
+            'marked_at'     => now(),
+        ]);
+    }
+
+    /**
+     * Images drawn straight onto each page (mPDF names them /I1, /I2 and
+     * draws them with `Do` in the page's own content stream); the original's
+     * pages are imported as forms and draw none. No text extractor needed.
+     *
+     * @return list<int>
+     */
+    private function imagesPerPage(string $path): array
+    {
+        $bytes = Storage::disk('local')->get($path);
+        preg_match_all('/\d+ 0 obj\r?\n<<\r?\n?\/Type \/Page\r?\n(.*?)>>\r?\nendobj/s', $bytes, $pages);
+        $counts = [];
+
+        foreach ($pages[1] as $page) {
+            preg_match('/\/Contents (\d+) 0 R/', $page, $contents);
+            $this->assertNotEmpty($contents, 'a page without a content stream');
+            preg_match('/\b'.$contents[1].' 0 obj\r?\n<<.*?>>\r?\nstream\r?\n(.*?)\r?\nendstream/s', $bytes, $stream);
+            $counts[] = preg_match_all('/\/I\d+ Do/', (string) @gzuncompress($stream[1] ?? ''));
+        }
+
+        return $counts;
+    }
+
+    private function pdftotextAvailable(): bool
+    {
+        try {
+            $probe = Process::run(['pdftotext', '-v']);
+
+            return str_contains($probe->output().$probe->errorOutput(), 'pdftotext version');
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public function test_the_employees_signature_prints_on_the_last_page(): void
+    {
+        if (! $this->pdftotextAvailable()) {
+            $this->markTestSkipped('pdftotext is not installed here; nothing in the repository extracts text from a PDF.');
+        }
+
+        $this->employeeMark();
+
+        $path = $this->print();
+
+        $this->assertSame($this->pagesOf($this->document->original_path), $this->pagesOf($path));
+        $this->assertSame([1], $this->imagesPerPage($path));
+
+        $text = Process::run(['pdftotext', '-enc', 'UTF-8', Storage::disk('local')->path($path), '-'])->throw()->output();
+        $text = (string) preg_replace('/[\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/u', '', (string) Normalizer::normalize($text, Normalizer::FORM_KC));
+
+        foreach (['قرأت', 'ووافقت', 'سامر', 'الخطيب', 'رقم المستند: '.$this->document->id] as $needle) {
+            $this->assertStringContainsString($needle, $text);
+        }
+    }
+
+    public function test_the_signature_block_follows_the_text_rule(): void
+    {
+        $original = $this->pagesOf($this->document->original_path);
+        $this->assertSame(1, $original);
+
+        // The control: no mark, no image on any page.
+        $this->assertSame([0], $this->imagesPerPage($this->print()));
+
+        $this->employeeMark();
+
+        // An upload: its text end is unknown, so the block is drawn on the last page.
+        $this->assertNull($this->document->content_bottom);
+        $this->assertSame([1], $this->imagesPerPage($this->print()));
+
+        // A template document whose text ends below the block's top (266 mm): a new page holds it.
+        $this->document->update(['content_bottom' => 270]);
+        $this->assertSame([0, 1], $this->imagesPerPage($this->print()));
+
+        // The letterhead's footer raises the block: the same text end now clears it.
+        $this->document->update(['card_floor' => 32, 'content_bottom' => 200]);
+        $this->assertSame([1], $this->imagesPerPage($this->print()));
+    }
+
+    public function test_no_decrypted_signature_is_left_on_disk(): void
+    {
+        $this->employeeMark();
+
+        $path = $this->print();
+
+        // The signature really was decrypted and drawn, and nothing of it stayed behind.
+        $this->assertSame([1], $this->imagesPerPage($path));
         $this->assertSame([], Storage::disk('local')->allFiles('pdf-work'));
     }
 }

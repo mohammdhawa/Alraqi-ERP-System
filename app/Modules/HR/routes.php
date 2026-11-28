@@ -7,6 +7,7 @@ use App\Modules\HR\Controllers\EmployeeAssignmentController;
 use App\Modules\HR\Controllers\EmployeeController;
 use App\Modules\HR\Controllers\EmployeeImportController;
 use App\Modules\HR\Controllers\EmployeeWarningController;
+use App\Modules\HR\Controllers\FiledDocumentController;
 use App\Modules\HR\Controllers\JobTitleController;
 use App\Modules\HR\Models\EmployeeImportRun;
 use App\Modules\Scheduling\Controllers\EmployeeShiftChangeController;
@@ -129,6 +130,16 @@ Route::middleware(['auth:sanctum', 'audit'])->group(function () {
             ->middleware('can:documents.signatures.delete')->name('signature.show');
         Route::delete('employees/{employee}/signature', [EmployeeSignatureController::class, 'destroy'])
             ->middleware('can:documents.signatures.delete')->name('signature.destroy');
+
+        // وثائق الموظف — the files on the record, read-only. Both carry the
+        // employee's row scope; the contract, appointment and promotion
+        // decisions and the Sham Cash photo also need the salary reach, which
+        // the controller decides per row. Another employee's row is a 404.
+        Route::get('employees/{employee}/filed-documents', [FiledDocumentController::class, 'index'])
+            ->middleware(['permission:hr.employees.view', 'can:view,employee'])->name('filed-documents.index');
+        Route::get('employees/{employee}/filed-documents/{document}/file', [FiledDocumentController::class, 'file'])
+            ->middleware(['permission:hr.employees.view', 'can:view,employee'])
+            ->whereNumber('document')->scopeBindings()->name('filed-documents.file');
 
         // جدول الدوام — a person's schedule spans (work shifts spec §9.2): HR
         // only, company-wide, so no row policy; another person's span is a 404.

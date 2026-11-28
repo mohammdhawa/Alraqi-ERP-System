@@ -2621,3 +2621,93 @@ paths, and who reads templates.
 Documented in `API_DOCUMENTATION.md` §20.15–§20.16 (and §20.5–§20.8 where they
 touch it), and in the Postman collection's folder "Documents - templates and
 numbers". **Next:** piece 4, documents sent to employees and their signatures.
+
+### 2026-11-26 — documents piece 4 (documents to employees) built
+
+Piece 4 of the documents module is built on branch `documents-employees`
+(spec `docs/superpowers/specs/2026-11-22-documents-design.md`, plan
+`docs/superpowers/plans/2026-11-26-documents-to-employees.md`; **nothing
+committed**, the owner's rule). It is workflow 1 of the design's §1.4: one of
+HR's managers sends a document to **one employee**, with **no approval**: the
+engine is never called, and the employee signs «قرأت ووافقت» with their drawn
+signature or refuses with a reason. Each answer is filed on the employee's
+record. The decisions as built:
+
+- **Who sends.** The manager of the HR unit (the unit whose code is
+  `config('leave.hr_unit_code')`) **or of any unit under it**. An inactive unit
+  in the middle of the chain still counts; the sender's **own** unit must be
+  active. With no HR unit, nobody sends.
+- **Who receives.** One employee who is **Active**, has an **active account**,
+  and is not the sender. A recipient who stops being Active after sending can
+  still answer while they can sign in; nothing takes a sent document back.
+- **What it carries.** A title, an optional description, the recipient, the
+  filing type, and either a file (piece 2's intake rules) or a `for_employees`
+  template with its values (it claims its صادر number and reference from the
+  sender's إدارة, as piece 3). **No وارد number, no approvers and no supporting
+  attachments**: each is refused.
+- **Statuses.** بانتظار التوقيع (4) on sending, then موقّع (5) or مرفوض من
+  الموظف (6). Both answers are final. Two taps, or two phones, or the sender's
+  deletion at the same moment: the row is locked, exactly one wins, and the
+  other hears «هذا المستند ليس بانتظار توقيعك.».
+- **Signing.** No drawn signature gives **428**; the client draws it
+  (`POST /api/me/signature`) and sends the same request again. Confirmation is
+  piece 2's (biometric or password). The signature block is one mark in a frame
+  of the cards' size, centred at the foot of the last page, with «قرأت ووافقت»,
+  the signature, the name and the date and time.
+- **The administrator never answers for the employee**, though the gate lets
+  them through: the service refuses anyone who is not the recipient. They may
+  **delete** a sent document before it is answered.
+- **Comments.** The recipient never reads or writes the thread, **even if they
+  also hold `documents.view` or are the system administrator**; the sender and
+  `documents.view` keep it.
+- **Deleting.** The sender or the administrator, only while it awaits the
+  signature; after an answer, 422. A deleted document answers **410** to its
+  recipient, signing and refusing included.
+- **Filing on the record.** One row per answer, in the answer's transaction:
+  the **printed copy** when signed, the **copy as sent** when refused, marked
+  «مرفوض». Nothing is copied; the row points at the document's file
+  (`employee_documents.document_id`, new). The filing types offered when
+  sending are **عقد العمل, أخرى and four new ones**: قرار تعيين (9), قرار ترقية
+  (10), شهادة عمل (11), إنذار (12).
+- **The filed list** (`GET /api/hr/employees/{employee}/filed-documents` and
+  its file) shows every row of the record, imported intake files included.
+  **The salary gate**: عقد العمل, قرار تعيين, قرار ترقية and the Sham Cash photo
+  read only for a caller whose `hr.employees.viewSalary` reaches that employee;
+  the list leaves them out and their file answers 403; another employee's row
+  is 404.
+- **Notifications**, once the transaction has committed: the recipient is told
+  of a document awaiting their signature; the sender is told when it is signed
+  and when it is refused (with the reason).
+- **Documents between managers are unchanged**: their behaviour is kept; the tests of pieces 2–3 pass unchanged.
+
+**Calls made in the plan, for the owner to check:**
+
+1. The filing types offered when sending are Contract, the four new ones and
+   Other; the ID images, certificate, Sham Cash photo, personal photo and CV are
+   intake files, not documents an employee signs.
+2. A document to an employee carries no وارد number and no supporting
+   attachments (the design gives them to documents between managers).
+3. The employee's signature block is drawn in a frame of the cards' size,
+   centred at the foot of the last page; the design fixes what it shows, not its
+   frame.
+4. Sending has its own endpoint, `POST /api/documents/to-employee`, rather than
+   sharing `POST /api/documents`.
+5. The filed list shows every row of the record, imported intake files included.
+6. Comments are refused to the recipient, whatever else they hold.
+7. A recipient who stops being Active after sending can still answer while they
+   can sign in.
+8. The filed list's paths are `/api/hr/employees/{employee}/filed-documents…`,
+   beside piece 1's signature routes, not the spec's `/api/employees/{id}/…`.
+
+**Rulings made while building:** the controller and resource of the filed list
+live in the HR module; the HR-membership rule follows the unit tree as stored;
+`DecideDocumentRequest` now shares the confirmation rules with the new answer
+requests through one trait (rules, messages and behaviour identical, its tests
+unchanged), a small touch on piece 2's decision request.
+
+**Deploy:** `php artisan migrate` (one column, `employee_documents.document_id`).
+No new package, no seeder.
+
+Documented in `API_DOCUMENTATION.md` §20.17 (and §20.5–§20.13, §6 and §8.6 where
+they touch it), and in the Postman collection's folder "Documents - to
+employees". **Next:** piece 5, announcements (documents design §17).

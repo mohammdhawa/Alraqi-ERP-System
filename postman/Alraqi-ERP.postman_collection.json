@@ -2885,6 +2885,369 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Documents - to employees",
+			"description": "API_DOCUMENTATION.md §20.17 and §8.6 (2026-11-26). Documents HR's managers send to one employee, the employee's answer, and the filed list of an employee's record. Set `documentId`, `employeeId` and `templateId` to ids.",
+			"item": [
+				{
+					"name": "Send a document to an employee - upload",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/to-employee",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"to-employee"
+							]
+						},
+						"description": "§20.17 — the manager of HR or of a unit under it. title required ≤ 255; recipient_id an Active employee with an active account, not the caller; filing_type 7 عقد العمل, 8 أخرى, 9 قرار تعيين, 10 قرار ترقية, 11 شهادة عمل or 12 إنذار; file a PDF/JPG/PNG ≤ 20 MB. No approvers, import_number or attachments. 201 «تم إرسال المستند إلى الموظف.»; 403 not an HR manager.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "قرار تعيين",
+									"type": "text"
+								},
+								{
+									"key": "description",
+									"value": "",
+									"type": "text",
+									"disabled": true
+								},
+								{
+									"key": "recipient_id",
+									"value": "{{employeeId}}",
+									"type": "text"
+								},
+								{
+									"key": "filing_type",
+									"value": "9",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Send a document to an employee - from a template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/to-employee",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"to-employee"
+							]
+						},
+						"description": "§20.17 — instead of file: a for_employees template (templateId) with its field_values, printed with the recipient's chips; export_number only if typed (§20.16). 422 «هذا القالب ليس للمستندات المرسلة إلى الموظفين.» for any other template.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"شهادة عمل\",\n    \"recipient_id\": \"{{employeeId}}\",\n    \"filing_type\": 11,\n    \"template_id\": \"{{templateId}}\",\n    \"field_values\": {\n        \"subject\": \"…\"\n    }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List documents - mine (sent to me)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents?box=mine",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents"
+							],
+							"query": [
+								{
+									"key": "box",
+									"value": "mine"
+								}
+							]
+						},
+						"description": "§20.17 — what was sent to the caller as an employee, newest first, any status. Optional status (4 awaiting, 5 signed, 6 refused) and search."
+					},
+					"response": []
+				},
+				{
+					"name": "Show a sent document",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}"
+							]
+						},
+						"description": "§20.8 / §20.17 — the sender, the recipient or documents.view. recipient, filing_type, sent_at, signed_at, refused_at, refusal_reason and can.answer / can.comment / can.delete show what the caller may do. 410 when deleted."
+					},
+					"response": []
+				},
+				{
+					"name": "Sign a document - biometric",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/sign",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"sign"
+							]
+						},
+						"description": "§20.17 — «قرأت ووافقت»; the recipient alone. confirmed_by 1 (biometric) or 2 (password). 428 «لم ترسم توقيعك بعد. ارسمه ثم أعد المحاولة.» when no signature is drawn: POST /api/me/signature (Documents - foundations), then send this again. 422 «هذا المستند ليس بانتظار توقيعك.» once answered. 200 «تم التوقيع على المستند.»",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"confirmed_by\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sign a document - password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/sign",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"sign"
+							]
+						},
+						"description": "§20.17 — as above, confirmed by the account's password. 422 «كلمة المرور غير صحيحة.»",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"confirmed_by\": 2,\n    \"password\": \"password\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refuse a document",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}/refuse",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}",
+								"refuse"
+							]
+						},
+						"description": "§20.17 — the recipient alone. reason required, 3-500 characters; the sender is told with it, and the copy as sent is filed on the record marked «مرفوض». 200 «تم رفض المستند.»",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason\": \"بيانات غير صحيحة\",\n    \"confirmed_by\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete a sent document",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/documents/{{documentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{documentId}}"
+							]
+						},
+						"description": "§20.17 / §20.12 — the sender or the system administrator, only while it awaits the signature. 200 «تم حذف المستند.»; 422 «لا يمكن حذف مستند بعد أن أجاب عنه الموظف.»; the recipient then gets 410."
+					},
+					"response": []
+				},
+				{
+					"name": "Filed documents of an employee",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/filed-documents?page=1&per_page=15",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"filed-documents"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "15"
+								}
+							]
+						},
+						"description": "§8.6 — hr.employees.view and the row scope. Newest first; includes signed and refused documents. Contract, appointment, promotion decisions and the Sham Cash photo (types 7, 9, 10, 4) are left out unless hr.employees.viewSalary reaches the employee. 403 «هذا الموظف خارج نطاق صلاحياتك.»"
+					},
+					"response": []
+				},
+				{
+					"name": "Filed document file",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/hr/employees/{{employeeId}}/filed-documents/1/file",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"hr",
+								"employees",
+								"{{employeeId}}",
+								"filed-documents",
+								"1",
+								"file"
+							]
+						},
+						"description": "§8.6 — streams the file inline, never cached. Replace 1 with a filed row id. 403 «لا تملك صلاحية الاطلاع على هذه الوثيقة.» for a salary type without the reach; 404 another employee's row or a missing file."
+					},
+					"response": []
+				}
+			]
 		}
 	]
 }
